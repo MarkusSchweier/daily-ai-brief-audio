@@ -1,0 +1,28 @@
+
+# --- Claude Code: project-local cache & auto-checkpoints ---
+.claude/.cache/
+# Comment the next line out if you WANT checkpoints committed so teammates/sessions share them.
+docs/notes/checkpoint-*.md
+
+# Note: machine-specific model/credential config lives in ~/.claude/settings.local.json
+# (user scope), so there is nothing project-local to ignore for that.
+
+# --- Secrets / credentials (never commit) ---
+.env
+.env.*
+*.pem
+*.key
+**/credentials
+.aws/
+secrets/
+
+# --- Python / uv ---
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/

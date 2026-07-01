@@ -1,0 +1,64 @@
+# CI gate — runs the project's lint + type + test checks on every PR and on pushes to
+# feature branches, so the same gates the Reviewer runs locally also run on the PR.
+#
+# This template auto-detects Python (uv/pyproject) and Java (Maven/Gradle). EDIT the run
+# steps to match the EXACT commands in this repo's CLAUDE.md "Stack & build commands" — the
+# point is that CI and the agents run the same gate. Delete the toolchain you don't use.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main, master, prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.f.outputs.python }}
+      maven: ${{ steps.f.outputs.maven }}
+      gradle: ${{ steps.f.outputs.gradle }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: f
+        run: |
+          [ -f pyproject.toml ] || [ -f requirements.txt ] && echo "python=true" >> "$GITHUB_OUTPUT" || true
+          [ -f pom.xml ] && echo "maven=true" >> "$GITHUB_OUTPUT" || true
+          { [ -f build.gradle ] || [ -f build.gradle.kts ]; } && echo "gradle=true" >> "$GITHUB_OUTPUT" || true
+
+  python:
+    needs: detect
+    if: needs.detect.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras --dev
+      # EDIT to match CLAUDE.md. Defaults assume ruff + mypy + pytest.
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+      - run: uv run pytest -q
+
+  java:
+    needs: detect
+    if: needs.detect.outputs.maven == 'true' || needs.detect.outputs.gradle == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: ${{ needs.detect.outputs.maven == 'true' && 'maven' || 'gradle' }}
+      - if: needs.detect.outputs.maven == 'true'
+        run: mvn -q -B verify
+      - if: needs.detect.outputs.gradle == 'true'
+        run: ./gradlew --no-daemon check

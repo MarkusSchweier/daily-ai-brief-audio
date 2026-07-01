@@ -1,0 +1,33 @@
+# OPTIONAL: automated Claude review on every PR, using the official Claude Code GitHub Action.
+# This complements the local reviewer/security-engineer agents — it runs the multi-agent
+# `/code-review` skill in CI and posts findings on the PR. DISABLED by default: it is gated on
+# a repo variable so it no-ops until you opt in and add credentials.
+#
+# Enable:
+#   1) Repo → Settings → Secrets and variables → Actions → Variables: add ENABLE_CLAUDE_REVIEW = true
+#   2) Add secret ANTHROPIC_API_KEY (from console.anthropic.com).
+# Action reference verified 2026-06-30: anthropics/claude-code-action@v1.
+name: Claude Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: vars.ENABLE_CLAUDE_REVIEW == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Claude code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: "--max-turns 15"

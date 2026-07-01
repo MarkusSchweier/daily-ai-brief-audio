@@ -1,0 +1,25 @@
+{
+  "$comment": "Project MCP servers → becomes <repo>/.mcp.json. 'aws-docs' is light and auto-approved via the global settings.json enabledMcpjsonServers list. 'playwright' and 'github' are heavier and stay DISABLED until you enable them for a session (via /mcp, or add to enabledMcpjsonServers). A pure-backend repo can delete the entries it doesn't need. Package names/commands verified 2026-06-30.",
+
+  "$note_trust": "As of CC v2.1.196, a freshly cloned repo's .mcp.json approvals are ignored until you trust the workspace (run `claude` in it and accept the trust dialog). Expected; approve once per machine.",
+
+  "mcpServers": {
+    "aws-docs": {
+      "command": "uvx",
+      "args": ["awslabs.aws-documentation-mcp-server@latest"],
+      "env": { "FASTMCP_LOG_LEVEL": "ERROR" }
+    },
+
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "env": {}
+    },
+
+    "$comment_github": "OPTIONAL. The gh CLI is the default GitHub path in this stack (lighter context, already in the permission allow-list). Enable this remote server only if you want a dedicated github-ops agent driving the GitHub MCP toolset; it requires an OAuth sign-in on first use (/mcp). Keep it OFF for normal work.",
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    }
+  }
+}
