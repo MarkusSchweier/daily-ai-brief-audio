@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PollySynthesis",
+      "Effect": "Allow",
+      "Action": [
+        "polly:StartSpeechSynthesisTask",
+        "polly:GetSpeechSynthesisTask",
+        "polly:ListSpeechSynthesisTasks",
+        "polly:SynthesizeSpeech"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3AudioReadWrite",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::cowork-polly-tts-740353583786/*"
+    },
+    {
+      "Sid": "SesSendFromMschweier",
+      "Effect": "Allow",
+      "Action": ["ses:SendEmail", "ses:SendRawEmail"],
+      "Resource": "arn:aws:ses:us-east-1:740353583786:identity/mschweier.com",
+      "Condition": { "StringEquals": { "ses:FromAddress": "mail@mschweier.com" } }
+    }
+  ]
+}

@@ -8,48 +8,51 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
 ## Project overview
 
 - **Name:** daily-ai-brief-audio
-- **What it does:** Turns the day's written AI brief into **narrated audio** and **emails it**,
-  fully unattended. Input is a plain-text *listening script* derived from the brief; output is
-  one MP3 (Amazon Polly) delivered as an email attachment (Amazon SES) alongside the brief's
-  HTML body.
-- **Where it fits:** the `daily-ai-brief` skill writes `AI Brief - <date>.md` + a listening
-  script; a weekday scheduled task triggers **this** pipeline *after* the brief is written.
-  This project does **not** generate the brief text — only audio + delivery.
-- **Brief source (this machine):** `/Users/markus/Claude Working Folder/Daily AI Briefs/`
-  (read-only input; configurable via `BRIEF_DIR`).
-- **Repo / default branch:** local (not yet on GitHub) / `main`
-- **Cloud:** AWS **personal** account, `us-east-1`. Async Polly → S3 → SES. Full spec:
-  [docs/audio-mail-integration.md](docs/audio-mail-integration.md).
+- **What it does:** Turns the day's written AI brief into **narrated audio** (Amazon Polly) and
+  **emails it** (Amazon SES) with the MP3 attached and the brief as the HTML body — unattended.
+- **Status: LIVE and working.** It runs today as steps 5–8 of the weekday scheduled task
+  (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`), with the AWS resources already
+  provisioned. This repo is the **versioned source-of-truth** for those deployment artifacts —
+  it is not a standalone app. `deploy/audio_email.py` is the verbatim copy of the STEP 6 code.
+- **Not this project:** generating the brief text (that's the `daily-ai-brief` skill, steps 1–4).
+- **Brief source (this machine):** `/Users/markus/Claude Working Folder/Daily AI Briefs/`.
 
-## Stack & build commands  (the agents read these)
+## Repo layout (source-of-truth for what runs)
 
-- Install: `uv sync`
-- Lint/format: `ruff check . && ruff format --check .`
-- Types: `mypy src`
-- Test: `pytest -q`
+- `deploy/scheduled-task-audio.md` — the audio+mail flow (steps 5–8) and how it runs.
+- `deploy/audio_email.py` — the exact Polly→S3→SES code (mirrors the scheduled task's inline copy).
+- `deploy/iam-policy.json` — the least-privilege IAM policy for user `cowork-polly-tts`.
+- `deploy/audio-mail-integration.md` — full setup/runbook (resource creation, DNS/SES, teardown).
+- `deploy/validation-handoff.md` — end-to-end validation runbook (smoke test).
 
-## AWS resources (personal account, us-east-1)
+## AWS resources (personal account `740353583786`, us-east-1)
 
-- IAM user `cowork-polly-tts` — least-privilege: Polly synthesis + S3 read/write on the one
-  bucket + SES send from `mail@mschweier.com` only.
-- S3 bucket `cowork-polly-tts-<account-id>` — SSE-S3, all public access blocked, 7-day
-  lifecycle expiry on `audio/`.
-- SES domain identity `mschweier.com` (DKIM-verified); sender `mail@mschweier.com`
-  (account is in the SES sandbox — self-send only).
+- IAM user `cowork-polly-tts` — least-priv (Polly synth + S3 rw on the one bucket + SES send
+  from `mail@mschweier.com` only). Policy: `deploy/iam-policy.json`.
+- S3 bucket `cowork-polly-tts-740353583786` — SSE-S3, public access blocked, 7-day lifecycle
+  expiry on `audio/`.
+- SES domain identity `mschweier.com` (DKIM-verified); sender `mail@mschweier.com` (SES sandbox,
+  self-send only).
 
-## Project-specific conventions
+## How to validate / change
 
-- **Credentials are never committed.** They live outside git — env vars from a local `.env`
-  (copy `.env.example`) or `~/cowork-polly-credentials.txt` (chmod 600). CI/agents must never
-  print or commit `AWS_SECRET_ACCESS_KEY`.
-- **Async Polly only** (`StartSpeechSynthesisTask`) — Polly assembles one MP3 server-side; no
-  ffmpeg/stitching. **Download via the API's `OutputUri`, never build the S3 key yourself.**
-- **SES From must be exactly `mail@mschweier.com`** (an IAM condition rejects any other From);
-  prefer boto3 `send_raw_email` over the CLI (CLI `fileb://` doesn't expand in raw-message).
-- Confirm the active AWS account before any deploy/mutation (`/aws-account`, `aws-account-safety`
-  skill). Never hard-code secrets or the secret key; account-id-in-bucket-name is expected.
-- Listening script: plain UTF-8, no URLs/emoji/markdown, ~800–1,200 words; voice `Matthew`
-  (en-US neural). Keep cost in mind (~$0.11/run).
+There is no package build. Useful checks:
+
+- Syntax: `python3 -m py_compile deploy/audio_email.py`
+- Policy JSON: `python3 -m json.tool deploy/iam-policy.json`
+- End-to-end smoke test: follow `deploy/validation-handoff.md` (Polly→S3→SES self-send).
+- When STEP 6 changes, update **both** `deploy/audio_email.py` **and** the inline copy in
+  `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (keep them identical).
+
+## Conventions
+
+- **Credentials are never committed.** They live outside git — the sandbox reads
+  `<working folder>/.aws-cowork/credentials` via `AWS_SHARED_CREDENTIALS_FILE`, or env vars via
+  `~/.claude/settings.json`. Never print or commit `AWS_SECRET_ACCESS_KEY`. Account-id-in-bucket
+  name is expected; the live IAM access-key **ID** in the migrated runbook is redacted.
+- **Async Polly only**; **use `OutputUri`, never build the S3 key**; **SES From must be exactly
+  `mail@mschweier.com`**. Fail-safe: never lose the brief over an audio/email glitch.
+- Confirm the active AWS account before any deploy/mutation (`/aws-account`, `aws-account-safety`).
 
 ## Active planning docs (auto-imported)
 
