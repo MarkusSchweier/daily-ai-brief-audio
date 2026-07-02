@@ -18,6 +18,8 @@
     "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
-    "@aws-cdk/aws-apigateway:disableCloudWatchRole": false
+    "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
+    "subscribeDomainName": "briefing.mschweier.com",
+    "certificateArn": "arn:aws:acm:us-east-1:740353583786:certificate/1219fdd0-7cfc-4075-9fd9-cca25f752996"
   }
 }
