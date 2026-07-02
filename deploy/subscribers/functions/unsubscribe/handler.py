@@ -12,28 +12,30 @@ from typing import Any
 
 from subscriber_common import (
     STATUS_UNSUBSCRIBED,
+    SUBSCRIBE_SITE_URL,
     build_response,
     constant_time_equals,
     get_subscriber,
     get_table,
     normalize_email,
     now_epoch,
+    render_page,
 )
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-_INVALID_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Link invalid</title></head>"
-    "<body><h1>This unsubscribe link is invalid</h1>"
+_INVALID_BODY = render_page(
+    "Link invalid",
+    "This unsubscribe link is invalid",
     "<p>If you're still receiving the brief and want to stop, please use the "
-    "unsubscribe link in your most recent email.</p></body></html>"
+    "unsubscribe link in your most recent email.</p>",
 )
-_UNSUBSCRIBED_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Unsubscribed</title></head>"
-    "<body><h1>You're unsubscribed</h1>"
+_UNSUBSCRIBED_BODY = render_page(
+    "Unsubscribed",
+    "You're unsubscribed",
     "<p>You won't receive any further daily AI briefs. You can subscribe again at any "
-    "time from the site.</p></body></html>"
+    f'time from <a href="{SUBSCRIBE_SITE_URL}">the site</a>.</p>',
 )
 
 
