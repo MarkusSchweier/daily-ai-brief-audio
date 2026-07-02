@@ -151,6 +151,11 @@ The scheduled task runs as a Claude Code session on the Mac, so it inherits the 
 `settings.json` env. After editing, trigger a manual run (or wait for the 06:07 weekday fire)
 and confirm the email arrives with the MP3. Confirm with the user.
 
-## Open item flagged to user
-Rotate the AWS secret access key and the GitHub PAT that were exposed in a screenshot, then
-update `settings.json` with the new AWS key.
+## Resolved item
+
+Rotated 2026-07-02: a new `cowork-polly-tts` AWS access key was issued (root profile, since
+the user's own least-privilege policy has no `iam:*` on itself), written to
+`~/.claude/settings.json` and `<working folder>/.aws-cowork/credentials`, and verified working
+before the old key was deactivated. A new GitHub classic PAT was issued and verified (the old
+one no longer appeared under either Personal Access Tokens list — already dead) and written to
+`~/.claude/settings.json`.
