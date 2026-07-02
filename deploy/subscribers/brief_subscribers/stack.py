@@ -317,12 +317,21 @@ class BriefSubscribersStack(Stack):
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
             error_responses=[
+                # Unknown paths fall back to the subscribe page rather than S3's raw XML
+                # 404/403 body (this is a small static site with no client-side router, so
+                # there is no dedicated "not found" page to send them to instead).
                 cloudfront.ErrorResponse(
                     http_status=404,
                     response_http_status=404,
-                    response_page_path="/unsubscribed.html",
+                    response_page_path="/index.html",
                     ttl=Duration.minutes(5),
-                )
+                ),
+                cloudfront.ErrorResponse(
+                    http_status=403,
+                    response_http_status=404,
+                    response_page_path="/index.html",
+                    ttl=Duration.minutes(5),
+                ),
             ],
         )
 
