@@ -9,19 +9,31 @@
 </head>
 <body>
 <main class="page">
-  <h1>The Daily AI Brief</h1>
+  <span class="eyebrow">The Daily AI Brief</span>
+  <h1>AI moves fast. We keep you caught up in 5 minutes a day.</h1>
+  <p class="tagline">A tightly curated digest of the AI news that actually matters — free, every weekday morning, in your inbox.</p>
 
-  <section class="intro" aria-labelledby="intro-heading">
-    <h2 id="intro-heading" class="visually-hidden">About this brief</h2>
+  <section class="card intro" aria-labelledby="intro-heading">
+    <h2 id="intro-heading">What you'll get</h2>
     <ul class="facts">
-      <li><strong>Topic:</strong> artificial intelligence — the day's most important developments.</li>
-      <li><strong>Cadence:</strong> delivered daily.</li>
-      <li><strong>Format:</strong> a written brief plus a narrated audio version, in one email.</li>
-      <li><strong>Commitment:</strong> none — <strong>unsubscribe anytime</strong>, one click, no login required.</li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>New models &amp; research</strong> — the model releases and papers worth knowing about.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>Industry &amp; deals</strong> — funding, acquisitions, and strategy shifts at the labs and big tech.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>Products &amp; tools</strong> — new releases worth trying.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>Benchmarks, policy &amp; safety</strong> — the numbers and the debates around them.</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>Sourced broadly</strong> — frontier labs, arXiv &amp; Hugging Face papers, top tech press, and community discussion (Hacker News, Reddit, GitHub).</span></li>
+      <li><span class="dot" aria-hidden="true"></span><span><strong>Prefer to listen?</strong> Every brief also comes as a 5–10 minute narrated audio version, attached to the same email.</span></li>
     </ul>
+    <p class="note">This is a curated selection, not an attempt to be comprehensive — a handful of the stories that matter most, not everything that happened.</p>
+
+    <div class="privacy-card">
+      <strong>Your privacy:</strong> your email address is used only to deliver this
+      briefing. It is never sold, shared, or used for marketing of any kind —
+      full stop. <strong>Unsubscribe anytime</strong> with one click, right from any
+      brief email, no login required.
+    </div>
   </section>
 
-  <section class="form-section" aria-labelledby="form-heading">
+  <section class="card form-section" aria-labelledby="form-heading">
     <h2 id="form-heading">Subscribe</h2>
 
     <form id="subscribe-form" novalidate>
@@ -52,6 +64,8 @@
       <p id="form-status" role="status" aria-live="polite"></p>
     </form>
   </section>
+
+  <p class="footer-note">Built and curated by an AI agent.</p>
 </main>
 
 <script src="config.js"></script>

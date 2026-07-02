@@ -84,6 +84,77 @@ def build_response(status_code: int, body: str, content_type: str = "text/html; 
     }
 
 
+SUBSCRIBE_SITE_URL = "https://briefing.mschweier.com"
+
+# Same palette as deploy/subscribers/site/styles.css, inlined here (not linked) so these
+# transactional pages render correctly even if the main site/CDN is ever unreachable.
+_PAGE_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a2e;
+    line-height: 1.55;
+    background:
+      radial-gradient(60rem 60rem at 12% -10%, #fbcfe8 0%, transparent 55%),
+      radial-gradient(50rem 50rem at 110% 10%, #bfdbfe 0%, transparent 50%),
+      radial-gradient(70rem 70rem at 50% 120%, #ddd6fe 0%, transparent 60%),
+      #f5f3ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }}
+  .card {{
+    max-width: 30rem;
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid rgba(124, 58, 237, 0.12);
+    border-radius: 1.1rem;
+    box-shadow: 0 12px 30px rgba(76, 29, 149, 0.08);
+    padding: 2rem 1.75rem;
+    text-align: center;
+  }}
+  .eyebrow {{
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #3730a3;
+    margin-bottom: 0.75rem;
+  }}
+  h1 {{ font-size: 1.4rem; margin: 0 0 0.75rem; color: #1a1a2e; }}
+  p {{ font-size: 0.95rem; color: #5b5b76; margin: 0 0 0.5rem; }}
+  a {{ color: #3730a3; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <span class="eyebrow">The Daily AI Brief</span>
+  <h1>{heading}</h1>
+  {message_html}
+</div>
+</body>
+</html>"""
+
+
+def render_page(title: str, heading: str, message_html: str) -> str:
+    """Wrap a confirm/unsubscribe/subscribe response in the shared page shell.
+
+    Visual-only helper — status codes and control flow in each handler are unaffected.
+    See deploy/subscribers/site/styles.css for the same palette used on the main site.
+    """
+    return _PAGE_TEMPLATE.format(title=title, heading=heading, message_html=message_html)
+
+
 def get_subscriber(table, email: str) -> Optional[dict[str, Any]]:
     resp = table.get_item(Key={"email": email})
     return resp.get("Item")
@@ -105,4 +176,6 @@ __all__ = [
     "clamp_name",
     "build_response",
     "get_subscriber",
+    "SUBSCRIBE_SITE_URL",
+    "render_page",
 ]

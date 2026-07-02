@@ -27,6 +27,7 @@ from subscriber_common import (
     is_valid_email,
     normalize_email,
     now_epoch,
+    render_page,
 )
 
 logger = logging.getLogger()
@@ -44,21 +45,22 @@ API_BASE_URL = os.environ.get("API_BASE_URL", "")
 
 # Generic, non-leaking response bodies (AC-9, AC-14): the caller cannot distinguish
 # "new signup", "already pending", or "already confirmed" from the HTTP response.
-_NEUTRAL_SUCCESS_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Check your inbox</title></head>"
-    "<body><h1>Almost there</h1><p>If that address is new to us, we've sent a confirmation "
-    "email — click the link inside to start receiving the daily AI brief. If you're already "
-    "signed up, there's nothing further to do.</p></body></html>"
+_NEUTRAL_SUCCESS_BODY = render_page(
+    "Check your inbox",
+    "Almost there",
+    "<p>If that address is new to us, we've sent a confirmation email — click the link "
+    "inside to start receiving the daily AI brief. If you're already signed up, there's "
+    "nothing further to do.</p>",
 )
-_INVALID_EMAIL_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Invalid email</title></head>"
-    "<body><h1>That email address doesn't look right</h1><p>Please go back and check it, "
-    "then try again.</p></body></html>"
+_INVALID_EMAIL_BODY = render_page(
+    "Invalid email",
+    "That email address doesn't look right",
+    "<p>Please go back and check it, then try again.</p>",
 )
-_MISSING_NAME_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Missing name</title></head>"
-    "<body><h1>First and last name are required</h1><p>Please go back and fill in both "
-    "fields, then try again.</p></body></html>"
+_MISSING_NAME_BODY = render_page(
+    "Missing name",
+    "First and last name are required",
+    "<p>Please go back and fill in both fields, then try again.</p>",
 )
 
 

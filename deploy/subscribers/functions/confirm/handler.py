@@ -12,6 +12,7 @@ from typing import Any
 from subscriber_common import (
     STATUS_CONFIRMED,
     STATUS_PENDING,
+    SUBSCRIBE_SITE_URL,
     build_response,
     constant_time_equals,
     generate_token,
@@ -19,6 +20,7 @@ from subscriber_common import (
     get_table,
     normalize_email,
     now_epoch,
+    render_page,
 )
 
 logger = logging.getLogger()
@@ -26,16 +28,16 @@ logger.setLevel(logging.INFO)
 
 # Single neutral page for every failure mode (no such row, wrong token, expired, wrong
 # state) so responses never differentiate why confirmation failed (AC-11, ADR-0003 §Tokens).
-_INVALID_OR_EXPIRED_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Link invalid or expired</title></head>"
-    "<body><h1>This confirmation link is invalid or has expired</h1>"
-    "<p>Please sign up again to receive a fresh confirmation email.</p></body></html>"
+_INVALID_OR_EXPIRED_BODY = render_page(
+    "Link invalid or expired",
+    "This confirmation link is invalid or has expired",
+    f'<p>Please <a href="{SUBSCRIBE_SITE_URL}">sign up again</a> to receive a fresh confirmation email.</p>',
 )
-_CONFIRMED_BODY = (
-    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Subscribed</title></head>"
-    "<body><h1>You're subscribed</h1>"
+_CONFIRMED_BODY = render_page(
+    "Subscribed",
+    "You're subscribed",
     "<p>You'll now receive the daily AI brief (written text plus narrated audio) by email. "
-    "You can unsubscribe at any time using the link in any brief email.</p></body></html>"
+    "You can unsubscribe at any time using the link in any brief email.</p>",
 )
 
 

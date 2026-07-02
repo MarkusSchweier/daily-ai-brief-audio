@@ -1,39 +1,97 @@
 /* Lightweight, accessible styling — no framework, no build step. */
 
 :root {
-  color-scheme: light dark;
-  --fg: #1a1a1a;
+  color-scheme: light;
+  --fg: #1a1a2e;
+  --fg-muted: #5b5b76;
   --bg: #ffffff;
-  --accent: #1a5fb4;
-  --border: #cfcfcf;
-  --error: #a02020;
+  --accent: #4f46e5;
+  --accent-dark: #3730a3;
+  --border: #e3e2f0;
+  --error: #b3261e;
+  --card-radius: 1.1rem;
+
+  /* Aurora background palette (light), shared (as literal color stops) with the
+     Lambda-served confirm/unsubscribe pages so all four pages read as one brand —
+     see subscriber_common.py's render_page(). */
+  --aurora-1: #f5f3ff;
+  --aurora-2: #ddd6fe;
+  --aurora-3: #fbcfe8;
+  --aurora-4: #bfdbfe;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html, body {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--fg);
-  background: var(--bg);
-  line-height: 1.5;
+  line-height: 1.55;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, var(--aurora-3) 0%, transparent 55%),
+    radial-gradient(50rem 50rem at 110% 10%, var(--aurora-4) 0%, transparent 50%),
+    radial-gradient(70rem 70rem at 50% 120%, var(--aurora-2) 0%, transparent 60%),
+    var(--aurora-1);
+  background-attachment: fixed;
 }
 
 .page {
   max-width: 40rem;
   margin: 0 auto;
-  padding: 2rem 1.25rem 4rem;
+  padding: 4rem 1.25rem 5rem;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+  margin-bottom: 0.75rem;
 }
 
 h1 {
-  font-size: 1.75rem;
-  margin-bottom: 1rem;
+  font-size: 2.25rem;
+  line-height: 1.15;
+  margin: 0 0 0.6rem;
+  color: var(--fg);
+  font-weight: 800;
 }
 
-h2 {
-  font-size: 1.2rem;
+.tagline {
+  font-size: 1.15rem;
+  color: var(--fg-muted);
+  margin: 0 0 2.25rem;
+  max-width: 34rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: var(--card-radius);
+  box-shadow: 0 12px 30px rgba(76, 29, 149, 0.08);
+  padding: 1.75rem 1.75rem 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.note {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  font-style: italic;
+  margin: 0.9rem 0 0;
+}
+
+.card h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.9rem;
+  color: var(--fg);
 }
 
 .visually-hidden {
@@ -48,18 +106,42 @@ h2 {
 .facts {
   list-style: none;
   padding: 0;
-  margin: 0 0 2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 1rem 1.25rem;
+  margin: 0;
 }
 
 .facts li {
-  margin: 0.35rem 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0.55rem 0;
+  font-size: 0.95rem;
+  color: var(--fg);
+}
+
+.facts li .dot {
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-top: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.privacy-card {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  margin: 1.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+
+.privacy-card strong {
+  color: var(--fg);
 }
 
 .form-section {
-  margin-top: 2rem;
+  margin-top: 1.5rem;
 }
 
 .field {
@@ -69,22 +151,24 @@ h2 {
 .field label {
   display: block;
   font-weight: 600;
-  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.3rem;
 }
 
 .field input {
   width: 100%;
-  padding: 0.6rem 0.65rem;
+  padding: 0.65rem 0.75rem;
   font-size: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.35rem;
+  border: 1.5px solid var(--border);
+  border-radius: 0.5rem;
   background: var(--bg);
   color: var(--fg);
 }
 
 .field input:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
 }
 
 /* Honeypot: visually hidden but present in the DOM/tab order is avoided via tabindex=-1
@@ -98,18 +182,21 @@ h2 {
 }
 
 button[type="submit"] {
+  width: 100%;
   font-size: 1rem;
-  padding: 0.7rem 1.4rem;
+  font-weight: 700;
+  padding: 0.8rem 1.4rem;
   border: none;
-  border-radius: 0.4rem;
+  border-radius: 0.55rem;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  margin-top: 0.4rem;
 }
 
 button[type="submit"]:hover,
 button[type="submit"]:focus-visible {
-  filter: brightness(1.1);
+  background: var(--accent-dark);
 }
 
 button[type="submit"]:disabled {
@@ -120,12 +207,19 @@ button[type="submit"]:disabled {
 #form-status {
   margin-top: 1rem;
   min-height: 1.25rem;
+  font-size: 0.9rem;
 }
 
 #form-status[data-state="error"] {
   color: var(--error);
 }
 
+.footer-note {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
 a {
-  color: var(--accent);
+  color: var(--accent-dark);
 }
