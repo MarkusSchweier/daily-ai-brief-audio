@@ -29,3 +29,8 @@ build/
 
 # macOS
 .DS_Store
+
+# --- CDK (deploy/subscribers) ---
+deploy/subscribers/cdk.out/
+deploy/subscribers/.cdk.staging/
+deploy/subscribers/node_modules/
