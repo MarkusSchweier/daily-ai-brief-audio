@@ -18,7 +18,11 @@ resources behind them; `deploy/audio_email.py` is the verbatim copy of the STEP 
     run-through → deep dives in prose. Normalize for the ear ("$2.5B" → "2.5 billion dollars").
 - **STEP 6 — synthesize + email** (`deploy/audio_email.py`): async Polly (Matthew, neural, mp3)
   → S3 → download via `OutputUri` → MIME email (HTML body + MP3 attachment) → SES
-  `send_raw_email`. The MP3 is also archived next to the brief as `AI Brief <YYYY-MM-DD>.mp3`.
+  `send_raw_email`. Sends the brief to the owner (`mail@mschweier.com` from/to
+  `mail@mschweier.com`) and fans out to all confirmed subscribers from `aibriefing@mschweier.com`
+  with per-recipient unsubscribe links (double opt-in, DynamoDB-backed; see
+  `deploy/subscribers/README.md`). The MP3 is also archived next to the brief as
+  `AI Brief <YYYY-MM-DD>.mp3`.
 - **STEP 7 — fail-safe:** the brief `.md` is saved regardless. If audio fails, `audio_email.py`
   prints `AUDIO_STEP_FAILED` and still sends a **text-only** email; never block on an audio glitch.
 - **STEP 8 — finish:** one-line highlight + whether audio attached + a `computer://` link.
@@ -48,3 +52,11 @@ never appears in this repo. Required runtime env for `audio_email.py`:
 When STEP 6 changes, update **both** `deploy/audio_email.py` here and the inline copy in the
 scheduled task's `SKILL.md`. (Productizing into a single imported module is a possible future
 step; today the two are kept intentionally identical.)
+
+**Note:** `deploy/audio_email.py` now includes the fan-out to confirmed subscribers and new
+optional env vars (`SUBSCRIBERS_TABLE_NAME`, `SUBSCRIBERS_API_BASE_URL`; see
+`deploy/subscribers/README.md` step 5). These are already built into the file on this branch.
+The inline copy in `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` will be synced
+**after the end-to-end validation loop passes** (test addresses, subscription/confirmation/
+delivery/unsubscribe cycle). Until then, the production scheduled task continues to run the
+existing single-recipient copy.
