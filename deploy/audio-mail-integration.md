@@ -1,5 +1,11 @@
 # Daily AI Brief → Audio (Amazon Polly + SES) — Cowork integration handoff
 
+> **Historical snapshot, not current operational truth.** This document reflects the setup
+> as of its writing, when the sender was `mail@mschweier.com`. As of PR #3 (merged
+> 2026-07-02), the pipeline sends from `aibriefing@mschweier.com` instead (recipient
+> `mail@mschweier.com` is unchanged). For current state, see [`CLAUDE.md`](../CLAUDE.md)
+> and [`deploy/scheduled-task-audio.md`](scheduled-task-audio.md).
+
 > Migrated into this project 2026-07-01 as the authoritative spec. The live IAM access key ID
 > was **redacted** to `<AWS_ACCESS_KEY_ID>`; real credentials live only in `.env` /
 > `~/cowork-polly-credentials.txt` and are never committed.

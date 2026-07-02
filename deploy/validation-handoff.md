@@ -1,5 +1,11 @@
 # Handoff — Validate & wire up audio for the Daily AI Brief (run in a FRESH Cowork session)
 
+> **Historical snapshot, not current operational truth.** This runbook reflects the setup
+> as of its writing, when the sender was `mail@mschweier.com`. As of PR #3 (merged
+> 2026-07-02), the pipeline sends from `aibriefing@mschweier.com` instead (recipient
+> `mail@mschweier.com` is unchanged). For current state, see [`CLAUDE.md`](../CLAUDE.md)
+> and [`deploy/scheduled-task-audio.md`](scheduled-task-audio.md).
+
 **Purpose:** This session's sandbox was provisioned before the network/egress and env-var
 changes took effect, so AWS calls fail here. Start a **brand-new Cowork session** (fresh VM)
 and follow this runbook to (1) confirm the sandbox can reach AWS, (2) prove the full
