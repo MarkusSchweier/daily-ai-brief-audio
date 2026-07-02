@@ -60,6 +60,15 @@ class BriefSubscribersStack(Stack):
 
         self.http_api = self._build_http_api()
 
+        # The subscribe Lambda builds the confirm link it emails out, so it needs its own
+        # API's base URL. Wired here (not at function-creation time) because the HTTP API
+        # doesn't exist yet when _build_subscribe_function() runs — CloudFormation resolves
+        # this Fn::GetAtt reference fine since it's just string interpolation into an env
+        # var, not a runtime call cycle. Without this, confirm_link falls back to a relative
+        # path and mail clients mangle it (e.g. macOS Mail turns it into an unclickable
+        # x-webdoc:// URL).
+        self.subscribe_fn.add_environment("API_BASE_URL", self.http_api.api_endpoint)
+
         self.site_bucket, self.distribution = self._build_static_site()
 
         cdk.CfnOutput(self, "SubscribersTableName", value=self.table.table_name)
@@ -149,9 +158,13 @@ class BriefSubscribersStack(Stack):
                 sid="SesSendConfirmationFromAibriefing",
                 effect=iam.Effect.ALLOW,
                 actions=["ses:SendEmail", "ses:SendRawEmail"],
-                resources=[
-                    f"arn:{self.partition}:ses:{self.region}:{self.account}:identity/{SES_IDENTITY_DOMAIN}"
-                ],
+                # Resource must be "*", not just the sender's domain identity: when a
+                # recipient address is itself a verified identity in this account (as SES
+                # sandbox mode requires for every test recipient), SES's IAM check also
+                # authorizes against that recipient identity's ARN, not only the sender's.
+                # The FromAddress condition below remains the real security boundary — it
+                # still restricts sending to exactly SUBSCRIBER_SENDER regardless of Resource.
+                resources=["*"],
                 conditions={"StringEquals": {"ses:FromAddress": SUBSCRIBER_SENDER}},
             )
         )
