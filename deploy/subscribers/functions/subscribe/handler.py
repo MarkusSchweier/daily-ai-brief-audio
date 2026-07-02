@@ -55,6 +55,11 @@ _INVALID_EMAIL_BODY = (
     "<body><h1>That email address doesn't look right</h1><p>Please go back and check it, "
     "then try again.</p></body></html>"
 )
+_MISSING_NAME_BODY = (
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Missing name</title></head>"
+    "<body><h1>First and last name are required</h1><p>Please go back and fill in both "
+    "fields, then try again.</p></body></html>"
+)
 
 
 def _parse_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +142,11 @@ def _handle(event: dict[str, Any], table, ses_client) -> dict[str, Any]:
     if not is_valid_email(email):
         logger.info("SUBSCRIBE_INVALID_EMAIL")
         return build_response(400, _INVALID_EMAIL_BODY)
+
+    if not first_name or not last_name:
+        # FR-3: email, first name, and last name are all required; no other required fields.
+        logger.info("SUBSCRIBE_MISSING_NAME")
+        return build_response(400, _MISSING_NAME_BODY)
 
     existing = get_subscriber(table, email)
 

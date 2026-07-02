@@ -50,6 +50,16 @@ def test_invalid_email_is_rejected_without_creating_a_record(subscribers_table, 
     assert common.get_subscriber(subscribers_table, "not-an-email") is None
 
 
+def test_missing_first_or_last_name_is_rejected_without_creating_a_record(subscribers_table, ses_client):
+    # FR-3: email, first name, and last name are all required.
+    for missing_field in ("firstName", "lastName"):
+        body = {"email": "ada@example.com", "firstName": "Ada", "lastName": "Lovelace"}
+        body[missing_field] = "   "  # whitespace-only, clamp_name reduces it to empty
+        resp = _handle(_event(body), subscribers_table, ses_client)
+        assert resp["statusCode"] == 400
+        assert common.get_subscriber(subscribers_table, "ada@example.com") is None
+
+
 def test_honeypot_filled_is_silently_dropped(subscribers_table, ses_client):
     resp = _handle(
         _event(
