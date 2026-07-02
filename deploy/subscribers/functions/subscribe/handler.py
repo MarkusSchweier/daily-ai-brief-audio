@@ -11,6 +11,7 @@ import html
 import json
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import boto3
 
@@ -80,7 +81,11 @@ def _parse_body(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _send_confirmation_email(ses_client, email: str, first_name: str, token: str) -> None:
-    confirm_link = f"{API_BASE_URL}/confirm?email={email}&token={token}"
+    # URL-encode email/token: local-parts may legally contain "&", "=", "+", etc. (the
+    # regex-based validator does not forbid them), and an unescaped value here would
+    # corrupt the query string / produce a broken confirm link. Mirrors the same
+    # urllib.parse.quote() used for the unsubscribe link in deploy/audio_email.py.
+    confirm_link = f"{API_BASE_URL}/confirm?email={quote(email)}&token={quote(token)}"
     text_body = (
         f"Hi {first_name or 'there'},\n\n"
         "Please confirm your subscription to the daily AI brief (delivered as written text "

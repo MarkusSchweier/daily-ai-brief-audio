@@ -1,0 +1,5 @@
+# Dev/test dependencies for the repo-root pytest suite (tests/test_audio_email_fanout.py).
+# deploy/subscribers/ is a separate CDK sub-project with its own requirements-dev.txt.
+pytest>=8.0.0
+boto3>=1.34.0
+moto[dynamodb,ses]>=5.0.0

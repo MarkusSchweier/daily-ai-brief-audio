@@ -155,3 +155,99 @@ def test_form_urlencoded_body_is_also_accepted(subscribers_table, ses_client):
     resp = _handle(event, subscribers_table, ses_client)
     assert resp["statusCode"] == 200
     assert common.get_subscriber(subscribers_table, "formuser@example.com") is not None
+
+
+def test_confirm_link_url_encodes_email_with_special_characters(subscribers_table):
+    """A local-part containing '&' or '=' is syntactically valid (is_valid_email does not
+    forbid it) but, if interpolated unescaped into the confirm link's query string, would
+    inject bogus query params and break the link. Regression test: assert the *actual*
+    outgoing SES message contains a correctly-encoded single email= param, not a raw,
+    query-string-breaking one."""
+    from urllib.parse import parse_qs, urlparse
+
+    module = import_handler("subscribe")
+    email = "a&b=c@example.com"
+
+    class RecordingSesClient:
+        def __init__(self):
+            self.sent = []
+
+        def send_email(self, **kwargs):
+            self.sent.append(kwargs)
+            return {"MessageId": "fake-id"}
+
+    ses = RecordingSesClient()
+    resp = module._handle(
+        _event({"email": email, "firstName": "Weird", "lastName": "Address"}),
+        subscribers_table,
+        ses,
+    )
+    assert resp["statusCode"] == 200
+    assert len(ses.sent) == 1
+
+    text_body = ses.sent[0]["Message"]["Body"]["Text"]["Data"]
+    link_line = next(line for line in text_body.splitlines() if "/confirm?" in line)
+    parsed = urlparse(link_line)
+    params = parse_qs(parsed.query)
+    # Exactly one email param (not split into email=a & b=c by an unescaped "&"/"=").
+    assert params["email"] == [email]
+    assert "token" in params
+
+
+def test_ses_send_failure_still_creates_row_and_returns_neutral_response(subscribers_table, monkeypatch):
+    """If SES send_email raises (e.g. transient SES error), the pending row must still
+    exist (so a re-submit per AC-10 can trigger a resend) and the response must remain the
+    same neutral 200 — a send failure must not surface as a distinguishable error to the
+    caller nor abort the row creation."""
+    module = import_handler("subscribe")
+
+    class FailingSesClient:
+        def send_email(self, **kwargs):
+            raise RuntimeError("simulated SES outage")
+
+    resp = module._handle(
+        _event({"email": "sesdown@example.com", "firstName": "Down", "lastName": "SES"}),
+        subscribers_table,
+        FailingSesClient(),
+    )
+
+    assert resp["statusCode"] == 200
+    item = common.get_subscriber(subscribers_table, "sesdown@example.com")
+    assert item is not None
+    assert item["status"] == common.STATUS_PENDING
+
+
+def test_names_are_length_clamped_through_the_handler(subscribers_table, ses_client):
+    long_first = "F" * 500
+    long_last = "L" * 500
+    resp = _handle(
+        _event({"email": "longname@example.com", "firstName": long_first, "lastName": long_last}),
+        subscribers_table,
+        ses_client,
+    )
+    assert resp["statusCode"] == 200
+    item = common.get_subscriber(subscribers_table, "longname@example.com")
+    assert len(item["firstName"]) == common.MAX_NAME_LENGTH
+    assert len(item["lastName"]) == common.MAX_NAME_LENGTH
+
+
+def test_malformed_email_variants_are_all_rejected(subscribers_table, ses_client):
+    for bad_email in ["no-at-sign.example.com", "double@@example.com", "trailing@dot.", "has space@example.com"]:
+        resp = _handle(
+            _event({"email": bad_email, "firstName": "Bad", "lastName": "Email"}),
+            subscribers_table,
+            ses_client,
+        )
+        assert resp["statusCode"] == 400, f"expected 400 for {bad_email!r}"
+        normalized = common.normalize_email(bad_email)
+        if normalized:
+            assert common.get_subscriber(subscribers_table, normalized) is None
+
+    # Empty email is its own case: normalize_email("") == "" and DynamoDB rejects an
+    # empty-string partition key on GetItem, so we only assert the rejection itself here.
+    resp = _handle(
+        _event({"email": "", "firstName": "Bad", "lastName": "Email"}),
+        subscribers_table,
+        ses_client,
+    )
+    assert resp["statusCode"] == 400
