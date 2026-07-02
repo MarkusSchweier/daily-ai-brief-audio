@@ -6,4 +6,4 @@
 // (e.g. "https://abc123xyz.execute-api.us-east-1.amazonaws.com"). After the custom domain
 // is attached (see deploy/subscribers/README.md), it can point at the API's own custom
 // domain instead. No trailing slash.
-window.BRIEF_SUBSCRIBERS_API_BASE_URL = "https://REPLACE-WITH-EXECUTE-API-URL.execute-api.us-east-1.amazonaws.com";
+window.BRIEF_SUBSCRIBERS_API_BASE_URL = "https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com";

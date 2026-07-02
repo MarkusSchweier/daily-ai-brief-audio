@@ -34,3 +34,4 @@ build/
 deploy/subscribers/cdk.out/
 deploy/subscribers/.cdk.staging/
 deploy/subscribers/node_modules/
+deploy/subscribers/cdk-outputs.json
