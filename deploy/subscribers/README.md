@@ -43,10 +43,10 @@ separate stacks. The pre-existing Polly/S3/SES resources (`deploy/iam-policy.jso
   surface from the `cowork-polly-tts` IAM user — use whatever credentials/profile you deploy
   CDK stacks with in this account, not the `cowork-polly-tts` static key (that key is for the
   Mac scheduled task only, never for CDK deploys).
-- **Security gate:** the `cowork-polly-tts` IAM user's access key must be rotated before
-  enabling the fan-out in the live scheduled task (see `docs/adr/0002`, follow-ups section).
-  A prior screenshot exposed that key; until it is rotated, do not apply step 2 below
-  (update the IAM policy). Flag this to security-engineer before deploying to production.
+- **Security gate cleared 2026-07-02:** the `cowork-polly-tts` IAM user's access key was
+  rotated (new key issued and verified, old key deactivated) before this fan-out was enabled —
+  see `docs/adr/0002`, follow-ups section, and `deploy/validation-handoff.md`. Step 2 below
+  (apply the updated IAM policy) is safe to run.
 
 ## Context parameters
 

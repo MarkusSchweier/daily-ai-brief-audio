@@ -53,5 +53,6 @@ When `audio_email.py` changes, update **both** this file and the inline copy in
 Never committed. The sandbox reads `<working folder>/.aws-cowork/credentials`
 (`AWS_SHARED_CREDENTIALS_FILE`); on the Mac, env vars come from `~/.claude/settings.json`.
 
-> ⚠️ Open security item (from the validation handoff): rotate the AWS secret access key +
-> GitHub PAT that were exposed in a screenshot, then update the credentials source.
+> ✅ The AWS secret access key and GitHub PAT that were exposed in a screenshot were rotated on
+> 2026-07-02 (new `cowork-polly-tts` access key issued and verified, old key deactivated; new
+> GitHub classic PAT issued and verified). See `deploy/validation-handoff.md` for history.

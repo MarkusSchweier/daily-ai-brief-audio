@@ -117,6 +117,8 @@ Negative / follow-ups:
   the new Sid must match the table CDK actually creates.
 - The pre-existing "rotate the exposed access key" security item now also gates the second-sender
   capability — rotate before relying on `aibriefing@` in any real send. Flag to security-engineer.
+  **Resolved 2026-07-02**: `cowork-polly-tts` access key rotated and verified (old key
+  deactivated); GitHub PAT rotated and verified. See `deploy/validation-handoff.md`.
 - SES sandbox still requires each subscriber (recipient) address to be individually verified for
   testing; unchanged by this decision, noted in the PRD.
 
