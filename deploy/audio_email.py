@@ -112,43 +112,62 @@ def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
     return html_body + footer
 
 
-sent_count = 0
-failed_count = 0
+def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_filename, table_name):
+    """Send the owner's copy, then fan out to every confirmed subscriber.
 
-# 1) Owner's copy — sent from/to mail@mschweier.com, unchanged, always attempted first and
-# never gated on subscriber sends succeeding (PRD AC-6/AC-15, FR-15).
-owner_msg = _build_message(SENDER, RECIP, subject, brief_html, mp3_bytes, os.path.basename(mp3_out))
-try:
-    r = ses.send_raw_email(Source=SENDER, Destinations=[RECIP], RawMessage={"Data": owner_msg.as_string()})
-    print("SES_SENT", r["MessageId"], "audio_attached=", audio_ok)
-    sent_count += 1
-except Exception as e:
-    # Even the owner's send is failure-isolated from the rest of the script; log and continue
-    # so a transient SES error here still lets the summary line and exit happen cleanly.
-    print("SES_SEND_FAILED:", RECIP, repr(e))
-    failed_count += 1
+    Isolated as its own function (rather than inline top-level script code) so the
+    failure-isolation loop logic is unit-testable without invoking Polly/S3. Returns
+    (sent_count, failed_count) and prints the same SES_SENT / SES_SEND_FAILED /
+    SES_SENT_SUMMARY lines the production run relies on for operational visibility.
+    """
+    sent_count = 0
+    failed_count = 0
 
-# 2) Subscriber fan-out — from aibriefing@mschweier.com, one send per confirmed subscriber,
-# each failure isolated so one bad address never blocks anyone else (PRD FR-12..14, AC-8).
-dynamodb = boto3.client("dynamodb", region_name=REGION)
-subscribers = _query_confirmed_subscribers(dynamodb, SUBSCRIBERS_TABLE_NAME)
-for subscriber in subscribers:
-    email = subscriber["email"]
-    if not email:
-        continue
+    # 1) Owner's copy — sent from/to mail@mschweier.com, unchanged, always attempted first
+    # and never gated on subscriber sends succeeding (PRD AC-6/AC-15, FR-15).
+    owner_msg = _build_message(SENDER, RECIP, subject, brief_html, mp3_bytes, mp3_filename)
     try:
-        unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
-        subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
-        subscriber_msg = _build_message(
-            SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, os.path.basename(mp3_out)
+        r = ses_client.send_raw_email(
+            Source=SENDER, Destinations=[RECIP], RawMessage={"Data": owner_msg.as_string()}
         )
-        r = ses.send_raw_email(
-            Source=SUBSCRIBER_SENDER, Destinations=[email], RawMessage={"Data": subscriber_msg.as_string()}
-        )
-        print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", audio_ok)
+        print("SES_SENT", r["MessageId"], "audio_attached=", mp3_bytes is not None)
         sent_count += 1
     except Exception as e:
-        print("SES_SEND_FAILED:", email, repr(e))
+        # Even the owner's send is failure-isolated from the rest of the script; log and
+        # continue so a transient SES error here still lets the summary line and exit
+        # happen cleanly.
+        print("SES_SEND_FAILED:", RECIP, repr(e))
         failed_count += 1
 
-print(f"SES_SENT_SUMMARY sent={sent_count} failed={failed_count}")
+    # 2) Subscriber fan-out — from aibriefing@mschweier.com, one send per confirmed
+    # subscriber, each failure isolated so one bad address never blocks anyone else
+    # (PRD FR-12..14, AC-8).
+    subscribers = _query_confirmed_subscribers(dynamodb_client, table_name)
+    for subscriber in subscribers:
+        email = subscriber["email"]
+        if not email:
+            continue
+        try:
+            unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
+            subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
+            subscriber_msg = _build_message(
+                SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename
+            )
+            r = ses_client.send_raw_email(
+                Source=SUBSCRIBER_SENDER,
+                Destinations=[email],
+                RawMessage={"Data": subscriber_msg.as_string()},
+            )
+            print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", mp3_bytes is not None)
+            sent_count += 1
+        except Exception as e:
+            print("SES_SEND_FAILED:", email, repr(e))
+            failed_count += 1
+
+    print(f"SES_SENT_SUMMARY sent={sent_count} failed={failed_count}")
+    return sent_count, failed_count
+
+
+if __name__ == "__main__":
+    dynamodb = boto3.client("dynamodb", region_name=REGION)
+    send_all(ses, dynamodb, subject, brief_html, mp3_bytes, os.path.basename(mp3_out), SUBSCRIBERS_TABLE_NAME)
