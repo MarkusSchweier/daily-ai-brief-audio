@@ -33,7 +33,6 @@ LAYERS_DIR = Path(__file__).resolve().parent.parent / "layers"
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
 
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
-SES_IDENTITY_DOMAIN = "mschweier.com"
 
 # Fallback CORS origin used only when no `subscribeDomainName` context is supplied (e.g.
 # a bare `cdk synth` before DNS is decided). Real deploys should pass
