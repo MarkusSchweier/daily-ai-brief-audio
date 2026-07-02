@@ -22,10 +22,10 @@
       "Sid": "SesSendFromMschweier",
       "Effect": "Allow",
       "Action": ["ses:SendEmail", "ses:SendRawEmail"],
-      "Resource": "arn:aws:ses:us-east-1:740353583786:identity/mschweier.com",
+      "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "ses:FromAddress": ["mail@mschweier.com", "aibriefing@mschweier.com"]
+          "ses:FromAddress": "aibriefing@mschweier.com"
         }
       }
     },

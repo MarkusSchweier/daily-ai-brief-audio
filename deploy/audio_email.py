@@ -24,7 +24,8 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
 REGION = "us-east-1"; BUCKET = "cowork-polly-tts-740353583786"
-SENDER = "mail@mschweier.com"; RECIP = "mail@mschweier.com"
+# Both sends now go from aibriefing@ (owner's inbox address, RECIP, is unchanged).
+SENDER = "aibriefing@mschweier.com"; RECIP = "mail@mschweier.com"
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SUBSCRIBERS_TABLE_NAME = os.environ.get("SUBSCRIBERS_TABLE_NAME", "brief-subscribers")
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
@@ -123,8 +124,9 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
     sent_count = 0
     failed_count = 0
 
-    # 1) Owner's copy — sent from/to mail@mschweier.com, unchanged, always attempted first
-    # and never gated on subscriber sends succeeding (PRD AC-6/AC-15, FR-15).
+    # 1) Owner's copy — sent from aibriefing@mschweier.com to mail@mschweier.com (recipient
+    # unchanged), always attempted first and never gated on subscriber sends succeeding
+    # (PRD AC-6/AC-15, FR-15).
     owner_msg = _build_message(SENDER, RECIP, subject, brief_html, mp3_bytes, mp3_filename)
     try:
         r = ses_client.send_raw_email(

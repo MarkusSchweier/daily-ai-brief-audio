@@ -18,11 +18,11 @@ resources behind them; `deploy/audio_email.py` is the verbatim copy of the STEP 
     run-through → deep dives in prose. Normalize for the ear ("$2.5B" → "2.5 billion dollars").
 - **STEP 6 — synthesize + email** (`deploy/audio_email.py`): async Polly (Matthew, neural, mp3)
   → S3 → download via `OutputUri` → MIME email (HTML body + MP3 attachment) → SES
-  `send_raw_email`. Sends the brief to the owner (`mail@mschweier.com` from/to
-  `mail@mschweier.com`) and fans out to all confirmed subscribers from `aibriefing@mschweier.com`
-  with per-recipient unsubscribe links (double opt-in, DynamoDB-backed; see
-  `deploy/subscribers/README.md`). The MP3 is also archived next to the brief as
-  `AI Brief <YYYY-MM-DD>.mp3`.
+  `send_raw_email`. Sends the brief to the owner (`aibriefing@mschweier.com` from,
+  `mail@mschweier.com` to — recipient unchanged) and fans out to all confirmed subscribers,
+  also from `aibriefing@mschweier.com`, with per-recipient unsubscribe links (double opt-in,
+  DynamoDB-backed; see `deploy/subscribers/README.md`). The MP3 is also archived next to the
+  brief as `AI Brief <YYYY-MM-DD>.mp3`.
 - **STEP 7 — fail-safe:** the brief `.md` is saved regardless. If audio fails, `audio_email.py`
   prints `AUDIO_STEP_FAILED` and still sends a **text-only** email; never block on an audio glitch.
 - **STEP 8 — finish:** one-line highlight + whether audio attached + a `computer://` link.
@@ -43,7 +43,8 @@ never appears in this repo. Required runtime env for `audio_email.py`:
 
 - Use the API's `OutputUri`; **never build the S3 key** — Polly inserts a dot: `audio/.<TaskId>.mp3`.
 - A wrong key returns **HTTP 403, not 404** (the policy omits `s3:ListBucket`).
-- **SES From must be exactly `mail@mschweier.com`** — the IAM condition rejects any other From.
+- **SES From must be exactly `aibriefing@mschweier.com`** — the IAM condition rejects any
+  other From, including `mail@mschweier.com` (no longer used as a sender anywhere).
 - Prefer boto3 `send_raw_email(RawMessage={"Data": msg.as_string()})`; the CLI `fileb://` trick
   does not expand inside the nested raw-message structure.
 

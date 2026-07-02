@@ -28,11 +28,14 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
 ## AWS resources (personal account `740353583786`, us-east-1)
 
 - IAM user `cowork-polly-tts` — least-priv (Polly synth + S3 rw on the one bucket + SES send
-  from `mail@mschweier.com` only). Policy: `deploy/iam-policy.json`.
+  from `aibriefing@mschweier.com` only, plus a GSI-scoped DynamoDB Query for the subscriber
+  fan-out). Policy: `deploy/iam-policy.json`.
 - S3 bucket `cowork-polly-tts-740353583786` — SSE-S3, public access blocked, 7-day lifecycle
   expiry on `audio/`.
-- SES domain identity `mschweier.com` (DKIM-verified); sender `mail@mschweier.com` (SES sandbox,
-  self-send only).
+- SES domain identity `mschweier.com` (DKIM-verified); all mail (owner copy + subscriber
+  fan-out) sends from `aibriefing@mschweier.com`. Owner still receives at `mail@mschweier.com`
+  (recipient unchanged). SES sandbox — see `deploy/subscribers/README.md` for the
+  production-access follow-up.
 
 ## How to validate / change
 
@@ -51,7 +54,7 @@ There is no package build. Useful checks:
   `~/.claude/settings.json`. Never print or commit `AWS_SECRET_ACCESS_KEY`. Account-id-in-bucket
   name is expected; the live IAM access-key **ID** in the migrated runbook is redacted.
 - **Async Polly only**; **use `OutputUri`, never build the S3 key**; **SES From must be exactly
-  `mail@mschweier.com`**. Fail-safe: never lose the brief over an audio/email glitch.
+  `aibriefing@mschweier.com`**. Fail-safe: never lose the brief over an audio/email glitch.
 - Confirm the active AWS account before any deploy/mutation (`/aws-account`, `aws-account-safety`).
 
 ## Active planning docs (auto-imported)
