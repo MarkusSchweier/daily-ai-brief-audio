@@ -15,6 +15,8 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    aws_apigatewayv2 as apigwv2,
+    aws_apigatewayv2_integrations as apigwv2_integrations,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as _lambda,
@@ -26,6 +28,12 @@ LAYERS_DIR = Path(__file__).resolve().parent.parent / "layers"
 
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SES_IDENTITY_DOMAIN = "mschweier.com"
+
+# Fallback CORS origin used only when no `subscribeDomainName` context is supplied (e.g.
+# a bare `cdk synth` before DNS is decided). Real deploys should pass
+# `-c subscribeDomainName=briefing.mschweier.com` (or set it in cdk.json context) so CORS
+# is locked to the actual site origin, per the developer task and ADR-0001.
+DEFAULT_SUBSCRIBE_DOMAIN = "briefing.mschweier.com"
 
 
 class BriefSubscribersStack(Stack):
@@ -43,6 +51,8 @@ class BriefSubscribersStack(Stack):
         self.subscribe_fn = self._build_subscribe_function()
         self.confirm_fn = self._build_confirm_function()
         self.unsubscribe_fn = self._build_unsubscribe_function()
+
+        self.http_api = self._build_http_api()
 
         cdk.CfnOutput(self, "SubscribersTableName", value=self.table.table_name)
         cdk.CfnOutput(self, "SubscribersTableArn", value=self.table.table_arn)
@@ -197,3 +207,64 @@ class BriefSubscribersStack(Stack):
             **self._base_function_kwargs("unsubscribe"),
         )
         return fn
+
+    # ------------------------------------------------------------------
+    # API — HTTP API front door (ADR-0001): POST /subscribe, GET /confirm, GET /unsubscribe
+    # ------------------------------------------------------------------
+    def _build_http_api(self) -> apigwv2.HttpApi:
+        allowed_origin = f"https://{self.subscribe_domain_name or DEFAULT_SUBSCRIBE_DOMAIN}"
+
+        http_api = apigwv2.HttpApi(
+            self,
+            "SubscribersHttpApi",
+            api_name="brief-subscribers-api",
+            description="Public subscribe/confirm/unsubscribe front door for the daily AI brief.",
+            cors_preflight=apigwv2.CorsPreflightOptions(
+                allow_origins=[allowed_origin],
+                allow_methods=[apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.GET],
+                allow_headers=["Content-Type"],
+                max_age=Duration.hours(1),
+            ),
+            create_default_stage=False,
+        )
+
+        # Explicit stage (not the "$default, auto-deployed" shortcut) so throttling is
+        # configured deliberately rather than left at the HTTP API's own defaults.
+        apigwv2.HttpStage(
+            self,
+            "SubscribersHttpApiStage",
+            http_api=http_api,
+            stage_name="$default",
+            auto_deploy=True,
+            throttle=apigwv2.ThrottleSettings(rate_limit=10, burst_limit=20),
+        )
+
+        http_api.add_routes(
+            path="/subscribe",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=apigwv2_integrations.HttpLambdaIntegration(
+                "SubscribeIntegration", handler=self.subscribe_fn
+            ),
+        )
+        http_api.add_routes(
+            path="/confirm",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=apigwv2_integrations.HttpLambdaIntegration(
+                "ConfirmIntegration", handler=self.confirm_fn
+            ),
+        )
+        http_api.add_routes(
+            path="/unsubscribe",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=apigwv2_integrations.HttpLambdaIntegration(
+                "UnsubscribeIntegration", handler=self.unsubscribe_fn
+            ),
+        )
+
+        cdk.CfnOutput(
+            self,
+            "HttpApiUrl",
+            value=http_api.api_endpoint,
+            description="Temporary execute-api base URL; wire the site's API_BASE_URL to this until custom-domain DNS is attached.",
+        )
+        return http_api
