@@ -176,6 +176,22 @@ def test_mp3_bytes_are_reused_verbatim_across_every_recipient(audio_email_module
         assert attachment_parts[0].get_payload(decode=True) == mp3_bytes
 
 
+def test_signup_header_and_disclaimer_present_for_owner_and_subscribers(audio_email_module):
+    ses_client = FakeSesClient()
+    ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("grace@example.com", unsubscribe_token="tok-g")])
+
+    audio_email_module.send_all(
+        ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+    )
+
+    assert len(ses_client.sent_to) == 2  # owner + grace
+    for entry in ses_client.sent_to:
+        body = _html_body_text(entry["raw"])
+        assert audio_email_module.SUBSCRIBE_SITE_URL in body
+        assert "curated and written by an AI agent" in body
+        assert "brief</p>" in body  # original brief content still present
+
+
 def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_module):
     """AC-7 generalized to all recipients: mp3_bytes=None must not attach a part, but must
     still send. This also exercises the real module-level fail-safe: moto does not

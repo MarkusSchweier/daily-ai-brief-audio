@@ -104,6 +104,28 @@ def _unsubscribe_link(email, token):
     return f"{base}/unsubscribe?email={urllib.parse.quote(email)}&token={urllib.parse.quote(token)}"
 
 
+SUBSCRIBE_SITE_URL = "https://briefing.mschweier.com"
+
+
+def _html_with_header(html_body):
+    """Prepend the forward-friendly sign-up prompt + AI-curation disclaimer.
+
+    Added to every recipient's copy (owner included) since the owner is the most
+    likely person to forward their own copy along to someone else.
+    """
+    header = (
+        '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
+        'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
+        f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
+        '<p style="margin:0;">This brief is curated and written by an AI agent, '
+        "which may make mistakes. For anything important, please verify with "
+        "original sources and do your own research.</p>"
+        "</div>"
+    )
+    return header + html_body
+
+
 def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
     footer = (
         '<hr><p style="font-size:12px;color:#666;">'
@@ -123,6 +145,10 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
     """
     sent_count = 0
     failed_count = 0
+
+    # Sign-up prompt + AI-curation disclaimer, prepended once and shared by every
+    # recipient (owner included — they're the most likely person to forward their copy).
+    brief_html = _html_with_header(brief_html)
 
     # 1) Owner's copy — sent from aibriefing@mschweier.com to mail@mschweier.com (recipient
     # unchanged), always attempted first and never gated on subscriber sends succeeding
