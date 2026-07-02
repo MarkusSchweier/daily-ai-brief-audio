@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily AI Brief — Subscribe</title>
+<meta name="description" content="Subscribe to a daily AI-focused brief, delivered as written text and narrated audio. Unsubscribe anytime.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="page">
+  <h1>The Daily AI Brief</h1>
+
+  <section class="intro" aria-labelledby="intro-heading">
+    <h2 id="intro-heading" class="visually-hidden">About this brief</h2>
+    <ul class="facts">
+      <li><strong>Topic:</strong> artificial intelligence — the day's most important developments.</li>
+      <li><strong>Cadence:</strong> delivered daily.</li>
+      <li><strong>Format:</strong> a written brief plus a narrated audio version, in one email.</li>
+      <li><strong>Commitment:</strong> none — <strong>unsubscribe anytime</strong>, one click, no login required.</li>
+    </ul>
+  </section>
+
+  <section class="form-section" aria-labelledby="form-heading">
+    <h2 id="form-heading">Subscribe</h2>
+
+    <form id="subscribe-form" novalidate>
+      <div class="field">
+        <label for="email">Email address</label>
+        <input type="email" id="email" name="email" autocomplete="email" required>
+      </div>
+
+      <div class="field">
+        <label for="firstName">First name</label>
+        <input type="text" id="firstName" name="firstName" autocomplete="given-name" required>
+      </div>
+
+      <div class="field">
+        <label for="lastName">Last name</label>
+        <input type="text" id="lastName" name="lastName" autocomplete="family-name" required>
+      </div>
+
+      <!-- Honeypot: hidden from real users (off-screen, not display:none, so basic bots
+           that skip hidden fields still fill it). Real submissions must leave this blank. -->
+      <div class="field honeypot" aria-hidden="true">
+        <label for="website">Leave this field blank</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <button type="submit">Subscribe</button>
+
+      <p id="form-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,6 +1,13 @@
 # Active PRD
 
-No active PRD yet. The Product Manager agent updates this file to point at the current PRD
-when a feature begins (it is imported by this project's CLAUDE.md).
+The current active PRD for this project:
 
-Start one with: `/feature "<describe the feature>"`
+@public-subscriptions.md
+
+---
+
+Status: **Complete** — all three ADRs (0001–0003) are Accepted; feature fully built, reviewed,
+and security-cleared on branch `feat/public-subscriptions`. Deployment and end-to-end
+validation occur per `deploy/subscribers/README.md` before this branch merges to main.
+
+Start a new one with: `/feature "<describe the feature>"`
