@@ -17,14 +17,20 @@ from aws_cdk import (
     Stack,
     aws_apigatewayv2 as apigwv2,
     aws_apigatewayv2_integrations as apigwv2_integrations,
+    aws_certificatemanager as acm,
+    aws_cloudfront as cloudfront,
+    aws_cloudfront_origins as origins,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as _lambda,
+    aws_s3 as s3,
+    aws_s3_deployment as s3_deployment,
 )
 from constructs import Construct
 
 FUNCTIONS_DIR = Path(__file__).resolve().parent.parent / "functions"
 LAYERS_DIR = Path(__file__).resolve().parent.parent / "layers"
+SITE_DIR = Path(__file__).resolve().parent.parent / "site"
 
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SES_IDENTITY_DOMAIN = "mschweier.com"
@@ -53,6 +59,8 @@ class BriefSubscribersStack(Stack):
         self.unsubscribe_fn = self._build_unsubscribe_function()
 
         self.http_api = self._build_http_api()
+
+        self.site_bucket, self.distribution = self._build_static_site()
 
         cdk.CfnOutput(self, "SubscribersTableName", value=self.table.table_name)
         cdk.CfnOutput(self, "SubscribersTableArn", value=self.table.table_arn)
@@ -268,3 +276,72 @@ class BriefSubscribersStack(Stack):
             description="Temporary execute-api base URL; wire the site's API_BASE_URL to this until custom-domain DNS is attached.",
         )
         return http_api
+
+    # ------------------------------------------------------------------
+    # Static site — private S3 bucket + CloudFront with Origin Access Control (ADR-0001)
+    # ------------------------------------------------------------------
+    def _build_static_site(self):
+        bucket = s3.Bucket(
+            self,
+            "SubscribeSiteBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
+        # Custom domain + ACM cert are included here per ADR-0001, but actually attaching
+        # DNS is a manual runbook step (deploy/subscribers/README.md) — this sandbox does
+        # not have DNS access, so `certificateArn`/`subscribeDomainName` context values
+        # are optional and the distribution falls back to its default *.cloudfront.net
+        # domain when they are not supplied.
+        certificate = None
+        domain_names = None
+        if self.certificate_arn and self.subscribe_domain_name:
+            certificate = acm.Certificate.from_certificate_arn(
+                self, "SubscribeSiteCertificate", self.certificate_arn
+            )
+            domain_names = [self.subscribe_domain_name]
+
+        distribution = cloudfront.Distribution(
+            self,
+            "SubscribeSiteDistribution",
+            default_root_object="index.html",
+            domain_names=domain_names,
+            certificate=certificate,
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origins.S3BucketOrigin.with_origin_access_control(bucket),
+                viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
+            ),
+            error_responses=[
+                cloudfront.ErrorResponse(
+                    http_status=404,
+                    response_http_status=404,
+                    response_page_path="/unsubscribed.html",
+                    ttl=Duration.minutes(5),
+                )
+            ],
+        )
+
+        s3_deployment.BucketDeployment(
+            self,
+            "SubscribeSiteDeployment",
+            sources=[s3_deployment.Source.asset(str(SITE_DIR))],
+            destination_bucket=bucket,
+            distribution=distribution,
+            distribution_paths=["/*"],
+        )
+
+        cdk.CfnOutput(
+            self,
+            "SiteBucketName",
+            value=bucket.bucket_name,
+        )
+        cdk.CfnOutput(
+            self,
+            "DistributionDomainName",
+            value=distribution.distribution_domain_name,
+            description="Reachable now at this *.cloudfront.net domain; briefing.mschweier.com requires the manual DNS step in deploy/subscribers/README.md.",
+        )
+        return bucket, distribution
