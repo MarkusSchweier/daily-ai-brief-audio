@@ -88,7 +88,9 @@ class BriefSubscribersStack(Stack):
             partition_key=dynamodb.Attribute(name="email", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             time_to_live_attribute="confirmTokenExpiresAt",
-            point_in_time_recovery=True,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
             removal_policy=RemovalPolicy.RETAIN,
         )
         table.add_global_secondary_index(
