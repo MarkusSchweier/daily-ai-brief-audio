@@ -1,6 +1,12 @@
 # Active PRD
 
-No active PRD yet. The Product Manager agent updates this file to point at the current PRD
-when a feature begins (it is imported by this project's CLAUDE.md).
+The current active PRD for this project:
 
-Start one with: `/feature "<describe the feature>"`
+@public-subscriptions.md
+
+---
+
+Status: Draft — awaiting Architect design ADR (SES second-sender permissioning, subscriber data
+store + token/expiry scheme, fan-out integration into the existing scheduled task).
+
+Start a new one with: `/feature "<describe the feature>"`
