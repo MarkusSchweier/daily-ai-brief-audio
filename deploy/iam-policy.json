@@ -23,7 +23,17 @@
       "Effect": "Allow",
       "Action": ["ses:SendEmail", "ses:SendRawEmail"],
       "Resource": "arn:aws:ses:us-east-1:740353583786:identity/mschweier.com",
-      "Condition": { "StringEquals": { "ses:FromAddress": "mail@mschweier.com" } }
+      "Condition": {
+        "StringEquals": {
+          "ses:FromAddress": ["mail@mschweier.com", "aibriefing@mschweier.com"]
+        }
+      }
+    },
+    {
+      "Sid": "DynamoDBSubscribersQuery",
+      "Effect": "Allow",
+      "Action": "dynamodb:Query",
+      "Resource": "arn:aws:dynamodb:us-east-1:740353583786:table/brief-subscribers/index/status-index"
     }
   ]
 }
