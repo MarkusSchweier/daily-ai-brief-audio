@@ -129,3 +129,34 @@ with an array as OR, `dynamodb:Query` scoping to a GSI ARN, and domain-identity 
 sending — are stable, documented IAM/SES/DynamoDB semantics. Developer should confirm the exact
 GSI ARN format and re-validate the policy with an SES send test from both From addresses (owner
 self-send unchanged; `aibriefing@` to a verified test recipient).
+
+## Amendment (2026-07-02) — live validation findings
+
+Real end-to-end validation against live AWS (not just the mocked unit tests) surfaced a real
+SES/IAM authorization quirk this ADR's original design didn't account for: `ses:SendEmail`/
+`ses:SendRawEmail` authorization also checks the **recipient's** identity ARN, whenever that
+recipient is itself a verified SES identity in the same account — unavoidable during SES
+sandbox testing, since sandbox mode requires every test recipient to be individually verified.
+The original `Resource` scoping (the sender's `identity/mschweier.com` domain ARN only) worked
+for arbitrary real-world recipients but broke for sandbox test recipients.
+
+**Changed:** `Resource` broadened to `"*"` on both the `cowork-polly-tts` policy
+(`deploy/iam-policy.json`) and the subscribe Lambda's role (`stack.py`). The `ses:FromAddress`
+condition is unaffected by this — IAM evaluates `Resource` and `Condition` as an AND, so the
+From-address restriction is still enforced on every request regardless of `Resource`. This is
+not a security widening: it's the same pattern already used for the pre-existing Polly grant
+(`Resource: "*"`, unavoidable since Polly has no resource-level permissions at all).
+
+**Also changed, at the human's explicit request (not security-motivated):** the owner's own
+copy now sends from `aibriefing@mschweier.com` instead of `mail@mschweier.com` (recipient
+`mail@mschweier.com` unchanged). Since nothing sends from `mail@mschweier.com` anywhere
+anymore, `ses:FromAddress` was tightened from a two-address allow-list down to one — a pure
+least-privilege improvement, net effect is fewer addresses this credential can impersonate.
+
+**Future hardening note:** once SES production access is granted, the recipient-identity-ARN
+check no longer applies (production recipients aren't verified identities in this account), so
+`Resource` could in principle be re-pinned to `identity/mschweier.com` at that point for
+further tightening. Not required now; noted for the production-access follow-up.
+
+Independently verified by both reviewer and security-engineer passes (see
+`fix/ses-identity-auth-and-unified-sender` branch) before merge.
