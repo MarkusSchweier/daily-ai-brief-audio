@@ -110,8 +110,11 @@ PIPELINE_BUCKET_NAME = "cowork-polly-tts-740353583786"
 SUBSCRIBERS_TABLE_STATUS_INDEX_ARN_TEMPLATE = (
     "arn:aws:dynamodb:{region}:{account}:table/brief-subscribers/index/status-index"
 )
-OWNER_SENDER = "mail@mschweier.com"
-SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
+# Single unified sender for both the owner's copy and the subscriber fan-out — see
+# CLAUDE.md: "SES From must be exactly aibriefing@mschweier.com". mail@mschweier.com
+# is the owner's RECIP (recipient) address only, never a From address; it is not an
+# SES identity this role needs permission to send as.
+SENDER = "aibriefing@mschweier.com"
 
 # Kept short deliberately: it prefixes several resource names, including the
 # image-artifact S3 bucket name below, which has a hard 63-character ceiling
@@ -303,8 +306,9 @@ class ManagedAgentSandboxStack(Stack):
            verbatim.
         2. What THIS pipeline needs to run inside the session — scoped **verbatim** to
            deploy/iam-policy.json's four Sids, plus the ADR-0005 `s3:ListBucket` addition
-           (prefix-scoped to `briefs/*`) and the second SES sender (`mail@mschweier.com`)
-           ADR-0004/PRD FR-14 requires for the owner's unchanged copy. Nothing broader.
+           (prefix-scoped to `briefs/*`). Nothing broader — in particular, only one SES
+           sender (`aibriefing@mschweier.com`) is granted; `mail@mschweier.com` is the
+           owner's recipient address, never a From address (CLAUDE.md).
         """
         role = iam.Role(
             self,
@@ -377,29 +381,18 @@ class ManagedAgentSandboxStack(Stack):
             )
         )
 
-        # SES send, gated by ses:FromAddress — the live deploy/iam-policy.json only lists
-        # the subscriber sender because the owner's Mac-based path signs as
-        # mail@mschweier.com under IAM identity policies attached elsewhere; the microVM
-        # is a brand-new identity that must be granted BOTH senders explicitly (PRD FR-14,
-        # ADR-0004: "SES send from mail@mschweier.com and aibriefing@mschweier.com").
-        # Two Sids (not one condition list) so each sender's grant is independently
-        # auditable/revocable, matching deploy/iam-policy.json's one-Sid-per-purpose style.
+        # SES send, gated by ses:FromAddress — mirrors deploy/iam-policy.json's
+        # "SesSendFromMschweier" Sid exactly: one sender, aibriefing@mschweier.com, used
+        # for both the owner's copy and the subscriber fan-out (CLAUDE.md: "SES From must
+        # be exactly aibriefing@mschweier.com"). mail@mschweier.com is never a From
+        # address, so it is deliberately not granted here.
         role.add_to_policy(
             iam.PolicyStatement(
-                sid="SesSendFromOwner",
+                sid="SesSendFromMschweier",
                 effect=iam.Effect.ALLOW,
                 actions=["ses:SendEmail", "ses:SendRawEmail"],
                 resources=["*"],
-                conditions={"StringEquals": {"ses:FromAddress": OWNER_SENDER}},
-            )
-        )
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="SesSendFromSubscriberSender",
-                effect=iam.Effect.ALLOW,
-                actions=["ses:SendEmail", "ses:SendRawEmail"],
-                resources=["*"],
-                conditions={"StringEquals": {"ses:FromAddress": SUBSCRIBER_SENDER}},
+                conditions={"StringEquals": {"ses:FromAddress": SENDER}},
             )
         )
 

@@ -89,8 +89,9 @@ or the already-shipped subscriber feature.
   a laptop, and on their own copy never regressing.
   - *US-1:* "As the owner, the daily brief runs on schedule every weekday **even when my Mac is
     asleep, closed, or the Desktop app isn't open**, so I stop missing runs."
-  - *US-2:* "As the owner, my personal copy keeps arriving unchanged — from/to `mail@mschweier.com`,
-    with the MP3 attached and the text-only fail-safe on audio failure — exactly as today."
+  - *US-2:* "As the owner, my personal copy keeps arriving unchanged — to `mail@mschweier.com`
+    from `aibriefing@mschweier.com` (today's unified sender), with the MP3 attached and the
+    text-only fail-safe on audio failure — exactly as today."
   - *US-3:* "As the owner, I can see whether each scheduled run **succeeded or failed** (and why)
     without having to check my inbox, via the Managed Agents run-history/webhook signal."
 - **Confirmed subscriber** — receives the daily brief; must not notice the migration.
@@ -152,8 +153,10 @@ Numbered; each maps to acceptance criteria in §5. "The system shall …".
     existing bucket, never a hand-built key) — using the **existing** S3 bucket
     `cowork-polly-tts-740353583786`.
 11. The run shall send the **owner's copy unchanged**: to `mail@mschweier.com`, from
-    `mail@mschweier.com`, with the MP3 attachment and the **text-only fail-safe** if Polly fails —
-    identical to today's behavior, and **not gated** on subscriber sends.
+    `aibriefing@mschweier.com` (the pipeline's single unified sender — see `CLAUDE.md`: "SES From
+    must be exactly `aibriefing@mschweier.com`"), with the MP3 attachment and the **text-only
+    fail-safe** if Polly fails — identical to today's behavior, and **not gated** on subscriber
+    sends.
 12. The run shall perform the **subscriber fan-out unchanged**: query the existing DynamoDB table
     `brief-subscribers` (GSI `status-index`) for confirmed subscribers and send each the brief
     (HTML + MP3) from `aibriefing@mschweier.com` with a working unsubscribe footer,
@@ -168,8 +171,9 @@ Numbered; each maps to acceptance criteria in §5. "The system shall …".
     same mechanism a normal EC2 instance or Lambda function uses), picked up automatically by boto3
     and signed locally with real, valid credentials. That role shall carry **least-privilege**
     permissions scoped **verbatim to `deploy/iam-policy.json`** (Polly synth; S3 rw on the one
-    bucket; SES send from `mail@mschweier.com` and `aibriefing@mschweier.com`; DynamoDB Query on the
-    `brief-subscribers` GSI). This resolves the former open question: **no static AWS access key is
+    bucket; SES send gated by `ses:FromAddress: aibriefing@mschweier.com` — the pipeline's single
+    unified sender, per `CLAUDE.md`; DynamoDB Query on the `brief-subscribers` GSI). This resolves
+    the former open question: **no static AWS access key is
     created, injected, or stored anywhere**, so **boto3/SigV4-signed** AWS calls succeed with valid
     signatures.
 15. No AWS secret shall be committed to git, printed in logs, or exposed in the repo — consistent
@@ -227,8 +231,8 @@ and the owner's own verified addresses as stand-in subscribers.
   `OutputUri`), equivalent in form to today's output.
 - **AC-8 (owner copy unchanged):** Given any run (with zero, one, or many subscribers, including a
   run where a subscriber send fails), When it executes, Then the owner receives their copy at
-  `mail@mschweier.com` from `mail@mschweier.com` with the MP3 attachment, unchanged, and **not**
-  gated on subscriber sends.
+  `mail@mschweier.com` from `aibriefing@mschweier.com` with the MP3 attachment, unchanged, and
+  **not** gated on subscriber sends.
 - **AC-9 (audio fail-safe preserved):** Given a Polly failure during a run, When it executes, Then
   the owner still receives the **text-only fail-safe** email exactly as today.
 - **AC-10 (subscriber fan-out unchanged):** Given confirmed subscribers in `brief-subscribers`, When
