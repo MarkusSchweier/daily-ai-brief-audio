@@ -38,6 +38,13 @@ SENDER = "aibriefing@mschweier.com"
 SES_REGION = "us-east-1"
 WELCOME_SUBJECT = "Welcome to the Daily AI Brief"
 MP3_ATTACHMENT_FILENAME = "daily-ai-brief.mp3"
+# Mirrors deploy/managed-agent/pipeline/audio_email.py's constant of the same name/value --
+# two independent deploy units, kept in sync by hand (same convention as latest_brief.py's
+# duplicated-constants docstring). An oversized MP3 is dropped, not attached -- the subscriber
+# still gets the written brief -- rather than risking an SES raw-message-size rejection that
+# would otherwise cost them the whole email (ADR-0009's "Verification note" flagged this as an
+# open item for the implementer to close).
+MAX_AUDIO_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 
 # Set via CDK environment once the HTTP API exists (mirrors subscribe/handler.py's
 # API_BASE_URL wiring) -- used to build the per-subscriber unsubscribe link.
@@ -130,6 +137,12 @@ def _fetch_audio_bytes(s3_client, audio_key: str | None) -> bytes | None:
         return None
     try:
         obj = s3_client.get_object(Bucket=latest_brief.BUCKET, Key=audio_key)
+        content_length = obj.get("ContentLength", 0)
+        if content_length > MAX_AUDIO_ATTACHMENT_BYTES:
+            # Checked before .read() so an oversized object's body is never pulled over
+            # the wire just to be discarded.
+            logger.info("WELCOME_AUDIO_TOO_LARGE key=%s bytes=%d", audio_key, content_length)
+            return None
         return obj["Body"].read()
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")

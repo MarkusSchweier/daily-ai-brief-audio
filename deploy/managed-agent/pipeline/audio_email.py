@@ -146,10 +146,20 @@ except Exception as e:
 
 # MP3 bytes are read once (if audio_ok) and reused across every recipient's message below,
 # never re-read per recipient.
+#
+# MAX_AUDIO_ATTACHMENT_BYTES mirrors deploy/subscribers/functions/welcome-send/handler.py's
+# constant of the same name/value -- two independent deploy units, kept in sync by hand, same
+# convention as latest_brief.py's duplicated-constants docstring. An oversized MP3 is dropped
+# (never sent unattached-of-brief) rather than risking an SES raw-message-size rejection that
+# would otherwise cost the recipient the written brief too.
+MAX_AUDIO_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 mp3_bytes = None
 if audio_ok:
     with open(mp3_out, "rb") as f:
         mp3_bytes = f.read()
+    if len(mp3_bytes) > MAX_AUDIO_ATTACHMENT_BYTES:
+        print("AUDIO_TOO_LARGE_SKIPPING_ATTACHMENT:", len(mp3_bytes))
+        mp3_bytes = None
 
 
 def _build_message(sender, recipient, subject, html_body, mp3_bytes, mp3_filename):
