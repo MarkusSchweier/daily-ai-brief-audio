@@ -1,8 +1,9 @@
 # 0006. Self-hosted Managed Agents environment and scheduled-deployment definition
 
-- Status: Accepted
+- Status: Accepted (amended 2026-07-03 — interim first-party Anthropic fallback, see bottom)
 - Date: 2026-07-03 (updated 2026-07-03 — self-hosted Lambda MicroVM environment per ADR-0004)
-- Deciders: architect (Claude), human (chose the self-hosted path in ADR-0004)
+- Deciders: architect (Claude), human (chose the self-hosted path in ADR-0004; chose the interim
+  fallback in the 2026-07-03 amendment)
 
 ## Context
 
@@ -185,3 +186,68 @@ session. AWS endpoint hostnames and CDK constructs should be confirmed at build 
 Developer should validate on the first real run that the microVM reaches all AWS endpoints and
 news sources (PRD §7 open networking question) and that `schedule.cron` fires a self-hosted
 session end-to-end with the Mac off (AC-2/AC-3).
+
+## Amendment (2026-07-03) — interim first-party Anthropic fallback while AWS registration is blocked
+
+**Status of this amendment: Accepted, explicitly temporary.** "Claude Platform on AWS" remains
+the target/primary platform (unchanged); this amendment adds a **parallel, interim fallback** so
+build/validation work is not fully blocked on an external support case, with an explicit intent
+to **migrate back** once unblocked.
+
+**Trigger.** Signing up for "Claude Platform on AWS" in account `740353583786` fails at the AWS
+Console's own sign-up step with `Setup failed: AWS account registration is incomplete or revoked`,
+reproducible across multiple attempts including fresh sessions. Diagnosis ruled out: payment
+method (active), prior sign-up attempt (none), AWS Organizations-level Marketplace restriction
+(account is standalone, confirmed via `aws organizations describe-organization`), and an orphaned
+Marketplace agreement (confirmed via `aws marketplace-agreement search-agreements`: zero
+agreements exist for this account). Root cause unconfirmed; an AWS Support case is open (24h SLA).
+
+**Decision: stand up the same self-hosted stack against a standard first-party Anthropic account**
+(a normal sign-up at `console.anthropic.com`/`platform.claude.com`, billed directly to Anthropic,
+no AWS Marketplace involvement) as an interim environment, in parallel with — not instead of —
+continuing to pursue Claude Platform on AWS via the support case.
+
+**Why this needs no branch fork and (almost) no code fork.** Checked directly against the code
+already built and deployed under this ADR: `ANTHROPIC_BASE_URL` is already a first-class optional
+override, threaded from the launcher's own env (`launcher.py` → `LauncherConfig.base_url`)
+through the run-hook payload (`shared/payload.py`) into each session's environment, which
+`microvm/worker/worker.mjs` reads when constructing its Anthropic client. **Nothing sets this
+today, so the stack already defaults to the standard first-party endpoint
+(`api.anthropic.com`)** — meaning the first-party fallback is not a different codebase, it is the
+exact code already reviewed and deployed, pointed at a different Anthropic account. Practically:
+
+- Same CDK stack, same launcher Lambda, same webhook endpoint, same microVM image, same
+  `deploy/iam-policy.json`-scoped execution role — all unchanged and already deployed.
+- **Different only**: which Anthropic account creates the `self_hosted` environment/agent/
+  deployment (via `console.anthropic.com` instead of the AWS Console/gateway), the values
+  populated into the two already-provisioned Secrets Manager secrets (environment key, webhook
+  signing secret — now sourced from the first-party account), the webhook registration target
+  (still the same already-live URL, just registered against the first-party account's webhook
+  settings), and the `anthropicEnvironmentId` CDK context value on redeploy.
+- **One known future code delta, not yet built and not needed for this fallback**: Claude
+  Platform on AWS requires the `AnthropicAWS` SDK client (SigV4 or AWS-issued-API-key auth, plus
+  a required `anthropic-workspace-id` header) rather than the plain `Anthropic` client
+  `worker.mjs` uses today. This is a small, additive, backward-compatible change to make when
+  migrating back — not a rewrite, and does not need to exist for the first-party path to work now.
+
+**Migration-back plan (once Claude Platform on AWS unblocks).** Recreate the environment/agent/
+deployment against the AWS gateway, repopulate the same two Secrets Manager secrets with the
+Claude-Platform-on-AWS environment key + signing secret, update the `anthropicEnvironmentId`
+context value and redeploy, add the `AnthropicAWS` client conditional to `worker.mjs`, and
+decommission the first-party environment/agent/deployment. `deploy/managed-agent/README.md`
+documents both provider setups side by side plus this migration runbook so the two paths never
+need reconciling — there is no divergent branch to merge back.
+
+**Consequences of this amendment**, additive to the ADR's original ones:
+- Positive: unblocks build/validation work today without waiting on the AWS Support case; the
+  interim path exercises the identical infra and pipeline code that will run once migrated, so it
+  is a genuine dry run, not throwaway work.
+  - Note: this is also a strict superset of first-party Claude Managed Agents capability for this
+    use case — first-party has *no* autonomous-session reauthentication cap, versus Claude
+    Platform on AWS's 6-hour limit — so nothing about this pipeline's behavior is constrained by
+    the interim path.
+- Negative: billing for the interim period is a separate Anthropic invoice, outside the AWS
+  account `740353583786` billing consolidation this project otherwise maintains — accepted as a
+  deliberate, temporary tradeoff, not a silent architecture change. The parallel-run validation
+  window (PRD §8) should note which platform produced which run's data if both are ever live at
+  once during the transition.
