@@ -22,6 +22,11 @@ LAYER_PYTHON_DIR = SUBSCRIBERS_DIR / "layers" / "common" / "python"
 FUNCTIONS_DIR = SUBSCRIBERS_DIR / "functions"
 
 sys.path.insert(0, str(LAYER_PYTHON_DIR))
+# Makes `from brief_subscribers.stack import ...` (test_stack_iam.py) importable
+# regardless of the pytest invocation's cwd -- `python3 app.py` gets this for free
+# (interpreter auto-adds its own script directory), but pytest only auto-adds
+# directories containing conftest.py/test files, not this package's parent.
+sys.path.insert(0, str(SUBSCRIBERS_DIR))
 
 os.environ.setdefault("SUBSCRIBERS_TABLE_NAME", "brief-subscribers-test")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
