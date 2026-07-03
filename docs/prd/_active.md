@@ -2,11 +2,26 @@
 
 The current active PRD for this project:
 
-@instant-welcome-brief.md
+@send-confirmation-summary.md
 
 ---
 
-Status: **Shipped (2026-07-03).** New sign-ups now receive the latest edition of the brief the
+Status: **Ready for Developer — no ADR.** Small, additive, no-new-infrastructure change: after each
+daily Managed Agents run completes (owner copy + subscriber fan-out), send a short **confirmation
+email to `mail@mschweier.com`** from the existing `aibriefing@mschweier.com` sender, stating the
+brief went out and to how many **subscribers** (owner excluded from the count). Touches **only**
+`deploy/managed-agent/pipeline/audio_email.py` (the local Desktop task is deactivated — not a
+lockstep target). No new AWS resource, IAM permission, or secret (verified against
+`deploy/iam-policy.json`: SES send is gated on `ses:FromAddress` only, and `mail@mschweier.com` is
+already the owner's live recipient). The confirmation send is failure-isolated — a glitch in it
+never fails the run. The §7 open question is resolved (FR-8/AC-7: distinguish "0 subscribers because
+nobody confirmed" from "0 subscribers because the DynamoDB query silently failed"). **Architect
+reviewed 2026-07-03 and confirmed no design ADR is warranted** — nothing here is significant,
+irreversible, or cross-cutting (contrast ADR-0009's new-Lambda/IAM fork and ADR-0008's cross-cutting
+lockstep procedure); the query-failure signal is a contained tweak to `send_all()`'s return
+contract in one file. Developer implements against FR-1..FR-8.
+
+Previous PRD — `instant-welcome-brief.md` (**Shipped 2026-07-03**). New sign-ups now receive the latest edition of the brief the
 moment they confirm their email, with a short welcome header stating the weekday send time
 (06:07 Europe/Berlin, unchanged), centralized into one canonical source the email prose and the
 deployment schedule agree on. Cross-subsystem: an audio-key pointer was added to the Managed
