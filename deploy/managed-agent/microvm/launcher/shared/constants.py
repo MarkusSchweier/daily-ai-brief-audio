@@ -41,8 +41,21 @@ RUN_HOOK_PAYLOAD_VERSION = "1"
 # Deployments-API call this repo makes (deployment.json) must send it.
 MANAGED_AGENTS_BETA_HEADER = "managed-agents-2026-04-01"
 
+# CONFIRMED LIVE BUG (2026-07-03), now fixed: the reference implementation's 300s
+# (5-minute) idle window assumes something periodically invokes the MicroVM's own
+# AWS-facing endpoint to prove liveness -- the classic scale-to-zero pattern. This
+# worker (worker.mjs) does the opposite: it POLLS Anthropic's Sessions API outward
+# (WorkPoller/EnvironmentWorker) and is never itself invoked inbound. So AWS's idle
+# clock starts at boot and ticks continuously regardless of how much real
+# research/tool-call activity is happening inside the microVM -- a real end-to-end
+# test run was killed by this ("MicroVM exceeded maximum lifetime", actual runtime
+# ~367s = 300s idle + 60s suspended + autoResumeEnabled=False -> terminated) less
+# than 6 minutes in, mid-pipeline, well before Polly synthesis or SES send. Fixed by
+# setting maxIdleDurationSeconds to the same ceiling as DEFAULT_MAX_LIFETIME_SECONDS
+# above, so the (meaningless, for this poll-based worker) idle-suspend mechanism
+# never fires before the real 8-hour hard cap does.
 DEFAULT_IDLE_POLICY = {
-    "maxIdleDurationSeconds": 300,
+    "maxIdleDurationSeconds": DEFAULT_MAX_LIFETIME_SECONDS,
     "suspendedDurationSeconds": 60,
     "autoResumeEnabled": False,
 }

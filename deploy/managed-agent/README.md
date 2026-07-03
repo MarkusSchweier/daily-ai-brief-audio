@@ -48,22 +48,77 @@ plane" (CDK/SAM) from "image build" (CLI script).
   python3 -m venv .venv
   .venv/bin/pip install -r requirements-dev.txt
   ```
-- **Docker**, for a real `cdk deploy` of the `LauncherFunction`. The launcher has
-  third-party Python dependencies (`anthropic[webhooks]`, `boto3`/`botocore` — see
+- **Docker (optional but preferred)**, for a real `cdk deploy` of the `LauncherFunction`.
+  The launcher has third-party Python dependencies (`anthropic`, `boto3`/`botocore` — see
   `deploy/managed-agent/microvm/launcher/requirements.txt`) that must be installed
   alongside its source before zipping. The stack's asset bundling **prefers local `pip
-  install` (no Docker)** so `cdk synth` works in a plain dev sandbox, but **falls back to
-  Docker bundling** (`public.ecr.aws/sam/build-python3.13`) automatically if local
-  bundling fails or `pip` isn't on `PATH`. For an actual deploy, having Docker available
-  is the safer path — it builds the dependency wheels against the exact Lambda execution
-  environment rather than whatever the host's `pip` happens to produce. If you don't have
-  Docker, `brew install --cask docker` (or run in an environment that has it).
+  install` (no Docker)** so `cdk deploy` also works in a plain dev sandbox without
+  Docker, but **falls back to Docker bundling** (`public.ecr.aws/sam/build-python3.13`)
+  automatically if local bundling fails or `pip` isn't on `PATH`.
+
+  **CONFIRMED LIVE BUG (2026-07-03), now fixed:** the first real deploy from a
+  Docker-less macOS host used local bundling with a bare `pip install -t <dir>` — no
+  `--platform` pin — which resolves wheels for the **host's** platform (macOS arm64),
+  not the Lambda's actual runtime (Linux arm64/manylinux). `anthropic`'s compiled
+  dependency (`pydantic-core`, a Rust extension) built for macOS silently failed to
+  import inside the deployed Lambda; the launcher's own fail-closed guard (see
+  `launcher.py`'s `verify_signature()`) correctly rejected every webhook delivery as
+  unverifiable, which is the right behavior but made the packaging bug look like a
+  signature/secret problem. Fixed two ways, together:
+  1. `_LocalPipBundling` now passes `--platform manylinux2014_aarch64 --implementation
+     cp --python-version 3.13 --abi cp313 --only-binary=:all:`, so `pip` downloads
+     prebuilt Linux/aarch64 wheels for CPython 3.13 regardless of host platform — this
+     needs no Docker because it's a wheel *selection* constraint, not a build step.
+  2. The Lambda's `Code.from_asset(...)` now sets `asset_hash_type=AssetHashType.OUTPUT`
+     (hash the bundled output, not just the source files) — otherwise a bundling-*logic*
+     change like this one doesn't touch the launcher's source files, so CDK's default
+     source-hash would treat the asset as unchanged and keep serving the previously
+     published (wrong-platform) zip forever.
+
+  Docker bundling remains the stronger guarantee (it builds against the *exact* Lambda
+  execution image, not just a matching platform triple) and is still worth having; if
+  you don't have it, `brew install --cask docker` (or run in an environment that has
+  it).
+
+  A second, related bug in the same area: `client.beta.webhooks.unwrap()` (used in
+  `verify_signature()`) does a plain `from standardwebhooks import Webhook` guarded by
+  `except ImportError` — no extras-marker check, just whether the module is importable.
+  `standardwebhooks` (the dependency behind the `anthropic[webhooks]` extra) ships
+  **only a source sdist on PyPI, no wheel for any platform**, so once the platform pin
+  above forces `--only-binary=:all:`, it can never resolve — pip fails outright with "No
+  matching distribution found for standardwebhooks". Since it's pure Python (no compiled
+  extensions), the fix is to install it in a **second, unlocked** `pip install --no-deps`
+  pass (no `--platform`/`--only-binary` flags) — the resulting files are
+  platform-independent and run fine on the Lambda's Linux/aarch64 runtime regardless of
+  build host. `_LocalPipBundling.try_bundle()` splits `requirements.txt` into these two
+  passes automatically; see the comments there and in `requirements.txt` for the full
+  incident history (an intermediate, incorrect fix briefly dropped the `[webhooks]`
+  extra's underlying dependency entirely, which broke signature verification the other
+  way — "You need to install `anthropic[webhooks]`" — before this was diagnosed
+  correctly).
 - AWS credentials for account `740353583786` with permission to create the resources
   above. **Confirm the active AWS account before any deploy** (`/aws-account` /
   `aws-account-guard` convention, this repo's global operating manual). This CDK app is a
   separate deploy surface from both `deploy/subscribers/`'s CDK app and the
   `cowork-polly-tts` IAM user — use whatever credentials/profile you deploy CDK stacks
   with, never the `cowork-polly-tts` static key.
+
+**CONFIRMED LIVE BUG (2026-07-03), now fixed — microVM idle-suspend killed real runs
+mid-pipeline.** The reference implementation's `idlePolicy` (`maxIdleDurationSeconds:
+300` — 5 minutes) assumes something periodically invokes the microVM's own AWS-facing
+endpoint to prove liveness, the classic scale-to-zero pattern. This worker
+(`microvm/worker/worker.mjs`) does the opposite: it *polls* Anthropic's Sessions API
+outward (`WorkPoller`/`EnvironmentWorker`) and is never itself invoked inbound, so AWS's
+idle clock starts at boot and never resets no matter how much real research/tool-call
+activity happens inside. A real end-to-end validation run was killed
+(`stateReason: "MicroVM exceeded maximum lifetime"`, actual runtime ~367s = 300s idle +
+60s suspended, `autoResumeEnabled: false`) less than 6 minutes in, mid-brief-writing,
+well before Polly synthesis or the SES send. Fixed in
+`microvm/launcher/shared/constants.py` by setting `DEFAULT_IDLE_POLICY.maxIdleDurationSeconds`
+to the same 8-hour ceiling as `DEFAULT_MAX_LIFETIME_SECONDS` — the idle-suspend mechanism
+is structurally meaningless for this poll-based worker, so it should never fire before the
+real hard cap does. Confirmed fixed by a full successful run (research → write → HTML →
+Polly → SES → S3 archive, ~16 minutes) after redeploying.
 - **"Claude Platform on AWS" must be stood up first** (AWS Marketplace subscription +
   IAM-federated console access, PRD FR-1/AC-1) — this is an Anthropic/AWS Marketplace
   step done through the AWS Console, not something this CDK stack or the `aws` CLI can do.
