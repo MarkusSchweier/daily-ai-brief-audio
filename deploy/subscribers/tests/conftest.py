@@ -88,3 +88,16 @@ def ses_client(mocked_aws):
     client = boto3.client("ses", region_name="us-east-1")
     client.verify_domain_identity(Domain="mschweier.com")
     yield client
+
+
+@pytest.fixture
+def briefs_bucket(mocked_aws):
+    """A mocked `cowork-polly-tts-740353583786` bucket for latest_brief.py /
+    welcome-send handler tests -- mirrors deploy/managed-agent/tests/conftest.py's
+    fixture of the same name (same bucket, same mocked-AWS pattern), duplicated here
+    rather than imported across the two separate CDK apps' test suites."""
+    import latest_brief
+
+    client = boto3.client("s3", region_name="us-east-1")
+    client.create_bucket(Bucket=latest_brief.BUCKET)
+    yield client
