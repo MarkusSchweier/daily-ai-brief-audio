@@ -160,6 +160,30 @@ def get_subscriber(table, email: str) -> Optional[dict[str, Any]]:
     return resp.get("Item")
 
 
+# --- Centralized weekday send time (PRD instant-welcome-brief.md FR-10/FR-11/FR-12) ---
+#
+# The single named, canonical source for "the daily brief goes out on weekdays at
+# 06:07 Europe/Berlin". The welcome email's stated send time (FR-4/FR-8) renders from
+# `weekday_send_time_label()` below, not a separate hardcoded string (AC-9: changing
+# these constants changes the email text with no other code edit).
+#
+# `deploy/managed-agent/deployment.json`'s `schedule.cron`/`schedule.timezone` is the
+# live deployment's own source of truth and is applied manually via the Deployments API
+# (it cannot import this runtime module) -- so this is a *validated*, not *derived*,
+# single source (PRD FR-12, decided as the pragmatic minimum). See
+# deploy/subscribers/tests/test_send_time_consistency.py, which parses deployment.json
+# and asserts it agrees with these constants; that test is the drift guard (AC-10).
+WEEKDAY_SEND_HOUR = 6
+WEEKDAY_SEND_MINUTE = 7
+WEEKDAY_SEND_TIMEZONE = "Europe/Berlin"
+
+
+def weekday_send_time_label() -> str:
+    """Render the canonical send time as the exact prose fragment the welcome email uses,
+    e.g. "06:07 (Europe/Berlin)"."""
+    return f"{WEEKDAY_SEND_HOUR:02d}:{WEEKDAY_SEND_MINUTE:02d} ({WEEKDAY_SEND_TIMEZONE})"
+
+
 __all__ = [
     "TABLE_NAME",
     "CONFIRM_TOKEN_TTL_SECONDS",
@@ -178,4 +202,8 @@ __all__ = [
     "get_subscriber",
     "SUBSCRIBE_SITE_URL",
     "render_page",
+    "WEEKDAY_SEND_HOUR",
+    "WEEKDAY_SEND_MINUTE",
+    "WEEKDAY_SEND_TIMEZONE",
+    "weekday_send_time_label",
 ]

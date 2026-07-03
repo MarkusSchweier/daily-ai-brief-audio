@@ -64,3 +64,12 @@ def test_build_response_shapes_lambda_proxy_response():
     assert resp["statusCode"] == 200
     assert resp["body"] == "<p>ok</p>"
     assert resp["headers"]["Content-Type"] == "text/html; charset=utf-8"
+
+
+def test_weekday_send_time_label_renders_the_canonical_value():
+    # PRD instant-welcome-brief.md AC-9: the welcome email's stated time is produced FROM
+    # these constants, so changing them changes the rendered label with no other edit.
+    assert common.weekday_send_time_label() == "06:07 (Europe/Berlin)"
+    assert common.WEEKDAY_SEND_HOUR == 6
+    assert common.WEEKDAY_SEND_MINUTE == 7
+    assert common.WEEKDAY_SEND_TIMEZONE == "Europe/Berlin"
