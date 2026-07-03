@@ -28,11 +28,18 @@ sets credentials explicitly, exactly like deploy/audio_email.py.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
 BUCKET = "cowork-polly-tts-740353583786"
 BRIEFS_PREFIX = "briefs/"
+# Filename for the durable MP3 pointer written alongside a day's archive (PRD
+# instant-welcome-brief.md FR-1/AC-1). deploy/subscribers' welcome-send Lambda
+# (layers/common/python/latest_brief.py) reads this same filename from a *different*
+# CDK app/deploy unit -- it deliberately does not import this module (see that module's
+# docstring) so this constant's name/value must stay in sync there by hand.
+AUDIO_POINTER_FILENAME = "audio-pointer.json"
 
 # Matches `briefs/YYYY-MM-DD/` — the per-day folder key prefix ADR-0005 defines.
 _DATED_PREFIX_RE = re.compile(r"^briefs/(\d{4}-\d{2}-\d{2})/$")
@@ -116,6 +123,7 @@ def archive_todays_brief(
     markdown: str,
     html: str | None = None,
     listening_script: str | None = None,
+    audio_key: str | None = None,
     bucket: str = BUCKET,
 ) -> None:
     """Archive today's produced brief under `briefs/<today>/`, so tomorrow's run can
@@ -128,6 +136,17 @@ def archive_todays_brief(
     best-effort per PRD's "never lose the brief over a glitch" fail-safe philosophy: a
     write failure is logged, not raised, so it can never block the audio/email send that
     already has the brief in hand.
+
+    `audio_key`, when given, is that run's actual Polly `OutputUri`-derived `audio/…` S3
+    key (never a reconstructed one -- CLAUDE.md's "use OutputUri, never build the S3 key"
+    invariant) and is written as a small durable pointer object,
+    `briefs/<today>/audio-pointer.json`, so a later reader (the welcome-send Lambda, PRD
+    instant-welcome-brief.md FR-1/FR-2) can find the MP3 without reconstructing the key.
+    Callers pass `audio_key=None` on an audio-failure day (PRD AC-2) so no pointer is
+    written then -- the read side (FR-2) treats a missing pointer as "brief, no audio",
+    not an error. The pointer write is its own best-effort step, isolated from the
+    brief/html/script writes above: a pointer-write failure must not affect (or be
+    affected by) whether those succeeded.
     """
     objects = {f"{BRIEFS_PREFIX}{today}/brief.md": markdown}
     if html is not None:
@@ -143,3 +162,16 @@ def archive_todays_brief(
             print("BRIEF_ARCHIVED", key)
         except Exception as e:
             print("BRIEF_ARCHIVE_FAILED:", key, repr(e))
+
+    if audio_key is not None:
+        pointer_key = f"{BRIEFS_PREFIX}{today}/{AUDIO_POINTER_FILENAME}"
+        try:
+            s3_client.put_object(
+                Bucket=bucket,
+                Key=pointer_key,
+                Body=json.dumps({"audio_key": audio_key}).encode("utf-8"),
+                ContentType="application/json",
+            )
+            print("BRIEF_ARCHIVED", pointer_key)
+        except Exception as e:
+            print("BRIEF_ARCHIVE_FAILED:", pointer_key, repr(e))
