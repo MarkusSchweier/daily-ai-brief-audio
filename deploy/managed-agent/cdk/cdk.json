@@ -19,7 +19,7 @@
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
     "projectName": "daily-brief-agent",
-    "anthropicEnvironmentId": "",
+    "anthropicEnvironmentId": "env_01ExWJJqFVT2f75H8BqcmKw8",
     "microvmImageIdentifier": "claude-daily-brief-worker"
   }
 }
