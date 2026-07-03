@@ -1,0 +1,17 @@
+# Webhook signature verification (client.beta.webhooks.unwrap); the [webhooks]
+# extra provides the HMAC verifier used in launcher.py's verify_signature().
+anthropic[webhooks]>=0.69
+
+# boto3/botocore for the `lambda-microvms` RunMicrovm client (shared/microvm_client.py)
+# and `secretsmanager` (launcher.py's _get_secret). NOTE: `lambda-microvms` is a
+# newer/beta AWS service model. If a plain `pip install boto3` on your build
+# machine does not expose it (check with `python3 -c "import boto3;
+# boto3.client('lambda-microvms')"`), you will need the vendored/updated
+# boto3+botocore wheels AWS's reference implementation ships
+# (src/functions/wheels/ in aws-samples/sample-lambda-microvm-claude-managed-agents)
+# — pin those instead of this line. Left as a plain version floor here because
+# CDK's `_lambda.Code.from_asset()` bundling behavior for vendored wheels needs
+# to be decided at build/deploy time (see deploy/managed-agent/README.md), not
+# hard-coded at synth time.
+boto3>=1.34.0
+botocore>=1.34.0
