@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Deployments-API payload for the daily AI brief's Managed Agents scheduled deployment.",
+    "Source-of-truth per docs/adr/0006 FR-16/AC-15 — this file is what defines the",
+    "schedule and which self-hosted environment/agent it targets. It is NOT applied",
+    "automatically by this CDK stack; create/update the deployment via the Deployments",
+    "API or Claude Console using this file's values (see deploy/managed-agent/README.md).",
+    "",
+    "Built against beta header: managed-agents-2026-04-01 (PRD FR-2). If Anthropic",
+    "changes this API surface, this file's shape may need to change too — the",
+    "deployment must fail loudly, not silently skip, if the platform contract changes",
+    "(docs/adr/0006, Negative/follow-ups)."
+  ],
+  "beta_header": "managed-agents-2026-04-01",
+
+  "agent": {
+    "_comment": "References the agent definition created via the Claude Console/API (docs/adr/0007). The agent's initial prompt is intentionally thin — it orchestrates, delegating substance to the committed skill file.",
+    "agent_id": "REPLACE_WITH_AGENT_ID_agent_...",
+    "initial_prompt": "Run today's daily AI brief pipeline: research per the daily-ai-brief skill, write and validate the Markdown brief, derive the HTML and the speech-optimized listening script, then run the audio/email step (Polly synthesis + SES owner copy + subscriber fan-out) exactly as deploy/audio_email.py does today.",
+    "skills": [
+      "daily-ai-brief"
+    ]
+  },
+
+  "environment": {
+    "_comment": "The self_hosted environment id created via the Claude Console after the CDK stack (ManagedAgentSandboxStack) is deployed and its webhook is registered. See README step 2.",
+    "type": "self_hosted",
+    "environment_id": "REPLACE_WITH_ENVIRONMENT_ID_env_..."
+  },
+
+  "schedule": {
+    "_comment": "Matches today's weekday 6:07 AM local run (docs/adr/0006). CONFIRM the owner's actual local timezone before deploy -- America/Los_Angeles is this ADR's assumption, not independently re-verified against the owner's Mac locale.",
+    "cron": "7 6 * * 1-5",
+    "timezone": "America/Los_Angeles"
+  },
+
+  "_manual_steps_not_encoded_here": [
+    "Creating the agent (agent_id) and the self_hosted environment (environment_id) via the Claude Console/API.",
+    "Registering deploy/managed-agent's WebhookUrl stack output with Anthropic for session.status_run_started.",
+    "Generating and populating the environment key + webhook signing secret into the two Secrets Manager secrets this CDK stack creates empty.",
+    "Building and pushing the microVM container image (deploy/managed-agent/microvm/) via the reference implementation's build-image.sh-equivalent flow.",
+    "Actually calling the Deployments API (or Console) with this file's schedule/agent/environment values to create or update the live scheduled deployment.",
+    "See deploy/managed-agent/README.md for the full, ordered runbook."
+  ]
+}
