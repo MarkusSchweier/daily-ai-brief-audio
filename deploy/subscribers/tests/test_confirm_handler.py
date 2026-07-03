@@ -210,6 +210,44 @@ def test_welcome_send_invoke_failure_does_not_block_confirmation(subscribers_tab
     assert item["status"] == common.STATUS_CONFIRMED
 
 
+def test_racing_confirm_requests_send_welcome_exactly_once(subscribers_table, monkeypatch):
+    """PRD §7 "Duplicate/near-simultaneous confirms": two requests that both read the
+    same still-`pending` row (e.g. a duplicate link-scanner GET) before either writes
+    back must not both win the transition -- only one may flip the status and invoke
+    the welcome send; the other's UpdateItem must be rejected by the
+    ConditionExpression and fall through to the idempotent response (FR-7/AC-6).
+
+    Simulated without real threads by freezing the *read* the second call sees: its
+    `get_subscriber` call is patched to return the original pending snapshot even
+    though the row has already been flipped to `confirmed` by the first call --
+    exactly what two genuinely concurrent requests would each observe.
+    """
+    monkeypatch.setattr(_confirm_module, "WELCOME_FUNCTION_NAME", "arn:aws:lambda:us-east-1:123:function:welcome-send")
+    email = "racing@example.com"
+    token = "race-token"
+    pending_item = {
+        "email": email,
+        "firstName": "Grace",
+        "status": common.STATUS_PENDING,
+        "confirmToken": token,
+        "confirmTokenExpiresAt": common.now_epoch() + 1000,
+    }
+    subscribers_table.put_item(Item=dict(pending_item))
+    lambda_client = _RecordingLambdaClient()
+
+    first = _handle(_event(email, token), subscribers_table, lambda_client)
+    assert first["statusCode"] == 200
+    assert len(lambda_client.invocations) == 1
+
+    monkeypatch.setattr(_confirm_module, "get_subscriber", lambda table, email: dict(pending_item))
+    second = _handle(_event(email, token), subscribers_table, lambda_client)
+
+    assert second["statusCode"] == 200
+    assert len(lambda_client.invocations) == 1  # still exactly one welcome send, not two
+    item = common.get_subscriber(subscribers_table, email)
+    assert item["status"] == common.STATUS_CONFIRMED
+
+
 def test_no_welcome_function_configured_is_a_silent_no_op(subscribers_table, monkeypatch):
     """With WELCOME_FUNCTION_NAME unset (e.g. a deploy context that hasn't wired it
     yet), the invoke is skipped -- logged, never raised -- and confirmation still

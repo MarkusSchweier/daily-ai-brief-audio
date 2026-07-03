@@ -21,6 +21,7 @@ import os
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 from subscriber_common import (
     STATUS_CONFIRMED,
@@ -128,19 +129,36 @@ def _handle(event: dict[str, Any], table, lambda_client=None) -> dict[str, Any]:
         return build_response(400, _INVALID_OR_EXPIRED_BODY)
 
     unsubscribe_token = generate_token()
-    table.update_item(
-        Key={"email": email},
-        UpdateExpression=(
-            "SET #status = :confirmed, confirmedAt = :now, unsubscribeToken = :unsub_token "
-            "REMOVE confirmToken, confirmTokenExpiresAt"
-        ),
-        ExpressionAttributeNames={"#status": "status"},
-        ExpressionAttributeValues={
-            ":confirmed": STATUS_CONFIRMED,
-            ":now": now_epoch(),
-            ":unsub_token": unsubscribe_token,
-        },
-    )
+    try:
+        table.update_item(
+            Key={"email": email},
+            UpdateExpression=(
+                "SET #status = :confirmed, confirmedAt = :now, unsubscribeToken = :unsub_token "
+                "REMOVE confirmToken, confirmTokenExpiresAt"
+            ),
+            # Guards the actual `pending`->`confirmed` transition against a second,
+            # near-simultaneous request (e.g. a duplicate link-scanner GET, or a user
+            # double-clicking) racing this one: both requests can read the same `pending`
+            # snapshot before either writes, so the read-then-check above is not enough on
+            # its own (flagged as a risk in docs/prd/instant-welcome-brief.md §7). Only the
+            # request whose UpdateItem actually flips the still-`pending` row wins and
+            # invokes the welcome send; the loser's write is rejected here and falls
+            # through to the idempotent "already confirmed" response below, matching
+            # FR-7/AC-6 (sent-once).
+            ConditionExpression="#status = :pending",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":confirmed": STATUS_CONFIRMED,
+                ":now": now_epoch(),
+                ":unsub_token": unsubscribe_token,
+                ":pending": STATUS_PENDING,
+            },
+        )
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            logger.info("CONFIRM_LOST_TRANSITION_RACE email=%s", email)
+            return build_response(200, _CONFIRMED_BODY)
+        raise
     logger.info("CONFIRM_SUCCESS email=%s", email)
 
     # Only on this actual pending->confirmed transition branch (never the idempotent
