@@ -15,3 +15,4 @@ the template and when an ADR is required.
 | [0005](0005-cross-run-persistence-store-for-brief-history.md) | External cross-run persistence store for brief history | Accepted |
 | [0006](0006-managed-agents-environment-and-scheduled-deployment.md) | Self-hosted Managed Agents environment and scheduled-deployment definition | Accepted |
 | [0007](0007-porting-the-research-writing-half-into-the-managed-agent.md) | Faithfully porting the research/writing half into the Managed Agent | Accepted |
+| [0008](0008-skill-content-change-lockstep-and-live-version-push.md) | Three-way lockstep + live Skills-API version push for skill-content changes | Accepted |

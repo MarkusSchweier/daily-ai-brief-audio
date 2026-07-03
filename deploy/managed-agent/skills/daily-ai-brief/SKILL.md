@@ -1,6 +1,6 @@
 ---
 name: daily-ai-brief
-description: Generate a daily AI briefing covering the latest AI research and industry developments, written in dense news-bite style with an Anthropic lens. Gathers from a comprehensive source list, dedupes across outlets, finds free coverage for paywalled scoops, and writes a tiered Markdown brief to the working folder. Use when the user asks for "today's AI brief / briefing / digest", an "AI news roundup", or when run as the scheduled daily task.
+description: Generate a daily AI briefing covering the latest AI research and industry developments, written in dense news-bite style for a general, technically fluent audience. Gathers from a comprehensive source list, dedupes across outlets, finds free coverage for paywalled scoops, and writes a tiered Markdown brief to the working folder. Use when the user asks for "today's AI brief / briefing / digest", an "AI news roundup", or when run as the scheduled daily task.
 ---
 
 # Daily AI Brief
@@ -34,10 +34,11 @@ Produce one Markdown briefing per day on the most important developments in AI �
 so a busy, technically fluent reader can skim the headlines in 60 seconds and dive deep on what
 matters.
 
-The reader is an **Applied AI Solutions Architect Manager at Anthropic**. Apply an **Anthropic
-lens**: when an item touches the competitive landscape, models, enterprise/applied AI, agents,
-safety, or chips/infra, add one sentence on what it means for Anthropic (its position, customers,
-or the applied-AI/SA function). Keep this analytical and even-handed, not boosterish.
+The reader is a **technically fluent AI industry generalist** — no single employer or lab lens.
+When an item touches the competitive landscape, models, enterprise/applied AI, agents, safety, or
+chips/infra, add lab-neutral "why it matters" context (competitive dynamics, industry
+significance, what it signals for the field) rather than analysis anchored to one company's
+vantage point. Keep this analytical and even-handed, not boosterish — about any lab.
 
 > Optional audio: this brief can also be delivered as narration. When an audio version is
 > requested, additionally produce a **listening script** per the "Optional: audio /
@@ -127,7 +128,7 @@ content every day.
 
 ```
 ### {Headline-style title} ({Month D, YYYY})
-{Dense, factual Summary paragraph: 3–6 sentences. Lead with the concrete facts — numbers, names, model versions, benchmark scores, dollar amounts, dates. Then, where relevant, one Anthropic-lens sentence prefixed naturally (e.g., "For Anthropic, ..."). Neutral, specific, no hype.}
+{Dense, factual Summary paragraph: 3–6 sentences. Lead with the concrete facts — numbers, names, model versions, benchmark scores, dollar amounts, dates. Then, where relevant, one lab-neutral sentence on why it matters (competitive dynamics, industry significance, what it signals for the field — not framed around any single company). Neutral, specific, no hype.}
 **Sources:** [{Outlet}]({url}) · [{Outlet 2}]({url2})
 ```
 
@@ -193,24 +194,28 @@ won't fetch. When you hit one:
 - Drop pure rehashes of yesterday unless there's a material update.
 
 ### 5. Rank & select
-Prioritize by importance to the reader's role. A rough rubric (higher = lead with it):
-- New frontier model / major capability release / significant paper with results.
-- Anything **directly about Anthropic** or its direct competitors' models (OpenAI, Google/
-  DeepMind, Meta, Mistral, xAI, major Chinese open-weight labs).
-- Benchmark SOTA changes; agentic/coding/enterprise-AI developments (the reader's domain).
+Prioritize by **newsworthiness**, judged the same way regardless of which lab a story is about. A
+rough rubric (higher = lead with it):
+- New frontier model / major capability release / significant paper with results — from **any**
+  frontier lab (OpenAI, Google/DeepMind, Meta, Mistral, xAI, Anthropic, major Chinese open-weight
+  labs, etc.), evaluated on the same footing.
+- Benchmark SOTA changes; agentic/coding/enterprise-AI developments (a broadly technical reader's
+  domain).
 - Big deals/funding/chips/infra that shift the competitive or cost landscape.
 - Policy/safety actions affecting frontier labs.
-Down-weight: minor product tweaks, marketing, rumor without substance, stories with no credible
-source.
+No lab gets its own elevated tier just for being that lab — a story leads because of its
+newsworthiness (scale, novelty, capability delta, market impact), not because of which company it
+concerns. Down-weight: minor product tweaks, marketing, rumor without substance, stories with no
+credible source.
 
 Target **8–15 headlines** and **5–10 deep dives**. Quality over quantity — a tight brief beats a
 bloated one.
 
 ### 6. Write
 - Write the file per the **Output contract**. Build it section by section.
-- Each deep-dive summary: lead with facts, then the Anthropic-lens sentence where it adds
-  insight. Verify numbers against the source; don't invent figures, dates, or benchmark scores.
-  If a claim is a rumor/unconfirmed, say so.
+- Each deep-dive summary: lead with facts, then the lab-neutral "why it matters" sentence where
+  it adds insight. Verify numbers against the source; don't invent figures, dates, or benchmark
+  scores. If a claim is a rumor/unconfirmed, say so.
 - Keep links as real URLs you actually retrieved. **Never fabricate URLs or sources.** If you
   couldn't verify a link, omit it or mark the item as unverified.
 - Category emoji for headlines: 🔬 research/models · 🏢 industry/deals · 🛠️ product/tools ·
@@ -256,7 +261,8 @@ task, not the brief.
   name, and date must trace to a source you fetched. When unsure, hedge explicitly
   ("reportedly", "unconfirmed").
 - **No hallucinated sources or links.** Real URLs only.
-- **Even-handed.** Report competitor wins straight; the Anthropic lens is analysis, not spin.
+- **Even-handed.** Report every lab's wins and setbacks straight — analysis, not spin, and no
+  single lab gets a structural head start in coverage or selection.
 - **Dense, not padded.** Match the source newsletter's information density. Cut filler
   sentences.
 - **Technical depth is welcome** — include architectures, methods, eval methodology, and
@@ -276,7 +282,7 @@ task, not the brief.
 - Keep `sources.md` current: if a feed dies, fall back to WebSearch and fix the URL when you
   can.
 
-## Reader context (Markus)
-Applied AI Manager at Anthropic focused on Industries customers in DACH; expert-level in Gen AI,
-LLMs, agentic AI, AWS Bedrock and Claude models. Dates as DD.MM.YYYY. If a source fails to
-fetch, fall back to a date-scoped web search and continue.
+## Reader context
+A general, technically fluent audience: expert-level in Gen AI, LLMs, agentic AI, and modern
+model/infra tooling — no hand-holding needed, no single employer's vantage point assumed. Dates
+as DD.MM.YYYY. If a source fails to fetch, fall back to a date-scoped web search and continue.

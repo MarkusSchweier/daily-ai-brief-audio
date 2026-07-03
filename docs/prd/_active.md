@@ -2,16 +2,26 @@
 
 The current active PRD for this project:
 
-@managed-agents-migration.md
+@neutral-briefing-pipeline.md
 
 ---
 
-Status: **Draft** — newly drafted; awaiting PM review, then the Architect writes the design
-ADR(s) (AWS credential/identity for boto3 in the sandbox, external cross-run persistence store,
-the Managed Agents environment + scheduled-deployment definition, and faithful reproduction of
-the research half) before the Developer begins.
+Status: **Shipped (2026-07-03).** All of AC-1 through AC-8 satisfied — de-skew edits applied to
+the in-repo copy, the local Desktop wrapper, and (after catching and correcting a packaging
+mistake) a separately-registered local Cowork skill; independent reviewer pass confirmed the
+structural checks; the live Skills API version was pushed and **confirmed** (not assumed) —
+`skill_01H2qu83NwnJ5zqcbrqsCcJ6` now resolves `latest` to version `1783096569199829`, and the
+scheduled deployment's agent picks it up with no `agent.json` change needed. Runbook for future
+skill-content pushes recorded in `deploy/managed-agent/README.md` §3a per ADR-0008. Remaining:
+none blocking — a quick sanity glance at the next real scheduled brief is worthwhile but not
+gating.
 
-Previous PRD — `public-subscriptions.md` (Complete): all three ADRs (0001–0003) Accepted; feature
+Previous PRD — `managed-agents-migration.md` (merged): migrated the daily brief pipeline to
+self-hosted Claude Managed Agents (ADRs 0004–0007 Accepted); the local Desktop task stays running
+as a monitored fallback during the parallel-run window. This new PRD deliberately touches **only**
+the brief's content logic — no delivery, infra, subscriber, or migration-infrastructure changes.
+
+Earlier PRD — `public-subscriptions.md` (Complete): all three ADRs (0001–0003) Accepted; feature
 fully built, reviewed, and security-cleared on branch `feat/public-subscriptions`, deployed and
 validated per `deploy/subscribers/README.md`.
 

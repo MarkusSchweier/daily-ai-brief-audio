@@ -195,6 +195,53 @@ Via the Claude Console or the Deployments API (with the beta header
   `deploy/managed-agent/skills/daily-ai-brief/SKILL.md` — ported; see that file's own
   provenance note for exactly what it was reconstructed from).
 
+### 3a. Push a new version of the `daily-ai-brief` skill (after any content edit)
+
+Per ADR-0008 (three-way lockstep + live version push). Editing
+`deploy/managed-agent/skills/daily-ai-brief/{SKILL.md,sources.md}` in the repo has **no effect
+on the live deployment** until a new version is pushed to the live Skills API resource —
+`agent.json`'s `skills[].version: "latest"` only re-resolves once a new version actually
+exists, it does not watch the repo. This was previously undocumented (commit `606330f` created
+the skill via API but committed no runbook); confirmed live (2026-07-03) against the beta Skills
+API.
+
+1. **Edit the in-repo copy first**, then mirror the same content change to the local Desktop
+   fallback's skill invocation path (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`,
+   outside this repo — only the skill-content sections it echoes, not its own STEP 5-8 delivery
+   wrapper) — see ADR-0008 for why both copies must move together. If the change also needs to
+   reach a separately-registered local Claude Desktop **Cowork** skill (a different resource
+   entirely from this Skills API — confirmed via a `404 Skill not found` when queried with the
+   Console API key, i.e. a different auth realm tied to the desktop app's own account), package
+   `daily-ai-brief/{SKILL.md,sources.md}` as a `.skill` zip (same two-file structure, no
+   `plugin.json`) and re-import it through the Cowork chat UI's own accept flow — there is no API
+   for this third surface. **Do not reuse the in-repo copy's content verbatim for that package**
+   if the in-repo copy carries any deployment-specific adaptation (e.g. this skill's
+   `WORKING_FOLDER` is deliberately `/workspace` for the microVM, not the real local Mac path) —
+   strip those adaptations back out first, or the Cowork skill will break in ways that are easy
+   to miss until the next real local run.
+2. **Validate** per whatever the change's own PRD requires before pushing live.
+3. **Zip and push a new version:**
+   ```bash
+   cd deploy/managed-agent/skills
+   zip -r -q /tmp/daily-ai-brief-version-push.zip daily-ai-brief -x "*.DS_Store"
+   curl -X POST "https://api.anthropic.com/v1/skills/skill_01H2qu83NwnJ5zqcbrqsCcJ6/versions" \
+     -H "x-api-key: $ANTHROPIC_API_KEY" \
+     -H "anthropic-version: 2023-06-01" \
+     -H "anthropic-beta: skills-2025-10-02" \
+     -F "files[]=@/tmp/daily-ai-brief-version-push.zip"
+   ```
+   Endpoint/header confirmed live 2026-07-03 (not `/v1/beta/skills/...` — that path 404s; the
+   correct path is `/v1/skills/{skill_id}/versions`, and it needs the Skills API's own
+   `skills-2025-10-02` beta header, not `managed-agents-2026-04-01`). New versions are
+   auto-assigned an epoch-timestamp version id (e.g. `1783096569199829`) — you cannot choose one.
+4. **Confirm, don't assume** — `GET /v1/skills/{skill_id}` and check `latest_version` matches
+   what step 3 returned; `GET /v1/skills/{skill_id}/versions` to see both old and new versions
+   listed. The agent's `skills[].version: "latest"` needs **no `agent.json` change** — confirmed
+   live by re-fetching the agent resource and checking its resolved `skills` config.
+
+No API key is ever committed — `$ANTHROPIC_API_KEY` is read from the environment
+(`~/.anthropic-managed-agents/ant-api-key.txt` in this repo's convention) at run time only.
+
 ### 4. Populate the two Secrets Manager secrets
 
 Never put these values in code, CDK, or git — populate directly:
