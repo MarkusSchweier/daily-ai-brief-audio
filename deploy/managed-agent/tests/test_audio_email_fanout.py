@@ -110,6 +110,35 @@ def test_owner_always_sent_with_zero_subscribers(audio_email_module):
     assert ses_client.sent_to[0]["source"] == audio_email_module.SENDER
 
 
+def test_skip_subscriber_fanout_sends_only_the_owner(audio_email_module):
+    """The manual-validation-only escape hatch: with skip_subscriber_fanout=True, the
+    owner's copy still goes out but the DynamoDB query / subscriber loop never runs at
+    all -- proven here by a DynamoDB client that raises if queried, not just one that
+    returns zero subscribers (which wouldn't prove the query was skipped)."""
+
+    class RaisesIfQueried:
+        def get_paginator(self, name):
+            raise AssertionError("subscriber fan-out must not query DynamoDB when skipped")
+
+    ses_client = FakeSesClient()
+
+    sent, failed = audio_email_module.send_all(
+        ses_client,
+        RaisesIfQueried(),
+        "Subject",
+        "<p>brief</p>",
+        None,
+        "brief.mp3",
+        "brief-subscribers-test",
+        skip_subscriber_fanout=True,
+    )
+
+    assert sent == 1
+    assert failed == 0
+    assert len(ses_client.sent_to) == 1
+    assert ses_client.sent_to[0]["recipient"] == audio_email_module.RECIP
+
+
 def test_owner_and_all_confirmed_subscribers_receive_the_brief(audio_email_module):
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(

@@ -39,7 +39,11 @@ send is never gated on archiving succeeding). WORKING_FOLDER (default "/workspac
 matching the skill's own Configuration section) — where `read-recent-briefs` mode
 writes each fetched prior brief. PIPELINE_TIMEZONE (default "Europe/Berlin", matching the
 deployment's schedule timezone — ADR-0006) — the local-date basis for both the S3
-archive key and for resolving "today" when reading the most recent prior brief.
+archive key and for resolving "today" when reading the most recent prior briefs.
+SKIP_SUBSCRIBER_FANOUT ("1"/"true"/"yes" to enable, unset/anything else to disable) —
+manual-validation-only; the scheduled deployment never sets this. When enabled, only
+the owner's copy is sent; the DynamoDB subscriber query and fan-out loop are skipped
+entirely (see send_all()'s docstring).
 """
 
 import boto3, time, urllib.parse, os, sys
@@ -220,7 +224,10 @@ def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
     return html_body + footer
 
 
-def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_filename, table_name):
+def send_all(
+    ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_filename, table_name,
+    *, skip_subscriber_fanout=False,
+):
     """Send the owner's copy, then fan out to every confirmed subscriber.
 
     Isolated as its own function (rather than inline top-level script code) so the
@@ -229,6 +236,11 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
     SES_SENT_SUMMARY log lines the production run relies on for operational visibility
     (the Managed Agents run-history/webhook is the new consumer of these lines, PRD
     FR-19/AC-17, on top of the same manual log inspection the local task supports).
+
+    `skip_subscriber_fanout` is for manual validation runs only (e.g. reviewing a
+    build before it reaches real subscribers) -- it is never set by the scheduled
+    deployment, which always fans out (PRD FR-12/AC-10/AC-11). Defaults to False so
+    the normal production path is unchanged.
     """
     sent_count = 0
     failed_count = 0
@@ -256,28 +268,31 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
 
     # 2) Subscriber fan-out — from aibriefing@mschweier.com, one send per confirmed
     # subscriber, each failure isolated so one bad address never blocks anyone else
-    # (PRD FR-12, AC-10/AC-11).
-    subscribers = _query_confirmed_subscribers(dynamodb_client, table_name)
-    for subscriber in subscribers:
-        email = subscriber["email"]
-        if not email:
-            continue
-        try:
-            unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
-            subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
-            subscriber_msg = _build_message(
-                SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename
-            )
-            r = ses_client.send_raw_email(
-                Source=SUBSCRIBER_SENDER,
-                Destinations=[email],
-                RawMessage={"Data": subscriber_msg.as_string()},
-            )
-            print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", mp3_bytes is not None)
-            sent_count += 1
-        except Exception as e:
-            print("SES_SEND_FAILED:", email, repr(e))
-            failed_count += 1
+    # (PRD FR-12, AC-10/AC-11). Skippable only for manual validation runs (see above).
+    if skip_subscriber_fanout:
+        print("SUBSCRIBER_FANOUT_SKIPPED (manual validation run)")
+    else:
+        subscribers = _query_confirmed_subscribers(dynamodb_client, table_name)
+        for subscriber in subscribers:
+            email = subscriber["email"]
+            if not email:
+                continue
+            try:
+                unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
+                subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
+                subscriber_msg = _build_message(
+                    SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename
+                )
+                r = ses_client.send_raw_email(
+                    Source=SUBSCRIBER_SENDER,
+                    Destinations=[email],
+                    RawMessage={"Data": subscriber_msg.as_string()},
+                )
+                print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", mp3_bytes is not None)
+                sent_count += 1
+            except Exception as e:
+                print("SES_SEND_FAILED:", email, repr(e))
+                failed_count += 1
 
     print(f"SES_SENT_SUMMARY sent={sent_count} failed={failed_count}")
     return sent_count, failed_count
@@ -298,10 +313,17 @@ if __name__ == "__main__":
     #                                                   the module-level script above),
     #                                                   then archive it to S3 if
     #                                                   BRIEF_MARKDOWN_PATH is set
-    dynamodb = boto3.client("dynamodb", region_name=REGION)
-    send_all(ses, dynamodb, subject, brief_html, mp3_bytes, os.path.basename(mp3_out), SUBSCRIBERS_TABLE_NAME)
+    # Manual-validation-only escape hatch (see send_all()'s docstring) -- the
+    # scheduled deployment never sets this, so production fan-out is unaffected.
+    skip_fanout = os.environ.get("SKIP_SUBSCRIBER_FANOUT", "").strip().lower() in ("1", "true", "yes")
 
-    # Archive today's brief for tomorrow's "read yesterday" step and as the owner's
+    dynamodb = boto3.client("dynamodb", region_name=REGION)
+    send_all(
+        ses, dynamodb, subject, brief_html, mp3_bytes, os.path.basename(mp3_out), SUBSCRIBERS_TABLE_NAME,
+        skip_subscriber_fanout=skip_fanout,
+    )
+
+    # Archive today's brief for tomorrow's "read-recent-briefs" step and as the owner's
     # durable record (PRD FR-9/AC-6). Best-effort: never gates or retries the send
     # above, which has already completed by this point.
     markdown_path = os.environ.get("BRIEF_MARKDOWN_PATH")
