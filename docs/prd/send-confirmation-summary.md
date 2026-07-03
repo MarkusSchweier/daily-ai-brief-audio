@@ -1,16 +1,23 @@
 # PRD: Post-send confirmation summary email to the owner
 
-- Status: **Implemented, reviewed, security-cleared (2026-07-03).** No ADR (architect confirmed:
-  same-file, same-sender, same-recipient, same-IAM-role addition, no new AWS resource/IAM/secret).
-  Implemented in commit `a0d1450` (+ `445f8c1`, a small test-coverage follow-up) against
-  FR-1..FR-8/AC-1..AC-7. Independent reviewer pass: approved, traced every AC against the actual
-  code (call-site blast radius, owner-exclusion math, non-fatal failure isolation end-to-end in
-  `__main__`, query-failure disambiguation wired through `send_all()` to the confirmation wording)
-  — one non-blocking coverage gap (singular-form wording) found and closed. Independent
-  security-engineer pass: no findings — confirmed no new AWS resource/IAM/secret, no sensitive
-  data or exception detail ever reaches the email body, the DynamoDB query-failure signal has no
-  externally-reachable trigger path. Next: microVM image rebuild/push (Managed Agents path only,
-  per the human's decision — the local Desktop task is deactivated), live validation, PR.
+- Status: **Shipped (2026-07-03).** No ADR (architect confirmed: same-file, same-sender,
+  same-recipient, same-IAM-role addition, no new AWS resource/IAM/secret). Implemented in commit
+  `a0d1450` (+ `445f8c1`, a small test-coverage follow-up) against FR-1..FR-8/AC-1..AC-7.
+  Independent reviewer pass: approved. Independent security-engineer pass: no findings.
+  **Deployed and live-validated**: microVM image rebuilt and pushed to version `6.0`; a real
+  end-to-end validation session (subscriber fan-out skipped, owner send only) confirmed via raw
+  log output — not just the agent's own summary — that the confirmation email genuinely sent
+  (`CONFIRMATION_SENT` with a real, distinct SES `MessageId`) with the correct skip-mode wording
+  ("Fan-out skipped for this validation run — no subscribers were mailed").
+  **Incidental finding during validation**: the single start-event call triggered multiple
+  launcher invocations for the same session (webhook retry), causing several redundant
+  `RunMicrovm` attempts — most rejected by an account-level MicroVM memory quota, one microVM
+  correctly self-terminated via the "no matching work item" fail-loud fix from the managed-agents
+  epic, and exactly one microVM won the race and completed the real work. This is a live,
+  concrete instance of the webhook-replay/no-idempotency-guard risk (M1) the security-engineer
+  flagged as a non-blocking Medium on PR #18 — harmless here (no duplicate email, no corrupted
+  state), but worth escalating priority on that follow-up given it's now observed in practice, not
+  just theoretical. Ready for PR.
 - Author: product-manager (Claude)  ·  Date: 2026-07-03
 - Linked ADRs: none
 - Source: GitHub issue
