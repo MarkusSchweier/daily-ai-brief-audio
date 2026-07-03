@@ -107,7 +107,13 @@ async function handleSession(dispatch) {
     console.log(`worker: session ${sessionId} complete`);
     return;
   }
-  console.warn(`worker: no work item found for session ${sessionId}`);
+  // The poller drained without ever matching this session -- e.g. a timing race
+  // where the session isn't yet visible to the queue. Silently returning here
+  // would let ackThenRun's success branch exit(0), reporting a clean run that
+  // never actually did anything (no research, no email). Throw instead so the
+  // caller's failure branch logs at error level and exits non-zero -- per
+  // ADR-0006's "fail loudly, not silently skip" bar.
+  throw new Error(`no work item found for session ${sessionId}`);
 }
 
 function ackThenRun(res, dispatch) {

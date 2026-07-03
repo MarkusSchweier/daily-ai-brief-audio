@@ -73,7 +73,7 @@ COPY skills/daily-ai-brief /opt/skills/daily-ai-brief
 # The audio/email half (ADR-0004/ADR-0005-adapted port of deploy/audio_email.py)
 # IS code the SKILL.md's STEP 6/STEP 3 shell out to via
 # `python3.13 /opt/pipeline/audio_email.py` (send + archive) and
-# `python3.13 /opt/pipeline/audio_email.py read-yesterday` (S3 "yesterday" read).
+# `python3.13 /opt/pipeline/audio_email.py read-recent-briefs` (S3 recent-priors read).
 # brief_history.py is copied alongside it (same directory) because audio_email.py
 # imports it via a same-directory sys.path insert — see that file's own docstring.
 COPY pipeline/audio_email.py /opt/pipeline/audio_email.py
