@@ -2,24 +2,31 @@
 
 The current active PRD for this project:
 
-@neutral-briefing-pipeline.md
+@instant-welcome-brief.md
 
 ---
 
-Status: **Shipped (2026-07-03).** All of AC-1 through AC-8 satisfied — de-skew edits applied to
-the in-repo copy, the local Desktop wrapper, and (after catching and correcting a packaging
-mistake) a separately-registered local Cowork skill; independent reviewer pass confirmed the
-structural checks; the live Skills API version was pushed and **confirmed** (not assumed) —
-`skill_01H2qu83NwnJ5zqcbrqsCcJ6` now resolves `latest` to version `1783096569199829`, and the
-scheduled deployment's agent picks it up with no `agent.json` change needed. Runbook for future
-skill-content pushes recorded in `deploy/managed-agent/README.md` §3a per ADR-0008. Remaining:
-none blocking — a quick sanity glance at the next real scheduled brief is worthwhile but not
-gating.
+Status: **Shipped (2026-07-03).** New sign-ups now receive the latest edition of the brief the
+moment they confirm their email, with a short welcome header stating the weekday send time
+(06:07 Europe/Berlin, unchanged), centralized into one canonical source the email prose and the
+deployment schedule agree on. Cross-subsystem: an audio-key pointer was added to the Managed
+Agents `briefs/` archival (single place — the local Desktop task doesn't archive), and a scoped
+welcome-send Lambda plus least-privilege SES/S3 IAM (ADR-0009: async-decoupled — the confirm
+Lambda async-invokes the welcome Lambda, which holds the SES/S3 grants; the confirm Lambda itself
+never holds SES/S3 rights). Implemented, independently reviewed, and security-cleared: the
+reviewer caught, and a follow-up fix resolved, a duplicate-confirm-request race that could
+double-send the welcome email; the security-engineer found no Critical/High issues. Ready for PR.
+**Independent of `neutral-briefing-pipeline.md`** below — a separate, not-yet-merged PR this
+feature neither depends on nor touches.
 
-Previous PRD — `managed-agents-migration.md` (merged): migrated the daily brief pipeline to
+Previous PRD — `neutral-briefing-pipeline.md` (separate branch, not-yet-merged): removed the
+Anthropic lens and selection skew from the daily brief's **content logic** (AC-1..AC-8, ADR-0008).
+Content/prompt-only; no overlap with this feature's delivery/confirm-flow scope, and not a
+dependency of it.
+
+Earlier PRD — `managed-agents-migration.md` (merged): migrated the daily brief pipeline to
 self-hosted Claude Managed Agents (ADRs 0004–0007 Accepted); the local Desktop task stays running
-as a monitored fallback during the parallel-run window. This new PRD deliberately touches **only**
-the brief's content logic — no delivery, infra, subscriber, or migration-infrastructure changes.
+as a monitored fallback during the parallel-run window.
 
 Earlier PRD — `public-subscriptions.md` (Complete): all three ADRs (0001–0003) Accepted; feature
 fully built, reviewed, and security-cleared on branch `feat/public-subscriptions`, deployed and

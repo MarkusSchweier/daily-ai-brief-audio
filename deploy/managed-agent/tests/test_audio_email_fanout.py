@@ -256,6 +256,10 @@ def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_modul
     implement Polly's async task API, so importing audio_email_module already forced
     audio_ok=False / mp3_bytes=None at module load, matching this scenario."""
     assert audio_email_module.mp3_bytes is None
+    # PRD instant-welcome-brief.md AC-2: on an audio-failure day, audio_s3_key must also
+    # be None, so the later archive_todays_brief(..., audio_key=...) call writes no
+    # pointer for this run.
+    assert audio_email_module.audio_s3_key is None
 
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("frank@example.com")])

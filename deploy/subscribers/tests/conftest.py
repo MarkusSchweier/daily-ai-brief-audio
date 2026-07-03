@@ -22,6 +22,11 @@ LAYER_PYTHON_DIR = SUBSCRIBERS_DIR / "layers" / "common" / "python"
 FUNCTIONS_DIR = SUBSCRIBERS_DIR / "functions"
 
 sys.path.insert(0, str(LAYER_PYTHON_DIR))
+# Makes `from brief_subscribers.stack import ...` (test_stack_iam.py) importable
+# regardless of the pytest invocation's cwd -- `python3 app.py` gets this for free
+# (interpreter auto-adds its own script directory), but pytest only auto-adds
+# directories containing conftest.py/test files, not this package's parent.
+sys.path.insert(0, str(SUBSCRIBERS_DIR))
 
 os.environ.setdefault("SUBSCRIBERS_TABLE_NAME", "brief-subscribers-test")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
@@ -87,4 +92,17 @@ def subscribers_table(mocked_aws):
 def ses_client(mocked_aws):
     client = boto3.client("ses", region_name="us-east-1")
     client.verify_domain_identity(Domain="mschweier.com")
+    yield client
+
+
+@pytest.fixture
+def briefs_bucket(mocked_aws):
+    """A mocked `cowork-polly-tts-740353583786` bucket for latest_brief.py /
+    welcome-send handler tests -- mirrors deploy/managed-agent/tests/conftest.py's
+    fixture of the same name (same bucket, same mocked-AWS pattern), duplicated here
+    rather than imported across the two separate CDK apps' test suites."""
+    import latest_brief
+
+    client = boto3.client("s3", region_name="us-east-1")
+    client.create_bucket(Bucket=latest_brief.BUCKET)
     yield client

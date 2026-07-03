@@ -125,6 +125,10 @@ mp3_out = os.environ["MP3_OUT_PATH"]; subject = os.environ["EMAIL_SUBJECT"]
 polly = boto3.client("polly", region_name=REGION)
 ses = boto3.client("ses", region_name=REGION)
 audio_ok = True
+audio_s3_key = None  # set below from OutputUri only if synthesis succeeds; stays None on
+# an audio-failure day so archive_todays_brief's `audio_key` param (and thus whether a
+# pointer is written at all, PRD instant-welcome-brief.md AC-1/AC-2) always reflects
+# whether THIS run's audio is actually usable.
 try:
     t = polly.start_speech_synthesis_task(Text=script, OutputFormat="mp3", VoiceId="Matthew",
         Engine="neural", OutputS3BucketName=BUCKET, OutputS3KeyPrefix="audio/")
@@ -135,17 +139,27 @@ try:
         if st == "failed": raise RuntimeError(task.get("TaskStatusReason", "polly failed"))
         if time.time() > deadline: raise TimeoutError("polly timed out")
         time.sleep(5)
-    key = urllib.parse.urlparse(task["OutputUri"]).path.split(f"{BUCKET}/", 1)[1]  # use OutputUri, never build the key
-    s3.download_file(BUCKET, key, mp3_out)
+    audio_s3_key = urllib.parse.urlparse(task["OutputUri"]).path.split(f"{BUCKET}/", 1)[1]  # use OutputUri, never build the key
+    s3.download_file(BUCKET, audio_s3_key, mp3_out)
 except Exception as e:
-    print("AUDIO_STEP_FAILED:", repr(e)); audio_ok = False
+    print("AUDIO_STEP_FAILED:", repr(e)); audio_ok = False; audio_s3_key = None
 
 # MP3 bytes are read once (if audio_ok) and reused across every recipient's message below,
 # never re-read per recipient.
+#
+# MAX_AUDIO_ATTACHMENT_BYTES mirrors deploy/subscribers/functions/welcome-send/handler.py's
+# constant of the same name/value -- two independent deploy units, kept in sync by hand, same
+# convention as latest_brief.py's duplicated-constants docstring. An oversized MP3 is dropped
+# (never sent unattached-of-brief) rather than risking an SES raw-message-size rejection that
+# would otherwise cost the recipient the written brief too.
+MAX_AUDIO_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 mp3_bytes = None
 if audio_ok:
     with open(mp3_out, "rb") as f:
         mp3_bytes = f.read()
+    if len(mp3_bytes) > MAX_AUDIO_ATTACHMENT_BYTES:
+        print("AUDIO_TOO_LARGE_SKIPPING_ATTACHMENT:", len(mp3_bytes))
+        mp3_bytes = None
 
 
 def _build_message(sender, recipient, subject, html_body, mp3_bytes, mp3_filename):
@@ -331,7 +345,13 @@ if __name__ == "__main__":
         with open(markdown_path, encoding="utf-8") as f:
             markdown = f.read()
         brief_history.archive_todays_brief(
-            s3, _today_local_date(), markdown=markdown, html=brief_html, listening_script=script
+            s3, _today_local_date(), markdown=markdown, html=brief_html, listening_script=script,
+            # Only pass a pointer when THIS run's audio actually succeeded (PRD
+            # instant-welcome-brief.md AC-2) -- audio_s3_key is already None whenever
+            # audio_ok is False, but the explicit guard keeps the "no pointer on an
+            # audio-failure day" invariant obvious at the call site, not just implicit
+            # in the audio step's own exception handling above.
+            audio_key=audio_s3_key if audio_ok else None,
         )
     else:
         print("BRIEF_ARCHIVE_SKIPPED: BRIEF_MARKDOWN_PATH not set or file missing")

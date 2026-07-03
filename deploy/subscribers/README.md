@@ -14,9 +14,10 @@
 | DynamoDB table | `SubscribersTable` (`brief-subscribers`) | PK `email`; GSI `status-index`; TTL on `confirmTokenExpiresAt` |
 | Lambda layer | `SubscriberCommonLayer` | Shared email/token/DynamoDB helper module |
 | Lambda | `SubscribeFunction` (`brief-subscribers-subscribe`) | `POST /subscribe` — create pending row + send confirm email |
-| Lambda | `ConfirmFunction` (`brief-subscribers-confirm`) | `GET /confirm` — activate a pending subscription |
+| Lambda | `ConfirmFunction` (`brief-subscribers-confirm`) | `GET /confirm` — activate a pending subscription; on the real transition, async-invokes `WelcomeSendFunction` (docs/adr/0009) |
+| Lambda | `WelcomeSendFunction` (`brief-subscribers-welcome-send`) | Internal only (no HTTP route) — emails a newly confirmed subscriber the latest archived brief + audio, or a welcome-only email on cold start (docs/prd/instant-welcome-brief.md) |
 | Lambda | `UnsubscribeFunction` (`brief-subscribers-unsubscribe`) | `GET /unsubscribe` — mark unsubscribed (idempotent) |
-| IAM roles | `SubscribeFunctionRole`, `ConfirmFunctionRole`, `UnsubscribeFunctionRole` | Function-scoped least privilege, no static keys (ADR-0002 §A) |
+| IAM roles | `SubscribeFunctionRole`, `ConfirmFunctionRole`, `WelcomeSendFunctionRole`, `UnsubscribeFunctionRole` | Function-scoped least privilege, no static keys (ADR-0002 §A). Per ADR-0009, the SES send + scoped `cowork-polly-tts-740353583786` S3 read (`briefs/*`, `audio/*`) live on `WelcomeSendFunctionRole`, NOT `ConfirmFunctionRole` (which gets only `lambda:InvokeFunction` on the welcome-send Lambda's ARN). |
 | HTTP API | `SubscribersHttpApi` | Routes for the three Lambdas; throttled stage; CORS locked to the subscribe site origin |
 | S3 bucket | `SubscribeSiteBucket` | Private, OAC-only, hosts the static site |
 | CloudFront distribution | `SubscribeSiteDistribution` | Serves the site over HTTPS; optional custom domain + ACM cert |

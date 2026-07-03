@@ -176,6 +176,69 @@ def test_archive_failure_is_logged_not_raised(capsys):
     assert "BRIEF_ARCHIVE_FAILED" in captured.out
 
 
+def test_archive_with_audio_key_writes_a_pointer_object(briefs_bucket):
+    """AC-1: a successful audio run's archive includes a durable pointer to that run's
+    actual OutputUri-derived key, alongside the existing brief.md/html/script."""
+    import json
+
+    brief_history.archive_todays_brief(
+        briefs_bucket,
+        "2026-07-03",
+        markdown="# Today's brief",
+        html="<h1>Today's brief</h1>",
+        listening_script="Your AI brief for today.",
+        audio_key="audio/.abc123.mp3",
+    )
+
+    pointer = briefs_bucket.get_object(
+        Bucket=brief_history.BUCKET,
+        Key=f"briefs/2026-07-03/{brief_history.AUDIO_POINTER_FILENAME}",
+    )
+    body = json.loads(pointer["Body"].read().decode("utf-8"))
+    assert body == {"audio_key": "audio/.abc123.mp3"}
+
+
+def test_archive_without_audio_key_writes_no_pointer(briefs_bucket):
+    """AC-2: an audio-failure day (caller passes audio_key=None, the default) must not
+    leave a pointer object behind -- the read helper later treats that as "brief, no
+    audio", not a stale/wrong pointer."""
+    brief_history.archive_todays_brief(
+        briefs_bucket, "2026-07-03", markdown="# Today's brief", html="<h1>Today's brief</h1>"
+    )
+
+    import botocore.exceptions
+    import pytest
+
+    with pytest.raises(botocore.exceptions.ClientError):
+        briefs_bucket.get_object(
+            Bucket=brief_history.BUCKET,
+            Key=f"briefs/2026-07-03/{brief_history.AUDIO_POINTER_FILENAME}",
+        )
+
+
+def test_pointer_write_failure_is_logged_not_raised(capsys):
+    """AC-1: a pointer-write failure must never raise -- best-effort, same as the
+    existing brief/html/script writes, and must not be masked by (or mask) their own
+    success/failure."""
+
+    class RaisingOnlyOnPointer:
+        def put_object(self, **kwargs):
+            if kwargs.get("Key", "").endswith(brief_history.AUDIO_POINTER_FILENAME):
+                raise RuntimeError("simulated S3 outage on the pointer write")
+            return {}
+
+    # Must not raise.
+    brief_history.archive_todays_brief(
+        RaisingOnlyOnPointer(), "2026-07-03", markdown="# Today's brief", audio_key="audio/.xyz.mp3"
+    )
+
+    captured = capsys.readouterr()
+    assert "BRIEF_ARCHIVE_FAILED" in captured.out
+    assert brief_history.AUDIO_POINTER_FILENAME in captured.out
+    # The markdown write (a different key) must have succeeded independently.
+    assert "BRIEF_ARCHIVED briefs/2026-07-03/brief.md" in captured.out
+
+
 def test_next_day_reads_back_what_was_just_archived(briefs_bucket):
     brief_history.archive_todays_brief(briefs_bucket, "2026-07-03", markdown="# Wednesday's brief")
 
