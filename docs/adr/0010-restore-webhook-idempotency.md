@@ -1,8 +1,39 @@
 # 0010. Restore durable webhook idempotency in the launcher Lambda
 
-- Status: Accepted
+- Status: **Accepted, implemented, reviewed, security-cleared, deployed, and live-validated
+  (2026-07-03).**
 - Date: 2026-07-03
 - Deciders: architect (Claude), Markus (human)
+
+## Implementation record
+
+- Implemented in `9f7dd52`. Independent reviewer pass found one blocking issue: `handler()`
+  silently degraded to no-dedup if `IDEMPOTENCY_TABLE` was ever unset, instead of failing closed
+  like the adjacent signing-secret check — risking the exact duplicate-send harm this ADR exists
+  to prevent, for exactly the same "nobody watches the logs" reason that motivated issue #11.
+  Fixed in `bd1dfa5`: `idempotency_table` is now a required `LauncherConfig` field (bare
+  `os.environ[...]`, matching `signing_secret_arn`'s convention), and `handler()` returns 500
+  before signature verification if it's falsy. 19/19 tests pass.
+- Independent security-engineer pass: no findings. Confirmed IAM is exactly the four scoped
+  item-actions on the one table ARN with no side-effect widening elsewhere; the dependency
+  (`aws-lambda-powertools`) resolves to only two light pure-wheel transitives; the table stores no
+  secret or PII (Powertools hashes the event_id itself, and the guarded function's own return
+  value contains only a non-secret `microvm_id`); signature verification still runs before any
+  DynamoDB access, so the endpoint's HMAC gate is unchanged and this table cannot be abused for
+  cost/DoS by an unauthenticated caller.
+- **Deployed via `cdk deploy`**: new `IdempotencyTable` created, the launcher role's
+  `IdempotencyStore` IAM statement added, `IDEMPOTENCY_TABLE` env var wired — confirmed via `cdk
+  diff` before deploy and the actual `UPDATE_COMPLETE` stack event.
+- **Live-validated against the real failure mode, not just unit tests**: constructed a genuinely
+  HMAC-signed webhook payload (using the real signing secret, read from Secrets Manager and
+  discarded immediately after — never printed or committed) and POSTed it **twice, concurrently**,
+  with the identical `event_id`, to the live webhook endpoint — reproducing the exact concurrent
+  duplicate-delivery scenario that caused the original observed bug. Both HTTP responses returned
+  the **same** `microvm_id`. Independently confirmed via three sources: (1) CloudWatch shows
+  exactly one `"launched microvm"` log line despite two concurrent requests; (2) the DynamoDB
+  idempotency table holds exactly one item, `status: COMPLETED`, `data` matching the returned
+  `microvm_id`; (3) `list-microvms` shows exactly one microVM was ever created for the test. This
+  is direct proof of the fix under the real failure mode, not an inference from unit tests.
 
 ## Context
 
