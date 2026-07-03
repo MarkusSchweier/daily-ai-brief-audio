@@ -70,6 +70,17 @@ def _html_body_text(raw_mime: str) -> str:
     return ""
 
 
+def _plain_body_text(raw_mime: str) -> str:
+    """Decode the text/plain part out of a raw MIME message (the confirmation email's
+    body) for content assertions."""
+    parsed = email.message_from_string(raw_mime)
+    for part in parsed.walk():
+        if part.get_content_type() == "text/plain":
+            payload = part.get_payload(decode=True)
+            return payload.decode("utf-8")
+    return ""
+
+
 def test_no_credential_file_loading_anywhere_in_the_module(audio_email_module):
     """AC-13/ADR-0004: the module must not read AWS_SHARED_CREDENTIALS_FILE or any
     other credential-file mechanism at runtime — the microVM authenticates purely via
@@ -99,12 +110,15 @@ def test_owner_always_sent_with_zero_subscribers(audio_email_module):
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[])
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
     )
 
     assert sent == 1
     assert failed == 0
+    assert sub_sent == 0
+    assert sub_failed == 0
+    assert query_failed is False
     assert len(ses_client.sent_to) == 1
     assert ses_client.sent_to[0]["recipient"] == audio_email_module.RECIP
     assert ses_client.sent_to[0]["source"] == audio_email_module.SENDER
@@ -122,7 +136,7 @@ def test_skip_subscriber_fanout_sends_only_the_owner(audio_email_module):
 
     ses_client = FakeSesClient()
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client,
         RaisesIfQueried(),
         "Subject",
@@ -135,6 +149,9 @@ def test_skip_subscriber_fanout_sends_only_the_owner(audio_email_module):
 
     assert sent == 1
     assert failed == 0
+    assert sub_sent == 0
+    assert sub_failed == 0
+    assert query_failed is False
     assert len(ses_client.sent_to) == 1
     assert ses_client.sent_to[0]["recipient"] == audio_email_module.RECIP
 
@@ -148,12 +165,15 @@ def test_owner_and_all_confirmed_subscribers_receive_the_brief(audio_email_modul
         ]
     )
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client, ddb_client, "Subject", "<p>brief</p>", b"fake-mp3-bytes", "brief.mp3", "brief-subscribers-test"
     )
 
     assert sent == 3  # owner + 2 subscribers
     assert failed == 0
+    assert sub_sent == 2  # subscriber-only, owner excluded
+    assert sub_failed == 0
+    assert query_failed is False
     recipients = {entry["recipient"] for entry in ses_client.sent_to}
     assert recipients == {audio_email_module.RECIP, "alice@example.com", "bob@example.com"}
 
@@ -175,12 +195,15 @@ def test_one_bad_subscriber_does_not_block_others_or_the_owner(audio_email_modul
         ]
     )
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client, ddb_client, "Subject", "<p>brief</p>", b"fake-mp3-bytes", "brief.mp3", "brief-subscribers-test"
     )
 
     assert sent == 3  # owner + good1 + good2
     assert failed == 1  # broken@example.com
+    assert sub_sent == 2  # good1 + good2, owner excluded
+    assert sub_failed == 1  # broken@example.com
+    assert query_failed is False
     recipients = {entry["recipient"] for entry in ses_client.sent_to}
     assert recipients == {audio_email_module.RECIP, "good1@example.com", "good2@example.com"}
     assert "broken@example.com" not in recipients
@@ -190,12 +213,15 @@ def test_owner_send_failure_does_not_block_subscriber_sends(audio_email_module):
     ses_client = FakeSesClient(failing_recipients={audio_email_module.RECIP})
     ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("carol@example.com")])
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
     )
 
     assert failed == 1  # owner's send failed
     assert sent == 1  # but the subscriber still got theirs
+    assert sub_sent == 1  # carol
+    assert sub_failed == 0
+    assert query_failed is False
     recipients = {entry["recipient"] for entry in ses_client.sent_to}
     assert recipients == {"carol@example.com"}
 
@@ -204,12 +230,17 @@ def test_dynamodb_query_outage_still_lets_owner_send_succeed(audio_email_module)
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(raise_on_query=True)
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
     )
 
     assert sent == 1
     assert failed == 0
+    assert sub_sent == 0
+    assert sub_failed == 0
+    # AC-7: a genuine query failure must be surfaced distinctly, not indistinguishable
+    # from a real zero-subscriber day.
+    assert query_failed is True
     assert ses_client.sent_to[0]["recipient"] == audio_email_module.RECIP
 
 
@@ -264,7 +295,7 @@ def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_modul
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("frank@example.com")])
 
-    sent, failed = audio_email_module.send_all(
+    sent, failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
         ses_client,
         ddb_client,
         "Subject",
@@ -276,12 +307,133 @@ def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_modul
 
     assert sent == 2
     assert failed == 0
+    assert sub_sent == 1
+    assert sub_failed == 0
+    assert query_failed is False
     for entry in ses_client.sent_to:
         parsed = email.message_from_string(entry["raw"])
         attachment_parts = [
             part for part in parsed.walk() if part.get_content_disposition() == "attachment"
         ]
         assert attachment_parts == []
+
+
+# ---------------------------------------------------------------------------
+# Post-send owner confirmation email (docs/prd/send-confirmation-summary.md,
+# FR-1..FR-8 / AC-1..AC-7): _build_confirmation_email() (pure string-building) and
+# send_confirmation_email() (the SES-wrapping, never-raises layer around it).
+# ---------------------------------------------------------------------------
+
+
+class RaisesOnSend:
+    """SES stand-in whose send_raw_email always raises -- proves
+    send_confirmation_email() swallows the failure instead of propagating it (FR-6/AC-4)."""
+
+    def send_raw_email(self, **kwargs):
+        raise RuntimeError("simulated SES failure for confirmation send")
+
+
+def test_confirmation_reports_subscriber_only_count_and_failures(audio_email_module):
+    subject, body = audio_email_module._build_confirmation_email(
+        "2026-07-03", 5, 1, skipped=False, subscriber_query_failed=False,
+    )
+    assert "2026-07-03" in subject
+    assert "2026-07-03" in body
+    assert "Sent to 5 subscribers" in body
+    assert "1 subscriber send failed" in body
+
+
+def test_confirmation_zero_subscribers_no_failure_mention(audio_email_module):
+    """AC-2: a genuine zero-subscriber day reports 0, not the owner, and omits any
+    failure-count line since there were none."""
+    subject, body = audio_email_module._build_confirmation_email(
+        "2026-07-03", 0, 0, skipped=False, subscriber_query_failed=False,
+    )
+    assert "Sent to 0 subscribers" in body
+    assert "failed" not in body.lower()
+
+
+def test_confirmation_skip_mode_wording_does_not_imply_real_send(audio_email_module):
+    """AC-3: SKIP_SUBSCRIBER_FANOUT wording must not report a count implying real
+    subscribers were mailed, regardless of what counts are passed in."""
+    subject, body = audio_email_module._build_confirmation_email(
+        "2026-07-03", 0, 0, skipped=True, subscriber_query_failed=False,
+    )
+    assert "skipped" in body.lower()
+    assert "validation run" in body.lower()
+    assert "Sent to" not in body
+
+
+def test_confirmation_query_failure_disambiguated_from_genuine_zero(audio_email_module):
+    """AC-7: a query failure must read differently from a plain "0 subscribers"."""
+    subject, body = audio_email_module._build_confirmation_email(
+        "2026-07-03", 0, 0, skipped=False, subscriber_query_failed=True,
+    )
+    assert "lookup failed" in body.lower()
+    assert "Sent to 0 subscribers" not in body
+
+
+def test_send_confirmation_email_sends_to_owner_from_sender(audio_email_module):
+    ses_client = FakeSesClient()
+
+    audio_email_module.send_confirmation_email(
+        ses_client, "2026-07-03", 3, 0, skipped=False, subscriber_query_failed=False,
+    )
+
+    assert len(ses_client.sent_to) == 1
+    sent = ses_client.sent_to[0]
+    assert sent["recipient"] == audio_email_module.RECIP
+    assert sent["source"] == audio_email_module.SENDER
+    assert "3 subscribers" in _plain_body_text(sent["raw"])
+
+
+def test_send_confirmation_email_failure_is_swallowed_not_raised(audio_email_module):
+    """FR-6/AC-4: any exception building/sending the confirmation is caught and
+    logged, never raised -- proving the pipeline can always proceed to archival
+    regardless of this call's outcome."""
+    ses_client = RaisesOnSend()
+
+    # Must not raise.
+    audio_email_module.send_confirmation_email(
+        ses_client, "2026-07-03", 2, 0, skipped=False, subscriber_query_failed=False,
+    )
+
+
+def test_query_failure_from_send_all_flows_through_to_confirmation_wording(audio_email_module):
+    """End-to-end AC-7: send_all()'s subscriber_query_failed signal, when passed
+    straight through to send_confirmation_email(), produces the disambiguated wording
+    -- not a plain zero-subscribers message -- proving the two pieces are wired
+    correctly together, not just individually correct."""
+    ses_client = FakeSesClient()
+    ddb_client = FakeDynamoDBClient(raise_on_query=True)
+
+    _sent, _failed, sub_sent, sub_failed, query_failed = audio_email_module.send_all(
+        ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+    )
+    assert query_failed is True
+
+    confirmation_ses = FakeSesClient()
+    audio_email_module.send_confirmation_email(
+        confirmation_ses, "2026-07-03", sub_sent, sub_failed,
+        skipped=False, subscriber_query_failed=query_failed,
+    )
+
+    assert len(confirmation_ses.sent_to) == 1
+    payload = _plain_body_text(confirmation_ses.sent_to[0]["raw"])
+    assert "lookup failed" in payload.lower()
+    assert "Sent to 0 subscribers" not in payload
+
+
+def test_send_confirmation_email_never_raises_even_with_broken_inputs(audio_email_module):
+    """Belt-and-braces on FR-6: even a wildly malformed call (e.g. a client missing the
+    expected method entirely) must not escape as an exception."""
+
+    class NoSendMethodAtAll:
+        pass
+
+    audio_email_module.send_confirmation_email(
+        NoSendMethodAtAll(), "2026-07-03", 1, 0, skipped=False, subscriber_query_failed=False,
+    )
 
 
 # ---------------------------------------------------------------------------

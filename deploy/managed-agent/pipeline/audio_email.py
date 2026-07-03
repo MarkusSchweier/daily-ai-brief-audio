@@ -44,6 +44,20 @@ SKIP_SUBSCRIBER_FANOUT ("1"/"true"/"yes" to enable, unset/anything else to disab
 manual-validation-only; the scheduled deployment never sets this. When enabled, only
 the owner's copy is sent; the DynamoDB subscriber query and fan-out loop are skipped
 entirely (see send_all()'s docstring).
+
+Post-send owner confirmation (docs/prd/send-confirmation-summary.md, FR-1..FR-8): after
+send_all() returns in the send-mode __main__ path, a short, separate confirmation email
+is sent to RECIP (mail@mschweier.com) from SENDER (aibriefing@mschweier.com) — in
+addition to, not instead of, the owner's daily brief copy above. It states the
+subscriber-only send count (excluding the owner's own send), the subscriber failure
+count when non-zero, and the run's local date in PIPELINE_TIMEZONE. When
+SKIP_SUBSCRIBER_FANOUT was set, it says so explicitly instead of reporting a
+subscriber count (no real fan-out happened). When the subscriber DynamoDB query itself
+failed (as opposed to a genuine zero-subscriber day), it says the lookup failed rather
+than a plain "0 subscribers". Building/sending this confirmation is wrapped in its own
+try/except: any failure is logged, never raised, and never blocks the brief-archival
+step that follows it (see _build_confirmation_email() / send_all()'s
+subscriber_query_failed return value).
 """
 
 import boto3, time, urllib.parse, os, sys
@@ -178,10 +192,16 @@ def _query_confirmed_subscribers(dynamodb_client, table_name):
     """Query-only (never Scan) the status-index GSI for confirmed subscribers.
 
     Scoped IAM: dynamodb:Query on the status-index GSI ARN only (docs/adr/0002 §B).
-    Returns a list of dicts with email/firstName/unsubscribeToken; a query failure is
-    treated the same as "no subscribers" so it never blocks the owner's send.
+    Returns a (subscribers, query_failed) tuple: `subscribers` is a list of dicts with
+    email/firstName/unsubscribeToken (empty on either a genuine zero-subscriber day or
+    a query failure); `query_failed` is True only when the query itself raised, so
+    callers (send_all(), and in turn the confirmation email — PRD
+    send-confirmation-summary.md FR-8/AC-7) can distinguish "0 because empty" from "0
+    because the lookup broke". A query failure never blocks the owner's send -- the
+    empty list on failure preserves that behavior unchanged.
     """
     subscribers = []
+    query_failed = False
     try:
         paginator = dynamodb_client.get_paginator("query")
         for page in paginator.paginate(
@@ -199,7 +219,9 @@ def _query_confirmed_subscribers(dynamodb_client, table_name):
                 })
     except Exception as e:
         print("SUBSCRIBERS_QUERY_FAILED:", repr(e))
-    return subscribers
+        query_failed = True
+        subscribers = []
+    return subscribers, query_failed
 
 
 def _unsubscribe_link(email, token):
@@ -246,10 +268,19 @@ def send_all(
 
     Isolated as its own function (rather than inline top-level script code) so the
     failure-isolation loop logic is unit-testable without invoking Polly/S3. Returns
-    (sent_count, failed_count) and prints the same SES_SENT / SES_SEND_FAILED /
+    (sent_count, failed_count, subscriber_sent_count, subscriber_failed_count,
+    subscriber_query_failed) and prints the same SES_SENT / SES_SEND_FAILED /
     SES_SENT_SUMMARY log lines the production run relies on for operational visibility
     (the Managed Agents run-history/webhook is the new consumer of these lines, PRD
     FR-19/AC-17, on top of the same manual log inspection the local task supports).
+    `sent_count`/`failed_count` are unchanged from before (they include the owner's own
+    send, first); `subscriber_sent_count`/`subscriber_failed_count` are the new
+    subscriber-only breakdown (PRD send-confirmation-summary.md FR-2), and
+    `subscriber_query_failed` is True only when the DynamoDB subscriber query itself
+    raised, never for a genuine zero-subscriber day (FR-8/AC-7). When
+    `skip_subscriber_fanout` is True, the subscriber-only fields are all
+    0/0/False -- no fan-out was attempted, so there is nothing to report and no query
+    to have failed.
 
     `skip_subscriber_fanout` is for manual validation runs only (e.g. reviewing a
     build before it reaches real subscribers) -- it is never set by the scheduled
@@ -258,6 +289,9 @@ def send_all(
     """
     sent_count = 0
     failed_count = 0
+    subscriber_sent_count = 0
+    subscriber_failed_count = 0
+    subscriber_query_failed = False
 
     # Sign-up prompt + AI-curation disclaimer, prepended once and shared by every
     # recipient (owner included — they're the most likely person to forward their copy).
@@ -286,7 +320,7 @@ def send_all(
     if skip_subscriber_fanout:
         print("SUBSCRIBER_FANOUT_SKIPPED (manual validation run)")
     else:
-        subscribers = _query_confirmed_subscribers(dynamodb_client, table_name)
+        subscribers, subscriber_query_failed = _query_confirmed_subscribers(dynamodb_client, table_name)
         for subscriber in subscribers:
             email = subscriber["email"]
             if not email:
@@ -304,12 +338,69 @@ def send_all(
                 )
                 print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", mp3_bytes is not None)
                 sent_count += 1
+                subscriber_sent_count += 1
             except Exception as e:
                 print("SES_SEND_FAILED:", email, repr(e))
                 failed_count += 1
+                subscriber_failed_count += 1
 
     print(f"SES_SENT_SUMMARY sent={sent_count} failed={failed_count}")
-    return sent_count, failed_count
+    return sent_count, failed_count, subscriber_sent_count, subscriber_failed_count, subscriber_query_failed
+
+
+def _build_confirmation_email(
+    run_date, subscriber_sent_count, subscriber_failed_count, *, skipped, subscriber_query_failed,
+):
+    """Build the short post-send owner confirmation (PRD send-confirmation-summary.md
+    FR-1..FR-5, FR-8). Pure string-building, no I/O, so it's unit-testable on its own —
+    kept separate from send_confirmation_email() so a bad subject/body computation and
+    an SES transport failure are both exercisable independently.
+
+    Returns (subject, body) — short, plain text, no full brief content (FR-4/AC-6).
+    """
+    subject = f"AI Brief sent — {run_date}"
+    lines = [f"Today's AI brief ({run_date}) was sent."]
+
+    if skipped:
+        # Manual-validation-only run: never imply real subscribers were mailed (FR-5/AC-3).
+        lines.append("Fan-out skipped for this validation run — no subscribers were mailed.")
+    elif subscriber_query_failed:
+        # Distinguish "0 because empty" from "0 because the lookup broke" (FR-8/AC-7).
+        lines.append("0 subscribers (subscriber lookup failed — please check).")
+    else:
+        lines.append(f"Sent to {subscriber_sent_count} subscriber{'s' if subscriber_sent_count != 1 else ''}.")
+        if subscriber_failed_count > 0:
+            lines.append(f"{subscriber_failed_count} subscriber send{'s' if subscriber_failed_count != 1 else ''} failed.")
+
+    body = "\n".join(lines)
+    return subject, body
+
+
+def send_confirmation_email(
+    ses_client, run_date, subscriber_sent_count, subscriber_failed_count, *, skipped, subscriber_query_failed,
+):
+    """Send the short post-send owner confirmation (PRD send-confirmation-summary.md).
+
+    Best-effort only: any exception (building the message or the SES call itself) is
+    caught and logged here, never raised — the caller (send-mode __main__) must be able
+    to always proceed to the brief-archival step regardless of this function's outcome
+    (FR-6/AC-4). Uses the existing SENDER/RECIP constants and the existing `ses` client
+    only -- no new AWS resource, IAM permission, or secret (FR-7/AC-5).
+    """
+    try:
+        subject, body = _build_confirmation_email(
+            run_date, subscriber_sent_count, subscriber_failed_count,
+            skipped=skipped, subscriber_query_failed=subscriber_query_failed,
+        )
+        msg = MIMEMultipart("mixed")
+        msg["Subject"] = subject; msg["From"] = SENDER; msg["To"] = RECIP
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        r = ses_client.send_raw_email(Source=SENDER, Destinations=[RECIP], RawMessage={"Data": msg.as_string()})
+        print("CONFIRMATION_SENT", r["MessageId"])
+    except Exception as e:
+        # Never raised: the brief and fan-out have already completed by the time this
+        # runs, so a confirmation glitch must never fail the pipeline or block archival.
+        print("CONFIRMATION_SEND_FAILED:", repr(e))
 
 
 if __name__ == "__main__":
@@ -332,9 +423,18 @@ if __name__ == "__main__":
     skip_fanout = os.environ.get("SKIP_SUBSCRIBER_FANOUT", "").strip().lower() in ("1", "true", "yes")
 
     dynamodb = boto3.client("dynamodb", region_name=REGION)
-    send_all(
+    _sent, _failed, subscriber_sent_count, subscriber_failed_count, subscriber_query_failed = send_all(
         ses, dynamodb, subject, brief_html, mp3_bytes, os.path.basename(mp3_out), SUBSCRIBERS_TABLE_NAME,
         skip_subscriber_fanout=skip_fanout,
+    )
+
+    # Short, separate post-send owner confirmation (PRD send-confirmation-summary.md
+    # FR-1..FR-8) -- additive to, not a replacement for, the owner's brief copy already
+    # sent above by send_all(). Best-effort: send_confirmation_email() itself never
+    # raises, so a confirmation glitch can never fail this run or block archival below.
+    send_confirmation_email(
+        ses, _today_local_date(), subscriber_sent_count, subscriber_failed_count,
+        skipped=skip_fanout, subscriber_query_failed=subscriber_query_failed,
     )
 
     # Archive today's brief for tomorrow's "read-recent-briefs" step and as the owner's
