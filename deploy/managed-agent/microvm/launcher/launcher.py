@@ -20,16 +20,17 @@ Behavior:
 - Enforces the RunMicrovm 5 TPS rate limit.
 - On RunMicrovm failure, returns non-2xx so Anthropic retries.
 
-Adaptation note vs. the reference implementation: this port DROPS the reference's
-DynamoDB-backed idempotency table (Powertools Idempotency, deduping concurrent/
-retried webhook deliveries by event id). Rationale: this pipeline fires a single
-scheduled session per weekday (PRD FR-4), so webhook volume is negligible and a
-double-launch (the failure mode idempotency guards against) would at worst run
-the daily brief pipeline twice — annoying (duplicate emails) but not unsafe, and
-directly observable via Managed Agents run history (PRD AC-4/AC-17). Revisit and
-add the idempotency table (mirroring the reference's IdempotencyTable resource)
-as a hardening follow-up if double-launches are ever actually observed; the
-reference implementation is the template to restore it from if so.
+Adaptation note vs. the reference implementation: this port originally DROPPED the
+reference's DynamoDB-backed idempotency table, on the bet that this pipeline's
+single-scheduled-session-per-weekday webhook volume made a double-launch
+unlikely and low-harm. That bet's own revisit-trigger ("if double-launches are
+ever actually observed") fired on 2026-07-03 — a live run produced two
+successful ``RunMicrovm`` calls for the same session ~4 minutes apart — so per
+docs/adr/0010-restore-webhook-idempotency.md, the reference's Powertools
+Idempotency approach has been RESTORED: a DynamoDB-backed idempotency table
+(``IDEMPOTENCY_TABLE``) dedupes concurrent/retried webhook deliveries by
+``event_id``, guarding ``_launch_and_dispatch`` so at most one MicroVM launches
+per delivered event.
 """
 
 from __future__ import annotations
@@ -45,6 +46,13 @@ try:
 except ImportError:  # pragma: no cover - exercised via mocked verifier in tests
     anthropic = None  # type: ignore[assignment]
 
+from aws_lambda_powertools.utilities.idempotency import (
+    DynamoDBPersistenceLayer,
+    IdempotencyConfig,
+    idempotent_function,
+)
+from aws_lambda_powertools.utilities.idempotency.exceptions import IdempotencyAlreadyInProgressError
+
 from shared.constants import (
     DEFAULT_IDLE_POLICY,
     DEFAULT_LOGGING_CONFIG,
@@ -59,6 +67,17 @@ from shared.types import LauncherConfig, WebhookEvent
 
 _SESSION_ID_PREFIX = "sesn_"
 _SESSION_ID_MAX_LEN = 128
+
+# Idempotency record TTL: 24 hours. Deliberately DECOUPLED from
+# DEFAULT_MAX_LIFETIME_SECONDS (the microVM's 8h execution ceiling) — the two are
+# unrelated quantities. This only needs to outlive the window in which a
+# fresh/retried redelivery of the SAME event_id could still arrive (bounded by
+# Anthropic's webhook retry + freshness-check behavior, well under a day); it
+# does not need to survive until the next day's distinct scheduled run, since
+# each run carries its own unique event_id. See
+# docs/adr/0010-restore-webhook-idempotency.md "TTL decision (24 hours)" for the
+# full rationale — do not silently re-couple this to the lifetime constant.
+_IDEMPOTENCY_TTL_SECONDS = 86400
 
 
 def _log(level: str, message: str, **fields: Any) -> None:
@@ -95,13 +114,24 @@ class Launcher:
         client: MicroVmClient,
         *,
         rate_limiter: Optional[TokenBucket] = None,
+        launch_executor: Optional[Callable[..., dict[str, Any]]] = None,
     ) -> None:
         self._config = config
         self._client = client
         self._rate_limiter = rate_limiter or TokenBucket(config.launch_tps_limit)
+        # Defaults to the un-deduped executor (used by tests that construct a
+        # Launcher directly without an idempotency store). handler() below
+        # installs the @idempotent_function-wrapped executor for real requests
+        # (docs/adr/0010-restore-webhook-idempotency.md).
+        self._launch_executor = launch_executor or self._launch_and_dispatch
 
     def _launch_and_dispatch(self, event: WebhookEvent) -> dict[str, Any]:
-        """Launch one MicroVM with the run hook payload. Raises on failure."""
+        """Launch one MicroVM with the run hook payload. Raises on failure.
+
+        This is the side effect ADR-0010 guards with idempotency — at most one
+        call reaches here per distinct webhook ``event_id``, durably across
+        cold starts and concurrent Lambda instances.
+        """
         run_hook_payload = build_run_hook_payload(event, self._config)
         self._rate_limiter.acquire()
         launched = self._client.launch_microvm(
@@ -152,7 +182,19 @@ class Launcher:
             )
 
         try:
-            result = self._launch_and_dispatch(event)
+            result = self._launch_executor(event=event)
+        except IdempotencyAlreadyInProgressError:
+            # A concurrent delivery of the same event_id is already launching a
+            # microVM. Return 200 (not 5xx/4xx): from Anthropic's perspective
+            # this delivery has been handled — telling it "success, stop
+            # retrying" is exactly what dedup wants (ADR-0010).
+            _log(
+                "info",
+                "duplicate delivery already in progress; not launching again",
+                event_id=event.event_id,
+                session_id=event.session_id,
+            )
+            return {"statusCode": 200, "body": "in progress"}
         except LaunchMicroVmError as exc:
             _log("error", "RunMicrovm failed", session_id=event.session_id, error=str(exc))
             return {
@@ -176,6 +218,10 @@ def _load_config() -> LauncherConfig:
         aws_region=region,
         # Required, not .get(...): a Lambda cold-starting without this env var
         # must fail loudly here, not fall through to handler()'s fail-closed
+        # check on every request (same convention as signing_secret_arn below).
+        idempotency_table=os.environ["IDEMPOTENCY_TABLE"],
+        # Required, not .get(...): a Lambda cold-starting without this env var
+        # must fail loudly here, not fall through to handler()'s fail-closed
         # check on every request. The dataclass field stays Optional because
         # LauncherConfig is also constructed directly in tests without a real
         # secret ARN — handler() below is what actually enforces the
@@ -191,6 +237,35 @@ def _get_secret(secret_arn: str) -> str:
     client = boto3.client("secretsmanager")
     response = client.get_secret_value(SecretId=secret_arn)
     return response["SecretString"]
+
+
+def _build_idempotent_executor(
+    launcher: Launcher, idempotency_table: str
+) -> Callable[..., dict[str, Any]]:
+    """Wrap ``launcher._launch_and_dispatch`` with Powertools Idempotency, keyed
+    on the webhook ``event_id`` (docs/adr/0010-restore-webhook-idempotency.md).
+
+    ``WebhookEvent`` is a dataclass, so Powertools' ``_prepare_data`` converts it
+    to a dict via ``dataclasses.asdict`` before evaluating ``event_key_jmespath``
+    — no manual serialization needed here.
+    """
+    persistence_layer = DynamoDBPersistenceLayer(
+        table_name=idempotency_table, expiry_attr="expiration"
+    )
+    idempotency_config = IdempotencyConfig(
+        event_key_jmespath="event_id",
+        expires_after_seconds=_IDEMPOTENCY_TTL_SECONDS,
+    )
+
+    @idempotent_function(
+        data_keyword_argument="event",
+        persistence_store=persistence_layer,
+        config=idempotency_config,
+    )
+    def _idempotent_launch_and_dispatch(event: WebhookEvent) -> dict[str, Any]:
+        return launcher._launch_and_dispatch(event)
+
+    return _idempotent_launch_and_dispatch
 
 
 def handler(
@@ -222,6 +297,15 @@ def handler(
         _log("error", "denying webhook: no signing secret configured")
         return {"statusCode": 500, "body": "signing secret not configured"}
 
+    # Fail CLOSED (docs/adr/0010-restore-webhook-idempotency.md): an unset/empty
+    # idempotency_table means "cannot dedup," not "dedup not required." Silently
+    # degrading to no-dedup risks the exact harm ADR-0010 exists to prevent
+    # (duplicate SES sends that can't be un-sent), so this is checked up front,
+    # before signature verification, mirroring the signing-secret check above.
+    if not config.idempotency_table:
+        _log("error", "denying webhook: no idempotency table configured")
+        return {"statusCode": 500, "body": "idempotency table not configured"}
+
     signing_secret = _get_secret(config.signing_secret_arn)
     if not verifier(raw_body, headers, signing_secret):
         _log("info", "denying webhook: signature verification failed")
@@ -229,6 +313,7 @@ def handler(
 
     client = Boto3MicroVmClient(region_name=config.aws_region)
     launcher = Launcher(config, client)
+    launcher._launch_executor = _build_idempotent_executor(launcher, config.idempotency_table)
 
     payload = json.loads(raw_body) if raw_body else {}
     return launcher.handle(WebhookEvent.from_payload(payload))

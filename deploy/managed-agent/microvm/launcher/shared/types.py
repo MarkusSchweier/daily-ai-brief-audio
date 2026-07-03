@@ -24,6 +24,7 @@ class LauncherConfig:
     environment_key_secret_id: str
     execution_role_arn: str
     aws_region: str
+    idempotency_table: str
     signing_secret_arn: Optional[str] = None
     base_url: Optional[str] = None
     max_lifetime_seconds: int = DEFAULT_MAX_LIFETIME_SECONDS

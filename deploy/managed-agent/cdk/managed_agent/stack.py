@@ -40,6 +40,7 @@ from aws_cdk import (
     RemovalPolicy,
     Stack,
     aws_apigateway as apigw,
+    aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as _lambda,
     aws_logs as logs,
@@ -204,6 +205,8 @@ class ManagedAgentSandboxStack(Stack):
         self.microvm_build_role = self._build_image_build_role()
 
         self.microvm_execution_role = self._build_microvm_execution_role()
+
+        self.idempotency_table = self._build_idempotency_table()
 
         self.launcher_fn = self._build_launcher_function()
         self.webhook_api = self._build_webhook_api()
@@ -461,6 +464,34 @@ class ManagedAgentSandboxStack(Stack):
         return role
 
     # ------------------------------------------------------------------
+    # Idempotency table — dedupes concurrent/retried webhook deliveries by
+    # event_id, restoring the reference implementation's guard around
+    # RunMicrovm (docs/adr/0010-restore-webhook-idempotency.md).
+    # ------------------------------------------------------------------
+    def _build_idempotency_table(self) -> dynamodb.Table:
+        """Powertools Idempotency's DynamoDB schema: partition key ``id``, TTL
+        attribute ``expiration``. Read/written only by the launcher Lambda via
+        DynamoDBPersistenceLayer (launcher.py) — no other principal needs access.
+
+        removal_policy=DESTROY deliberately breaks this stack's otherwise-uniform
+        RETAIN convention (see the secrets/buckets above): this table holds only
+        transient dedup state (each item self-expires via TTL well inside a day,
+        ADR-0010's TTL decision), so losing it on stack teardown loses nothing of
+        value — unlike the secrets or the image-artifact bucket, there is no
+        out-of-band population step to redo.
+        """
+        return dynamodb.Table(
+            self,
+            "IdempotencyTable",
+            table_name=f"{self.project_name}-idempotency",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            time_to_live_attribute="expiration",
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+    # ------------------------------------------------------------------
     # Launcher Lambda — webhook signature verification + RunMicroVm
     # ------------------------------------------------------------------
     def _build_launcher_function(self) -> _lambda.Function:
@@ -528,6 +559,25 @@ class ManagedAgentSandboxStack(Stack):
             )
         )
 
+        # Idempotency store (ADR-0010): item-level access to the one idempotency
+        # table only, no new principal/role. Powertools' DynamoDBPersistenceLayer
+        # needs all four of these to manage the in-progress/complete record
+        # lifecycle (write on launch start, read/update on completion or replay,
+        # delete on validation failure).
+        role.add_to_policy(
+            iam.PolicyStatement(
+                sid="IdempotencyStore",
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:GetItem",
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                ],
+                resources=[self.idempotency_table.table_arn],
+            )
+        )
+
         fn = _lambda.Function(
             self,
             "LauncherFunction",
@@ -562,6 +612,7 @@ class ManagedAgentSandboxStack(Stack):
                 "ENVIRONMENT_KEY_SECRET_ARN": self.environment_key_secret.secret_arn,
                 "MICROVM_EXECUTION_ROLE_ARN": self.microvm_execution_role.role_arn,
                 "SIGNING_SECRET_ARN": self.signing_secret.secret_arn,
+                "IDEMPOTENCY_TABLE": self.idempotency_table.table_name,
             },
         )
         return fn

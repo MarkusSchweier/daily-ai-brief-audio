@@ -37,3 +37,11 @@ standardwebhooks>=1.0.1,<2
 # hard-coded at synth time.
 boto3>=1.34.0
 botocore>=1.34.0
+
+# DynamoDB-backed webhook idempotency (docs/adr/0010-restore-webhook-idempotency.md),
+# restoring the reference implementation's dedup-by-event_id guard around
+# _launch_and_dispatch. Unlike standardwebhooks above, this and its transitives
+# (jmespath, typing_extensions) are pure wheels — confirmed to resolve under this
+# stack's --only-binary=:all: platform lock, so it goes through the normal LOCKED
+# pip pass, not the unlocked-second-pass carve-out.
+aws-lambda-powertools>=3.0
