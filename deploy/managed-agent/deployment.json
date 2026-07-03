@@ -12,6 +12,7 @@
     "(docs/adr/0006, Negative/follow-ups)."
   ],
   "beta_header": "managed-agents-2026-04-01",
+  "_live_deployment_id": "depl_0132ARBCdsSRh6hxocbbW7ac",
 
   "agent": {
     "_comment": "References the agent definition created via the Claude Console/API (docs/adr/0007). The skill (deploy/managed-agent/skills/daily-ai-brief/) is now a verified verbatim port of the real daily-ai-brief skill, incl. its real sources.md -- not a reconstruction. The skill deliberately does NOT touch Polly/SES/HTML/delivery (matches the real skill's own design: 'converting it to speech and delivering it is the caller's job'). This initial_prompt is that caller/wrapping layer -- it invokes the skill for the writing, then layers the delivery mechanics on top, mirroring how the local Desktop task's SKILL.md wraps the same skill today (its STEP 1 invokes the skill; STEPs 5-8 are the wrapping delivery task).",
@@ -29,9 +30,9 @@
   },
 
   "schedule": {
-    "_comment": "Matches today's weekday 6:07 AM local run (docs/adr/0006). CONFIRM the owner's actual local timezone before deploy -- America/Los_Angeles is this ADR's assumption, not independently re-verified against the owner's Mac locale.",
+    "_comment": "Matches today's weekday 6:07 AM local run (docs/adr/0006). Confirmed with the owner 2026-07-03: actual local timezone is Europe/Berlin (the ADR's original America/Los_Angeles was an unconfirmed placeholder, corrected before deploy).",
     "cron": "7 6 * * 1-5",
-    "timezone": "America/Los_Angeles"
+    "timezone": "Europe/Berlin"
   },
 
   "_manual_steps_not_encoded_here": [

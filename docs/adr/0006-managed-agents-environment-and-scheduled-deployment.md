@@ -84,16 +84,18 @@ egress further (e.g. running the microVM in a VPC with an endpoint allowlist) is
 already tightly-scoped IAM role, and the research step legitimately needs broad public web
 access anyway. Noted as an available future hardening lever.
 
-### Schedule: native `schedule.cron` in America/Los_Angeles (unchanged by the self-hosted choice)
+### Schedule: native `schedule.cron` in Europe/Berlin (unchanged by the self-hosted choice)
 
 The Deployments API `schedule.cron` targets the `self_hosted` environment id exactly as it would
 a `cloud` environment — the session just enters our work queue instead of an Anthropic-managed
 container. The timing is unchanged from the original design:
 
 - **Cron:** `schedule.cron = "7 6 * * 1-5"` fired at **06:07 local, Monday–Friday**, with
-  **`timezone: "America/Los_Angeles"`**, matching today's weekday 6:07 AM run. Using the
-  platform's timezone field (not a UTC-baked cron) means DST shifts are handled by the platform,
-  so the brief keeps arriving at 6:07 **local** year-round.
+  **`timezone: "Europe/Berlin"`** (confirmed with the owner 2026-07-03 — this ADR's original
+  `America/Los_Angeles` was an unverified placeholder, corrected before the deployment was
+  created), matching today's weekday 6:07 AM run. Using the platform's timezone field (not a
+  UTC-baked cron) means DST shifts are handled by the platform, so the brief keeps arriving at
+  6:07 **local** year-round.
 - The deployment is **pausable/unpausable** and exposes **per-run history** natively (AC-4); the
   owner monitors success/failure there and/or via the run webhook (AC-17). No custom monitoring
   is built.
