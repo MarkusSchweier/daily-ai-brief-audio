@@ -171,44 +171,72 @@ source is complete as of the ADR-0007 pipeline port: `microvm/Dockerfile` now co
 the ported research/writing skill (`skills/daily-ai-brief/`) and the microVM-adapted
 audio/email pipeline (`pipeline/`).
 
-**AWS's `create-microvm-image` requires the `Dockerfile` at the root of the zipped
-archive** (confirmed against the reference implementation's `build-image.sh`). Because
-the ported skill and pipeline code live as siblings of `microvm/` in this repo — not
-nested inside it, so they stay with the rest of `deploy/managed-agent/`'s
-source-of-truth tree — the build **stages a temporary directory** (Dockerfile + worker/
-from `microvm/`, plus `skills/` and `pipeline/` copied in alongside) before zipping,
-rather than zipping `microvm/` in place:
+**AWS's `create-microvm-image` requires the `Dockerfile` inside a single top-level
+folder within the zipped archive** — confirmed live (2026-07-03): a flat zip (`Dockerfile`
+at the archive root, no wrapping folder) is rejected with `"Zip must contain a
+top-level folder with all files inside it, including SKILL.md"`-style errors (the same
+constraint applies to the Skills API's zip format, and to this image-build zip).
+**Only stage `Dockerfile` + `worker/` from `microvm/`** — not `launcher/`, which is the
+separate launcher *Lambda's* own source (nested under `microvm/launcher/` for
+repo-organization reasons only; it is not part of the microVM image and must not be
+zipped into it):
 
 ```bash
 cd deploy/managed-agent
 STAGE=$(mktemp -d)
-cp -R microvm/. "$STAGE"/
+cp microvm/Dockerfile "$STAGE"/
+cp -R microvm/worker "$STAGE"/worker
 cp -R skills "$STAGE"/skills
 cp -R pipeline "$STAGE"/pipeline
-find "$STAGE" -name __pycache__ -exec rm -rf {} + 2>/dev/null
+find "$STAGE" \( -name __pycache__ -o -name ".DS_Store" -o -name node_modules \) -exec rm -rf {} + 2>/dev/null
 (cd "$STAGE" && zip -r -q /tmp/app.zip .)   # Dockerfile ends up at the archive root
 aws s3 cp /tmp/app.zip s3://<ImageArtifactBucketName output>/app.zip
 
 aws lambda-microvms create-microvm-image \
-  --image-name claude-daily-brief-worker \
-  --source-s3-bucket <ImageArtifactBucketName output> \
-  --source-s3-key app.zip \
-  --execution-role-arn <MicroVmBuildRoleArn output> \
-  --enable-lifecycle-hooks
+  --name claude-daily-brief-worker \
+  --base-image-arn "arn:aws:lambda:us-east-1:aws:microvm-image:al2023-1" \
+  --build-role-arn "<MicroVmBuildRoleArn output>" \
+  --code-artifact '{"uri":"s3://<ImageArtifactBucketName output>/app.zip"}' \
+  --hooks '{"port":9000,"microvmImageHooks":{"ready":"ENABLED","validate":"ENABLED"},"microvmHooks":{"run":"ENABLED","resume":"ENABLED","suspend":"ENABLED","terminate":"ENABLED"}}'
 ```
 
-Monitor the build in CloudWatch under `/aws/lambda/microvms/claude-daily-brief-worker`;
-the image transitions `IN_PROGRESS → SUCCESSFUL`. If you changed
+**Note on the CLI flags above — corrected 2026-07-03 against the live API,
+superseding what the reference implementation's `build-image.sh` documented**:
+`--base-image-arn` is a **required** parameter not present in the reference script at
+all (discover available base images with `aws lambda-microvms
+list-managed-microvm-images`; this repo uses `al2023-1`, the only one available at
+build time). `--code-artifact` takes a JSON/shorthand object (`{"uri": "s3://..."}`),
+not separate `--source-s3-bucket`/`--source-s3-key` flags. `--build-role-arn` replaces
+`--execution-role-arn`. `--enable-lifecycle-hooks` does not exist; use `--hooks` with an
+explicit `port` (required once any hook is enabled — the worker's hook server listens
+on `9000`, `worker.mjs`'s `HOOK_PORT`) and the six hooks the worker actually implements
+(`ready`/`validate` at build time, `run`/`resume`/`suspend`/`terminate` at runtime — see
+`worker.mjs`'s own lifecycle-hook contract comment). Despite the flag-name drift, the
+underlying model is unchanged: you supply a Dockerfile inside the code artifact, and
+Lambda builds and snapshots it — this is not a different build model, just a newer CLI
+surface than the reference implementation's.
+
+Poll build status (`get-microvm-image` needs the full ARN, not the bare name):
+
+```bash
+aws lambda-microvms get-microvm-image \
+  --image-identifier "arn:aws:lambda:us-east-1:<account>:microvm-image:claude-daily-brief-worker" \
+  --query "{state:state,latestActiveImageVersion:latestActiveImageVersion,latestFailedImageVersion:latestFailedImageVersion}"
+```
+
+`state` transitions `CREATING → CREATED` (or `CREATE_FAILED`). Build logs stream to
+CloudWatch under `/aws/lambda/microvms/claude-daily-brief-worker`. If you changed
 `microvmImageIdentifier` from the default, use that name instead and re-deploy the CDK
 stack first (the launcher's `MICROVM_IMAGE_IDENTIFIER` env var is derived from this
 context value).
 
-**Note on the `aws lambda-microvms` CLI/API:** AWS Lambda MicroVMs is a newer/beta
-service surface. If your installed AWS CLI v2 doesn't recognize `lambda-microvms` yet,
-you may need `aws configure add-model` with the service model, per the reference
-implementation's own prerequisites list. Confirm this against current AWS CLI/SDK docs
-at build time — this repo could not independently re-verify the CLI's current support
-level (see "What was and wasn't confirmed" below).
+**Note on the `aws lambda-microvms` CLI/API:** confirmed live (2026-07-03) that a
+current AWS CLI v2 (2.35.11) recognizes `lambda-microvms` natively — no `aws configure
+add-model` needed, contrary to what the reference implementation's prerequisites
+suggested (that may have been true for an earlier CLI version during the service's
+earlier beta). AWS Lambda MicroVMs remains a newer/beta service surface generally; the
+exact flag set above was verified against a real build on this date and may drift
+further as the beta evolves.
 
 ### 6. Create/update the scheduled deployment
 
