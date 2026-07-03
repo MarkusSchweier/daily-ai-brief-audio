@@ -1,6 +1,28 @@
-# Webhook signature verification (client.beta.webhooks.unwrap); the [webhooks]
-# extra provides the HMAC verifier used in launcher.py's verify_signature().
-anthropic[webhooks]>=0.69
+# Webhook signature verification (client.beta.webhooks.unwrap, used in launcher.py's
+# verify_signature()) needs the `standardwebhooks` package importable -- the SDK does
+# a plain `from standardwebhooks import Webhook` inside a try/except ImportError
+# (anthropic/resources/beta/webhooks.py); there is no extras-marker check, just
+# whether the module is present. CONFIRMED LIVE BUG (2026-07-03), multi-part:
+# (1) `anthropic[webhooks]>=0.69` let pip resolve down to 0.99.0, which predates
+# beta.webhooks entirely (`'Beta' object has no attribute 'webhooks'`); (2) removing
+# the extra (an intermediate, wrong fix) hit "You need to install
+# `anthropic[webhooks]`"; (3) restoring `anthropic[webhooks]>=0.116.0` then broke the
+# platform-locked bundling step entirely -- `standardwebhooks` ships ONLY a source
+# sdist on PyPI, no wheel for any platform, so `--only-binary=:all:` (required for
+# cross-platform bundling, see stack.py's _LocalPipBundling) rejects it outright with
+# "No matching distribution found". All three symptoms were caught by
+# verify_signature()'s broad except and (correctly, per its fail-closed design)
+# reported as a signature failure -- masking the real cause each time.
+#
+# Fix: keep `anthropic` bare here (no `[webhooks]` extra, since the extra's only
+# purpose -- pulling in standardwebhooks -- can't be satisfied under
+# --only-binary=:all:) and list `standardwebhooks` as its own line below.
+# _LocalPipBundling installs it in a second, unlocked pip pass (no --platform/
+# --only-binary flags) -- safe because it is pure Python with no compiled
+# extensions, so a sdist build on any host platform produces files that run
+# identically on the Lambda's Linux/aarch64 runtime.
+anthropic>=0.116.0
+standardwebhooks>=1.0.1,<2
 
 # boto3/botocore for the `lambda-microvms` RunMicrovm client (shared/microvm_client.py)
 # and `secretsmanager` (launcher.py's _get_secret). NOTE: `lambda-microvms` is a

@@ -32,6 +32,7 @@ from pathlib import Path
 import jsii
 import aws_cdk as cdk
 from aws_cdk import (
+    AssetHashType,
     BundlingOptions,
     DockerImage,
     Duration,
@@ -50,20 +51,37 @@ from constructs import Construct
 
 LAUNCHER_DIR = Path(__file__).resolve().parent.parent.parent / "microvm" / "launcher"
 
-# The launcher has third-party deps (anthropic[webhooks], boto3/botocore — see
+# The launcher has third-party deps (anthropic, boto3/botocore — see
 # deploy/managed-agent/microvm/launcher/requirements.txt) that must be installed
 # alongside the source before zipping. CDK's standard pattern for this is asset
 # bundling in a container image matching the Lambda runtime. This stack prefers
-# LOCAL bundling (plain `pip install --target`, no Docker) when `pip` is on PATH,
-# so `cdk synth` works in sandboxes without Docker (this repo's dev environment
-# included) — falling back to Docker bundling (`public.ecr.aws/sam/build-python3.13`)
-# automatically if local bundling is unavailable or fails. For an actual `cdk deploy`,
-# prefer having Docker available so the deps are built against the exact Lambda
-# execution environment (README calls this out as a real prerequisite); local bundling
-# is a synth-time/dev convenience, not a guarantee of manylinux-wheel compatibility.
+# LOCAL bundling (`pip install --target`, no Docker) when `pip` is on PATH, so
+# `cdk synth`/`cdk deploy` both work in sandboxes without Docker (this repo's dev
+# environment included) — falling back to Docker bundling
+# (`public.ecr.aws/sam/build-python3.13`) automatically if local bundling is
+# unavailable or fails.
+#
+# CONFIRMED LIVE BUG (2026-07-03), now fixed: a first real deploy from this macOS
+# host used local bundling with a bare `pip install -t <dir>` (no --platform), which
+# installs whatever wheels pip resolves for the HOST's platform (macOS arm64) — not
+# the Lambda's actual runtime (Linux arm64/manylinux). anthropic's compiled
+# dependencies (pydantic-core, a Rust extension) built for macOS silently fail to
+# import inside the deployed Lambda; the launcher's own `except ImportError:
+# anthropic = None` fallback (a deliberate fail-closed guard, see launcher.py)
+# caught this and correctly rejected every webhook delivery as unverifiable rather
+# than skipping verification — but the ROOT CAUSE was this packaging gap, not a bad
+# signature. Fixed by pinning `--platform manylinux2014_aarch64 --python-version
+# 3.13 --implementation cp --abi cp313 --only-binary=:all:` so pip downloads
+# prebuilt Linux/aarch64 wheels for CPython 3.13 regardless of the host's actual
+# platform — this works without Docker because it's a wheel *selection* constraint,
+# not a build step; every dependency here (anthropic, httpx, pydantic, pydantic-core,
+# boto3, botocore, and their transitive deps) publishes manylinux aarch64 wheels.
+# Docker bundling (matching the exact Lambda execution environment) remains the
+# stronger guarantee and is still the documented preference when available.
 @jsii.implements(ILocalBundling)
 class _LocalPipBundling:
-    """Bundle by running `pip install -r requirements.txt -t <out>` on the host.
+    """Bundle by running a cross-platform `pip install -r requirements.txt -t <out>`
+    on the host, forcing Linux/aarch64/cp313 wheels regardless of host platform.
 
     Must be @jsii.implements(ILocalBundling), not a plain Python subclass —
     ILocalBundling is a jsii Protocol; CDK's Node-side bundling logic calls
@@ -75,11 +93,41 @@ class _LocalPipBundling:
         pip = shutil.which("pip3") or shutil.which("pip")
         if pip is None:
             return False
+        requirements = (LAUNCHER_DIR / "requirements.txt").read_text().splitlines()
+        # `standardwebhooks` ships no wheel on PyPI (sdist only), so it can't survive
+        # --only-binary=:all: below. It's pure Python (no compiled extensions), so
+        # install it separately, unlocked to the host platform — the resulting files
+        # are byte-identical regardless of build host and run fine on Lambda's
+        # Linux/aarch64. See the comment in requirements.txt for the full history.
+        unlocked_pkgs = [
+            line.strip() for line in requirements
+            if line.strip().startswith("standardwebhooks")
+        ]
+        locked_lines = [
+            line for line in requirements
+            if line.strip() and not line.strip().startswith("#")
+            and not line.strip().startswith("standardwebhooks")
+        ]
         try:
-            subprocess.run(
-                [pip, "install", "-q", "-r", str(LAUNCHER_DIR / "requirements.txt"), "-t", output_dir],
-                check=True,
-            )
+            if locked_lines:
+                subprocess.run(
+                    [
+                        pip, "install", "-q",
+                        *[arg for line in locked_lines for arg in (line,)],
+                        "-t", output_dir,
+                        "--platform", "manylinux2014_aarch64",
+                        "--implementation", "cp",
+                        "--python-version", "3.13",
+                        "--abi", "cp313",
+                        "--only-binary=:all:",
+                    ],
+                    check=True,
+                )
+            if unlocked_pkgs:
+                subprocess.run(
+                    [pip, "install", "-q", "--no-deps", "-t", output_dir, *unlocked_pkgs],
+                    check=True,
+                )
         except subprocess.CalledProcessError:
             return False
         shutil.copytree(
@@ -488,7 +536,18 @@ class ManagedAgentSandboxStack(Stack):
             runtime=_lambda.Runtime.PYTHON_3_13,
             architecture=_lambda.Architecture.ARM_64,
             handler="launcher.handler",
-            code=_lambda.Code.from_asset(str(LAUNCHER_DIR), bundling=_LAUNCHER_BUNDLING),
+            # asset_hash_type=OUTPUT: hash the bundling OUTPUT (post `pip install`),
+            # not just the source directory. CDK's default (SOURCE) hashes only the
+            # launcher's own .py files + requirements.txt -- a bundling-*logic* change
+            # (e.g. the --platform flags added 2026-07-03, see _LocalPipBundling's
+            # docstring) doesn't touch those files, so with the default hash type CDK
+            # would treat the asset as unchanged and silently keep serving the
+            # previously-published (and in that incident, wrong-platform) zip. This
+            # was a real, live-observed bug -- OUTPUT hashing makes it structurally
+            # impossible to repeat.
+            code=_lambda.Code.from_asset(
+                str(LAUNCHER_DIR), bundling=_LAUNCHER_BUNDLING, asset_hash_type=AssetHashType.OUTPUT
+            ),
             timeout=Duration.seconds(30),
             # The launcher imports the anthropic SDK (+ pydantic/httpx) for webhook
             # verification; at the default 128 MB the cold-start import alone risks the
