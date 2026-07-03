@@ -5,15 +5,16 @@ date-scoped WebSearch for that outlet and fix the URL when you can. Feed URLs ma
 are best-guess endpoints — confirm on first use; the site URL is the stable fallback.
 
 ## Tier 1 — Frontier labs (primary sources)
+Listed alphabetically — order carries no priority; check all of them every day.
 - Anthropic — News: https://www.anthropic.com/news
-- OpenAI — News: https://openai.com/news/  · feed: https://openai.com/blog/rss.xml (verify)
 - Google DeepMind — Blog: https://deepmind.google/discover/blog/  · feed: https://deepmind.google/blog/rss.xml (verify)
 - Google Research — Blog: https://research.google/blog/  · feed: https://research.google/blog/rss/ (verify)
 - Meta AI — Blog: https://ai.meta.com/blog/
-- Mistral AI — News: https://mistral.ai/news/
-- xAI — News: https://x.ai/news
 - Microsoft Research — Blog: https://www.microsoft.com/en-us/research/blog/  · feed: https://www.microsoft.com/en-us/research/feed/ (verify)
+- Mistral AI — News: https://mistral.ai/news/
+- OpenAI — News: https://openai.com/news/  · feed: https://openai.com/blog/rss.xml (verify)
 - Qwen (Alibaba): https://qwenlm.github.io/blog/  · DeepSeek: https://api-docs.deepseek.com/news
+- xAI — News: https://x.ai/news
 
 ## Tier 2 — Papers (technical backbone)
 - Hugging Face Daily Papers: https://huggingface.co/papers
