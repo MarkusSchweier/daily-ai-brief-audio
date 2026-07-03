@@ -135,10 +135,10 @@ Via the Claude Console or the Deployments API (with the beta header
   `deploy/managed-agent/deployment.json`.
 - Generate the **environment key** for that environment (worker auth) — save it for
   step 4.
-- Create the agent definition (the `agent.agent_id` in `deployment.json`) once the
-  research/writing skill is ported (ADR-0007, `deploy/managed-agent/skills/daily-ai-brief/`
-  — **not yet ported**; see that directory's placeholder `SKILL.md` for the handoff to
-  the Developer task that ports it).
+- Create the agent definition (the `agent.agent_id` in `deployment.json`), loading the
+  ported research/writing skill (ADR-0007,
+  `deploy/managed-agent/skills/daily-ai-brief/SKILL.md` — ported; see that file's own
+  provenance note for exactly what it was reconstructed from).
 
 ### 4. Populate the two Secrets Manager secrets
 
@@ -166,14 +166,27 @@ aws secretsmanager describe-secret --secret-id <SigningSecretArn output>
 
 This stack provisions the `ImageArtifactBucket` and `MicroVmBuildRole` the build needs,
 but does not run the build itself (matches the reference implementation's own separation
-of concerns — `build-image.sh` is a CLI step, not a CloudFormation resource). Once the
-image source is complete — the skeleton is in `deploy/managed-agent/microvm/` now; the
-pipeline code (ADR-0007's ported skill + `deploy/audio_email.py`) still needs to be added
-per the TODOs in `microvm/Dockerfile` and `microvm/worker/worker.mjs`:
+of concerns — `build-image.sh` is a CLI step, not a CloudFormation resource). The image
+source is complete as of the ADR-0007 pipeline port: `microvm/Dockerfile` now copies in
+the ported research/writing skill (`skills/daily-ai-brief/`) and the microVM-adapted
+audio/email pipeline (`pipeline/`).
+
+**AWS's `create-microvm-image` requires the `Dockerfile` at the root of the zipped
+archive** (confirmed against the reference implementation's `build-image.sh`). Because
+the ported skill and pipeline code live as siblings of `microvm/` in this repo — not
+nested inside it, so they stay with the rest of `deploy/managed-agent/`'s
+source-of-truth tree — the build **stages a temporary directory** (Dockerfile + worker/
+from `microvm/`, plus `skills/` and `pipeline/` copied in alongside) before zipping,
+rather than zipping `microvm/` in place:
 
 ```bash
-cd deploy/managed-agent/microvm
-zip -r /tmp/app.zip .
+cd deploy/managed-agent
+STAGE=$(mktemp -d)
+cp -R microvm/. "$STAGE"/
+cp -R skills "$STAGE"/skills
+cp -R pipeline "$STAGE"/pipeline
+find "$STAGE" -name __pycache__ -exec rm -rf {} + 2>/dev/null
+(cd "$STAGE" && zip -r -q /tmp/app.zip .)   # Dockerfile ends up at the archive root
 aws s3 cp /tmp/app.zip s3://<ImageArtifactBucketName output>/app.zip
 
 aws lambda-microvms create-microvm-image \
@@ -286,19 +299,23 @@ In order, before this can run a real scheduled brief:
 1. AWS Marketplace subscription + IAM-federated console access for "Claude Platform on
    AWS" in account `740353583786` (Claude Console/AWS Console, not this repo).
 2. `cdk deploy` this stack (gated — requires human confirmation per this repo's DevOps
-   conventions; **not run automatically by this build**).
+   conventions; **not run automatically by this build**). Also create the **`briefs/`
+   lifecycle rule** on the existing `cowork-polly-tts-740353583786` bucket (ADR-0005,
+   90-day expiry) — an imperative step, not a CDK/CloudFormation resource, mirroring how
+   the existing `audio/` 7-day rule was created.
 3. Register the webhook URL with Anthropic; create the `self_hosted` environment and
-   generate the environment key; create the agent definition (Claude Console/API).
+   generate the environment key; create the agent definition (Claude Console/API),
+   loading the now-ported research/writing skill
+   (`deploy/managed-agent/skills/daily-ai-brief/SKILL.md`, ADR-0007).
 4. Populate the two Secrets Manager secrets with the real environment key and webhook
    signing secret (`aws secretsmanager put-secret-value`, never in git).
-5. **Port the research/writing skill** into `deploy/managed-agent/skills/daily-ai-brief/`
-   (ADR-0007) — a separate Developer task, not built by this infrastructure work — and
-   wire `deploy/audio_email.py` into the image per the Dockerfile/worker.mjs TODOs.
-6. Build and push the microVM container image (`create-microvm-image`, step 5 above).
-7. Create the scheduled deployment via the Deployments API/Console using
+5. Build and push the microVM container image (`create-microvm-image`, step 5 above) —
+   the image source is complete (skill + pipeline code both ported and wired into
+   `microvm/Dockerfile`).
+6. Create the scheduled deployment via the Deployments API/Console using
    `deploy/managed-agent/deployment.json`'s values, after confirming the owner's real
    local timezone.
-8. Run the end-to-end verification (step 7 above), **including the Mac-off scheduled-run
+7. Run the end-to-end verification (step 7 above), **including the Mac-off scheduled-run
    test (PRD AC-2)** — the entire point of this migration.
 
 ## Teardown
@@ -342,4 +359,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requiremen
 
 cd ../..
 python3 -m json.tool deployment.json > /dev/null && echo "deployment.json OK"
+
+# Pipeline code (ADR-0007 port): S3 brief-history persistence + the microVM-adapted
+# audio_email.py fan-out logic, unit-tested against moto (no real AWS calls).
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python3 -m py_compile pipeline/*.py
+.venv/bin/python3 -m pytest tests/ -v
 ```

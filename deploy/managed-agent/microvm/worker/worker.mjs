@@ -4,10 +4,12 @@
 // implementation (github.com/aws-samples/sample-lambda-microvm-claude-managed-agents,
 // src/microvm-image/worker/worker.mjs) per docs/adr/0006. This file is generic
 // Managed Agents worker plumbing — it does not itself contain daily-brief
-// pipeline logic. The pipeline (research/writing half per docs/adr/0007, plus
-// this repo's existing deploy/audio_email.py for the audio/email half) runs as
-// the tool calls Claude issues once EnvironmentWorker.handleItem() picks up the
-// session — see the TODO in handleSession() below for exactly where that lives.
+// pipeline logic, and by design never needs to: the pipeline (the ported
+// research/writing skill, deploy/managed-agent/skills/daily-ai-brief/SKILL.md
+// per docs/adr/0007, plus the microVM-adapted deploy/managed-agent/pipeline/
+// audio_email.py for the audio/email half) runs entirely as the tool calls
+// Claude issues once EnvironmentWorker.handleItem() picks up the session — see
+// the note in handleSession() below for exactly where that lives.
 //
 // Lifecycle hooks are served as HTTP endpoints on port 9000:
 //   POST /aws/lambda-microvms/runtime/v1/ready     (image build: snapshot gate)
@@ -26,7 +28,7 @@
 //   2. Polls the work queue for the matching session.
 //   3. Handles the session's tool calls — this is where the daily-brief
 //      pipeline (research/writing skill + audio_email.py) actually executes,
-//      as bash/file tool calls Claude directs (see the TODO below).
+//      as bash/file tool calls Claude directs (see the note below).
 //   4. Exits — idle policy drives suspend/terminate.
 
 import http from "node:http";
@@ -68,18 +70,19 @@ async function handleSession(dispatch) {
   const client = new Anthropic({ authToken: environmentKey, baseURL });
   const worker = new EnvironmentWorker({ client, environmentId, environmentKey, workdir: "/workspace" });
 
-  // TODO (separate developer task, docs/adr/0007): EnvironmentWorker.handleItem()
-  // below executes whatever tool calls the Managed Agent's deployment (see
-  // deploy/managed-agent/deployment.json) directs — bash/file operations inside
-  // /workspace. The daily-brief pipeline itself is NOT code that belongs in this
-  // worker.mjs file; it is:
+  // EnvironmentWorker.handleItem() below executes whatever tool calls the
+  // Managed Agent's deployment (see deploy/managed-agent/deployment.json)
+  // directs — bash/file operations inside /workspace. The daily-brief pipeline
+  // itself is NOT code that belongs in this worker.mjs file; it is:
   //   1. The research/writing skill the agent loads and follows
   //      (deploy/managed-agent/skills/daily-ai-brief/SKILL.md, ADR-0007) — a thin
   //      orchestration prompt in deployment.json tells Claude to run it.
-  //   2. deploy/audio_email.py (already in this repo), invoked as a tool call
+  //   2. deploy/managed-agent/pipeline/audio_email.py (the microVM-adapted port
+  //      of deploy/audio_email.py — see that file's own docstring for the exact
+  //      credential/persistence adaptations), invoked as a tool call
   //      (e.g. `python3.13 /opt/pipeline/audio_email.py`) once the brief is
-  //      written — see the Dockerfile TODO for where that script and its deps
-  //      get copied into the image.
+  //      written — see the Dockerfile for where that script and its deps get
+  //      copied into the image.
   // boto3 inside that Python invocation authenticates automatically via this
   // same microVM execution role's IMDSv2 credentials (ADR-0004) — nothing
   // worker.mjs needs to do to make that work; it is a property of the

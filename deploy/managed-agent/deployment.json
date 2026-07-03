@@ -14,9 +14,9 @@
   "beta_header": "managed-agents-2026-04-01",
 
   "agent": {
-    "_comment": "References the agent definition created via the Claude Console/API (docs/adr/0007). The agent's initial prompt is intentionally thin — it orchestrates, delegating substance to the committed skill file.",
+    "_comment": "References the agent definition created via the Claude Console/API (docs/adr/0007). The agent's initial prompt is intentionally thin — it orchestrates, delegating substance to the committed skill file, now ported at deploy/managed-agent/skills/daily-ai-brief/SKILL.md (previously a placeholder; see that file's own provenance note for exactly what was and wasn't verbatim-portable).",
     "agent_id": "REPLACE_WITH_AGENT_ID_agent_...",
-    "initial_prompt": "Run today's daily AI brief pipeline: research per the daily-ai-brief skill, write and validate the Markdown brief, derive the HTML and the speech-optimized listening script, then run the audio/email step (Polly synthesis + SES owner copy + subscriber fan-out) exactly as deploy/audio_email.py does today.",
+    "initial_prompt": "Run today's daily AI brief pipeline exactly per the daily-ai-brief skill's SKILL.md: research and write the brief, validate it, derive the HTML and the speech-optimized listening script (all in /workspace), then run its STEP 6 audio/email step (Polly synthesis + SES owner copy + subscriber fan-out via /opt/pipeline/audio_email.py) and archive today's brief to S3.",
     "skills": [
       "daily-ai-brief"
     ]
