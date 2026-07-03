@@ -373,6 +373,19 @@ def test_confirmation_query_failure_disambiguated_from_genuine_zero(audio_email_
     assert "Sent to 0 subscribers" not in body
 
 
+def test_confirmation_singular_wording_for_exactly_one(audio_email_module):
+    """Grammar edge case: exactly 1 sent and exactly 1 failed must both use the
+    singular form ("1 subscriber" / "1 subscriber send failed"), not "1 subscribers"
+    or "1 subscriber sends failed"."""
+    subject, body = audio_email_module._build_confirmation_email(
+        "2026-07-03", 1, 1, skipped=False, subscriber_query_failed=False,
+    )
+    assert "Sent to 1 subscriber." in body
+    assert "1 subscribers" not in body
+    assert "1 subscriber send failed." in body
+    assert "1 subscriber sends failed" not in body
+
+
 def test_send_confirmation_email_sends_to_owner_from_sender(audio_email_module):
     ses_client = FakeSesClient()
 
