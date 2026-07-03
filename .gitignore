@@ -35,3 +35,9 @@ deploy/subscribers/cdk.out/
 deploy/subscribers/.cdk.staging/
 deploy/subscribers/node_modules/
 deploy/subscribers/cdk-outputs.json
+
+# --- CDK (deploy/managed-agent) ---
+deploy/managed-agent/cdk/cdk.out/
+deploy/managed-agent/cdk/.cdk.staging/
+deploy/managed-agent/cdk/node_modules/
+deploy/managed-agent/cdk/cdk-outputs.json
