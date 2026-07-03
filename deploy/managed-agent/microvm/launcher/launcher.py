@@ -174,7 +174,13 @@ def _load_config() -> LauncherConfig:
         environment_key_secret_id=os.environ["ENVIRONMENT_KEY_SECRET_ARN"],
         execution_role_arn=os.environ["MICROVM_EXECUTION_ROLE_ARN"],
         aws_region=region,
-        signing_secret_arn=os.environ.get("SIGNING_SECRET_ARN"),
+        # Required, not .get(...): a Lambda cold-starting without this env var
+        # must fail loudly here, not fall through to handler()'s fail-closed
+        # check on every request. The dataclass field stays Optional because
+        # LauncherConfig is also constructed directly in tests without a real
+        # secret ARN — handler() below is what actually enforces the
+        # security invariant for real requests.
+        signing_secret_arn=os.environ["SIGNING_SECRET_ARN"],
         base_url=os.environ.get("ANTHROPIC_BASE_URL") or None,
     )
 
@@ -192,19 +198,34 @@ def handler(
     context: Any = None,
     *,
     verifier: Callable[[str, dict[str, str], str], bool] = verify_signature,
+    config: Optional[LauncherConfig] = None,
 ) -> dict[str, Any]:
-    """Lambda entry point (API Gateway proxy integration)."""
-    config = _load_config()
+    """Lambda entry point (API Gateway proxy integration).
+
+    ``config`` is injectable (like ``verifier``) so tests can exercise the
+    fail-closed check below directly with a ``LauncherConfig`` built without
+    a signing secret, independent of ``_load_config()``'s own (stronger,
+    cold-start-time) requirement that the env var be set at all.
+    """
+    if config is None:
+        config = _load_config()
 
     body = event.get("body")
     raw_body = body if isinstance(body, str) else json.dumps(body or {})
     headers = event.get("headers") or {}
 
-    if config.signing_secret_arn:
-        signing_secret = _get_secret(config.signing_secret_arn)
-        if not verifier(raw_body, headers, signing_secret):
-            _log("info", "denying webhook: signature verification failed")
-            return {"statusCode": 401, "body": "signature verification failed"}
+    # Fail CLOSED: an unset/empty signing_secret_arn means "cannot verify," not
+    # "verification not required." The launcher's HMAC check is the only thing
+    # that authenticates a delivery (README/ADR-0006) — a missing secret must
+    # never be interpreted as permission to skip straight to RunMicrovm.
+    if not config.signing_secret_arn:
+        _log("error", "denying webhook: no signing secret configured")
+        return {"statusCode": 500, "body": "signing secret not configured"}
+
+    signing_secret = _get_secret(config.signing_secret_arn)
+    if not verifier(raw_body, headers, signing_secret):
+        _log("info", "denying webhook: signature verification failed")
+        return {"statusCode": 401, "body": "signature verification failed"}
 
     client = Boto3MicroVmClient(region_name=config.aws_region)
     launcher = Launcher(config, client)
