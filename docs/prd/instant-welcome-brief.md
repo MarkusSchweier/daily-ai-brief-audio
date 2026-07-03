@@ -1,7 +1,11 @@
 # PRD: Instant welcome brief for newly confirmed subscribers
 
-- Status: **Design complete (2026-07-03)** — human product decisions resolved and the Architect's
-  sync-vs-async question resolved (§7: async-decoupled, ADR-0009 Accepted). Ready for the Developer.
+- Status: **Shipped (2026-07-03)** — implemented across both CDK apps per ADR-0009; independent
+  reviewer and security-engineer passes complete. AC-1 through AC-12 covered by tests (61/61
+  `deploy/subscribers` + 32/32 `deploy/managed-agent`). One reviewer-flagged blocking bug (a
+  duplicate-request race letting two near-simultaneous confirms both send the welcome email) was
+  fixed with a `ConditionExpression`-guarded transition plus a regression test. Security review
+  found no Critical/High issues (IAM grants match FR-13/FR-14 as amended by ADR-0009). Ready for PR.
 - Author: product-manager (Claude)  ·  Date: 2026-07-03
 - Linked ADRs:
   [0009 Decouple the welcome send from the confirm request path via async Lambda invoke](../adr/0009-async-welcome-send-decoupling.md)
