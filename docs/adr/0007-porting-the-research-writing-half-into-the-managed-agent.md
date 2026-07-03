@@ -116,3 +116,31 @@ lookup was required. The Developer must confirm, when porting, that the external
 no hidden dependency on the local filesystem beyond the "yesterday's brief" read already handled
 by ADR-0005, and must run the parallel-run diff (PRD §8) as the acceptance evidence for faithful
 reproduction.
+
+## Amendment (2026-07-03) — the real skill source was found and the port corrected
+
+The Developer's first pass at the verbatim port (docs/adr/0007, Negative/follow-ups above) could
+not locate the external `daily-ai-brief` skill's own file on disk and reconstructed it from the
+production `SKILL.md`'s inline description instead — a reasonable fallback given what was
+searchable at the time, but it only captured tier *names*, not the real skill's actual named
+sources/URLs, paywall-handling procedure, ranking rubric, or quality guardrails.
+
+The real skill was subsequently found (at
+`~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/.../skills/
+daily-ai-brief/`, identical to `~/Claude Working Folder/Daily AI Briefs/
+daily-ai-brief-SKILL-updated.md` — a location the first pass's search did not check). The port
+has been corrected to a genuine verbatim copy, including the real `sources.md` (now committed
+alongside `SKILL.md`) — closing the "key risk" this ADR flagged, ahead of the parallel-run diff
+rather than relying on that diff to catch it.
+
+**One structural correction this also surfaced:** the real skill explicitly states delivery
+mechanics are "the caller's job... not this skill's" — it produces only the Markdown brief and
+(optionally) a listening script, nothing about HTML conversion, Polly, or SES. The first port
+had folded STEP 6 (audio/email) directly into the skill file, which both diverged from the real
+skill's own design and muddied the mechanism this ADR specifies (a thin orchestration prompt +
+substance in the skill). Corrected: `skills/daily-ai-brief/SKILL.md` now contains only the
+research/write/validate/listening-script logic (verbatim), and `deployment.json`'s
+`initial_prompt` carries the wrapping delivery steps (HTML derivation, the `audio_email.py`
+invocation, env var wiring) — matching how the local Desktop task's own `SKILL.md` already
+separates these (its STEP 1 invokes the skill; STEPs 5–8 are the wrapping task, external to the
+skill). This is a truer match to ADR-0007's original mechanism, not a new decision.

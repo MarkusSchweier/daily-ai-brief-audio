@@ -1,167 +1,281 @@
 ---
 name: daily-ai-brief
-description: Weekday AI news briefing — researched, written, validated, narrated via Polly, and emailed via SES with the MP3 attached. Runs inside a self-hosted Claude Managed Agents microVM session.
+description: Generate a daily AI briefing covering the latest AI research and industry developments, written in dense news-bite style with an Anthropic lens. Gathers from a comprehensive source list, dedupes across outlets, finds free coverage for paywalled scoops, and writes a tiered Markdown brief to the working folder. Use when the user asks for "today's AI brief / briefing / digest", an "AI news roundup", or when run as the scheduled daily task.
 ---
 
-Generate today's Daily AI Brief, turn it into a narrated MP3, and email it (brief as the
-body + MP3 attached) — fully unattended. Audio = Amazon Polly, email = Amazon SES.
+# Daily AI Brief
 
 ## Provenance and faithfulness note
 
-This skill is a **verbatim port** of steps 1–4 of the local Claude Desktop scheduled
-task's `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (STEP 1–STEP 4B), which in
-turn invokes an external `daily-ai-brief` skill whose own source content was not found
-on this machine as a separate file when this port was done (docs/adr/0007) — there is
-no `~/Claude/Skills/daily-ai-brief/` or similar on the machine this port was built on.
-**This file was therefore reconstructed from the inline STEP 1–4 description in the
-local scheduled task's `SKILL.md`, which describes the workflow in enough operational
-detail to port faithfully** (source tiers, gather method, validation rule, listening-
-script rules) — it is not a copy of a separate skill-internal file (e.g. a `sources.md`)
-that this port could not locate. No research method, source tier, validation rule, or
-listening-script rule below has been changed, paraphrased away, or "improved" from that
-description (PRD non-goal). If the external `daily-ai-brief` skill's own source is later
-found to differ from this reconstruction, treat that discovery as a drift bug to fix via
-the parallel-run diff (ADR-0007), not a reason to silently diverge further.
+This is a **verbatim port** of the real `daily-ai-brief` skill (found on the owner's machine
+at `~/Library/Application Support/Claude/local-agent-mode-sessions/skills-plugin/.../skills/daily-ai-brief/`,
+identical to `~/Claude Working Folder/Daily AI Briefs/daily-ai-brief-SKILL-updated.md`) —
+**not** the earlier reconstruction this file previously contained. That reconstruction was
+built without access to this source and only captured tier *names*, missing the actual named
+outlets/URLs in `sources.md`, the paywall-handling procedure, the ranking rubric, and the
+quality guardrails below. This corrects that (docs/adr/0007 amendment).
 
-**The one deliberate behavior change** (per ADR-0007): "read yesterday's brief" (STEP 3)
-now reads from the S3 `briefs/` store (docs/adr/0005) instead of the local
-`Daily AI Briefs/` working folder, because the microVM sandbox has no filesystem shared
-across runs. Everything else — the source tiers, the gather method, the brief format,
-the dollar/benchmark validation step, and the listening-script rules — is unchanged.
+**The only change from the real skill: `WORKING_FOLDER` below is `/workspace`** (the microVM's
+workdir, per `worker.mjs`), not the real skill's local Mac path — everything else, including
+every word of the workflow, the source list, and the guardrails, is unchanged.
 
-## Environment adaptation (microVM vs. local Desktop task)
-
-| | Local Desktop task (today) | This ported skill (microVM) |
-|---|---|---|
-| Brief Markdown output | `/Users/markus/Claude Working Folder/Daily AI Briefs/AI Brief - YYYY-MM-DD.md` | `/workspace/brief.md` (per `worker.mjs`'s `workdir: "/workspace"`) |
-| Brief HTML | `/tmp/brief.html` | `/workspace/brief.html` |
-| Listening script | `/tmp/listening-script.txt` | `/workspace/listening-script.txt` |
-| MP3 output | `<working folder>/Daily AI Briefs/AI Brief <date>.mp3` | `/workspace/brief.mp3` |
-| "Read yesterday's brief" | Read the local folder directly | `python3.13 /opt/pipeline/audio_email.py read-yesterday` (S3 `briefs/` read, ADR-0005) |
-| AWS credentials | `AWS_SHARED_CREDENTIALS_FILE` from a mounted working-folder file | None needed — the microVM's IAM execution role resolves automatically via IMDSv2 (ADR-0004); boto3 calls with zero explicit credential setup |
-| Archive today's brief | Implicit (the Markdown file already lives in the durable working folder) | Explicit: `audio_email.py`'s `__main__` archives `/workspace/brief.md` to S3 `briefs/YYYY-MM-DD/` after a successful send (ADR-0005), via `BRIEF_MARKDOWN_PATH` |
-
-No source tier, research method, writing format, or validation rule differs between the
-two columns — only where files live and how AWS is reached differ, matching ADR-0007's
-"faithful port, not a rewrite" mandate.
+**Audio/delivery is deliberately NOT part of this skill**, matching the real skill's own design
+("converting it to speech and delivering it is the caller's job... handled by the caller/task,
+not by this skill"). Polly synthesis, SES send, and S3 archival are the **deployment's** job
+(`deploy/managed-agent/deployment.json`'s initial prompt), layered on top of this skill exactly
+as the local Desktop task's own SKILL.md wraps around invoking this same skill today (its
+STEP 1 invokes the skill; STEPs 5-8 are the wrapping delivery task, external to the skill).
 
 ---
 
-STEP 1 — This SKILL.md **is** the `daily-ai-brief` skill in this runtime (there is no
-separate skill file to invoke, unlike the local task's STEP 1, which invokes an external
-skill by name). Follow this workflow exactly, writing to `/workspace/` as shown above
-instead of a local working folder.
+Produce one Markdown briefing per day on the most important developments in AI — both
+**industry/business** (funding, deals, partnerships, strategy, org moves, chips, infra) and
+**technical** (new papers, models, concepts, product/API releases, benchmark results) — written
+so a busy, technically fluent reader can skim the headlines in 60 seconds and dive deep on what
+matters.
 
-STEP 2 — Gather. Use web search / web fetch tools for the last ~24–48h. Prioritize
-**Tier 1** (frontier labs), **Tier 2** (Hugging Face Daily Papers + arXiv cs.CL/cs.LG/
-cs.AI), **Tier 4** (tech press), **Tier 7** (Hacker News, Reddit, GitHub/HF trending)
-every day; scan **Tier 3** (benchmarks), **Tier 8** (policy), **Tier 9** (chips/infra);
-use **Tier 6** newsletters as an end-of-pass cross-check. ~25–40 candidates before
-dedup. For paywalled scoops (The Information, Bloomberg, WSJ, FT, NYT), search for free
-coverage and cite both. Never fabricate URLs, numbers, or sources.
+The reader is an **Applied AI Solutions Architect Manager at Anthropic**. Apply an **Anthropic
+lens**: when an item touches the competitive landscape, models, enterprise/applied AI, agents,
+safety, or chips/infra, add one sentence on what it means for Anthropic (its position, customers,
+or the applied-AI/SA function). Keep this analytical and even-handed, not boosterish.
 
-STEP 3 — Read yesterday's brief to avoid repeats (report genuine follow-ups instead).
-This is the one step whose *mechanism* changed for the microVM (ADR-0007): there is no
-local working folder to read, so read the most recent PRIOR brief from the S3 `briefs/`
-store instead — this is optional/best-effort exactly as it was for the local task
-("Optionally read yesterday's brief"), and a first-ever run or a listing/read failure
-must degrade gracefully to proceeding with no avoid-repeats input, never error the run
-(ADR-0005). Run in bash:
+> Optional audio: this brief can also be delivered as narration. When an audio version is
+> requested, additionally produce a **listening script** per the "Optional: audio /
+> listening-script output" section below. The Markdown brief remains the primary deliverable;
+> the listening script is a derived artifact. How the script is turned into speech and delivered
+> (e.g. text-to-speech + email) is handled by the caller/task, not by this skill.
 
-```bash
-python3.13 /opt/pipeline/audio_email.py read-yesterday > /workspace/yesterdays-brief.md 2>/workspace/yesterday-read.log || true
+---
+
+## Configuration
+
+- **WORKING_FOLDER:** `/workspace`
+  This is the only path you need to know. The dated brief is written here, and yesterday's
+  briefs are read from here (via the deployment's S3-backed "read yesterday" step — see the
+  deployment prompt, not this skill, for that mechanism). If this folder ever moves, change it
+  in this one place.
+- **Source list:** `sources.md`, located in **this skill's own folder** (the directory this
+  `SKILL.md` lives in). Read it from there — do not assume an absolute path, so the skill keeps
+  working if it's relocated or reinstalled.
+
+---
+
+## Tooling
+
+This skill runs **entirely on web search + web fetch** — they are the engine, not an optional
+add-on. Use whatever the current environment exposes; the names differ by runtime:
+- **Claude Code / Cowork:** `WebSearch` and `WebFetch`.
+- **Claude API / web app:** `web_search` and `web_fetch`.
+
+References to `WebSearch`/`WebFetch` below mean *"the environment's web-search / web-fetch
+capability."* If the available tools are named differently, map to the equivalent rather than
+failing. Use **fetch** to pull a known URL or RSS/Atom feed; use **search** for date-scoped
+discovery and for finding free coverage of paywalled stories. If no web access is available at
+all, **stop and tell the user** — without live retrieval the skill cannot produce a real brief,
+and it must never fabricate one from memory.
+
+---
+
+## Output contract
+
+**File:** `{WORKING_FOLDER}/AI Brief - YYYY-MM-DD.md`
+(Use today's local date, ISO `YYYY-MM-DD` for chronological file sorting. If a file for today
+already exists, overwrite it.)
+
+**Always write the file** — never just print the brief in chat. End your turn with a one-line
+summary and a `computer://` link to the file.
+
+**Structure (tiered):**
+
+```
+# Daily AI Brief — {Weekday}, {Month} {D}, {YYYY}
+
+_{One-sentence "today in AI" tl;dr — the single most important thing.}_
+
+## 📌 Headlines
+- **{Category emoji} {Tight 1-line headline}** — _{outlet}_
+- ... (8–15 bullets, skimmable, ordered by importance; each maps to a deep-dive below if it has one)
+
+---
+
+## 🔬 Research & Models
+{Deep-dive items — see item format below}
+
+## 🏢 Industry, Deals & Strategy
+{Deep-dive items}
+
+## 🛠️ Products, Tools & Releases
+{Deep-dive items}
+
+## 📊 Benchmarks & Evals
+{Deep-dive items — only when there's real movement}
+
+## 🏛️ Policy, Safety & Society
+{Deep-dive items}
+
+---
+
+_Sources checked: {n} feeds/sites across labs, arXiv, press, community. Generated {timestamp}._
 ```
 
-If `/workspace/yesterdays-brief.md` is non-empty, read it for context before writing
-today's brief. If empty (first-ever run, or nothing found strictly before today), proceed
-without it — this is expected and not an error.
+Omit any section with no items that day (don't print empty sections). Put 5–10 items into deep
+dives total — not everything in Headlines needs a deep dive, and not every section will have
+content every day.
 
-STEP 4A — Write the brief per this skill's output contract: `/workspace/brief.md`
-(overwrite if it exists within this session — each session starts fresh, so this is
-always a fresh write, not a real overwrite of a prior day). Tiered structure: one-line
-tl;dr, Headlines (8–15 bullets), then deep dives (Research & Models; Industry, Deals &
-Strategy; Products, Tools & Releases; Benchmarks & Evals; Policy, Safety & Society).
-Omit empty sections. 5–10 deep dives. A shorter brief is fine on a quiet day.
+**Item format (deep dives)** — mirror the source newsletter's style:
 
-STEP 4B — Validate. Before generating the HTML/audio, re-check every dollar figure and
-benchmark score in the brief against a second independent source (prefer primary). Fix
-or downgrade to "reported/unconfirmed" any that don't confirm. This is cheap insurance:
-the audio and email are hard to retract once sent.
-
-STEP 5 — Produce two derived files for delivery:
-
-(a) **BRIEF HTML** — convert the brief Markdown to clean, inbox-readable HTML (headings,
-bold, links preserved). Save to `/workspace/brief.html` (UTF-8).
-
-(b) **LISTENING SCRIPT** — a plain-text, speech-optimized narration of the brief, NOT
-the Markdown. Rules: no URLs, no emoji, no Markdown, no "Sources:" lines. ~800–1,200
-words (≈5–8 min at ~150 wpm). Start with a spoken intro ("Your AI brief for {Weekday},
-{Month} {D}. Top story today…"), then the headlines as a quick run-through, then the
-deep dives in flowing prose. Normalize for the ear: "$2.5B" → "2.5 billion dollars";
-expand or letter-read acronyms where it aids comprehension. Save to
-`/workspace/listening-script.txt` (UTF-8).
-
-STEP 6 — Synthesize + email via AWS. Sends the brief to the owner
-(`mail@mschweier.com`, unchanged) and fans out to every confirmed public subscriber
-(DynamoDB `brief-subscribers`) — both from `aibriefing@mschweier.com`. **No credential
-file to locate** — unlike the local task's STEP 6, the microVM's IAM execution role
-resolves automatically via IMDSv2 (ADR-0004); boto3 needs zero explicit credential
-setup. Run this in bash:
-
-```bash
-set -e
-export LISTENING_SCRIPT_PATH="/workspace/listening-script.txt"
-export BRIEF_HTML_PATH="/workspace/brief.html"
-export BRIEF_MARKDOWN_PATH="/workspace/brief.md"
-export MP3_OUT_PATH="/workspace/brief.mp3"
-export EMAIL_SUBJECT="Daily AI Brief — <DD.MM.YYYY>"   # substitute today's date, German format
-export SUBSCRIBERS_TABLE_NAME="brief-subscribers"
-export SUBSCRIBERS_API_BASE_URL="https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com"
-python3.13 /opt/pipeline/audio_email.py
+```
+### {Headline-style title} ({Month D, YYYY})
+{Dense, factual Summary paragraph: 3–6 sentences. Lead with the concrete facts — numbers, names, model versions, benchmark scores, dollar amounts, dates. Then, where relevant, one Anthropic-lens sentence prefixed naturally (e.g., "For Anthropic, ..."). Neutral, specific, no hype.}
+**Sources:** [{Outlet}]({url}) · [{Outlet 2}]({url2})
 ```
 
-This single invocation (`deploy/managed-agent/pipeline/audio_email.py`, the microVM
-port of `deploy/audio_email.py` — see that file's own docstring for the exact
-credential/persistence adaptations, ADR-0004/ADR-0005) does, in order: async Polly
-synthesis (`OutputUri`, never a hand-built S3 key) with a text-only fail-safe on any
-audio error; the owner's send; the subscriber fan-out (failure-isolated per recipient);
-and finally archives `/workspace/brief.md` (plus the HTML and listening script) to the
-S3 `briefs/YYYY-MM-DD/` store for tomorrow's STEP 3 and as the owner's durable record
-(ADR-0005) — archiving is best-effort and never gates or blocks the send that already
-completed.
+Write summaries the way the attached AWS Competitor newsletter does: information-dense, no
+filler, every sentence carries a fact. Prefer specifics ("scored 85.6% on CyberGym vs 83.8% for
+the prior model") over vagueness ("performed well").
 
-Notes/gotchas (unchanged from the local task): region is us-east-1; bucket
-`cowork-polly-tts-740353583786`; voice Matthew (en-US neural). Use the API's
-`OutputUri`, never construct the S3 key (Polly inserts a dot before the TaskId). A wrong
-key returns HTTP 403 (not 404) because the policy omits `s3:ListBucket` on the `audio/`
-prefix (the `briefs/` prefix does grant `s3:ListBucket`, per ADR-0005 — the two prefixes
-have different IAM shapes, on purpose). SES From must be exactly
-`aibriefing@mschweier.com` — nothing sends from `mail@mschweier.com` anymore (it's still
-the owner's recipient address). One bad subscriber address never blocks the owner's
-send or anyone else's (per-recipient try/except; see `SES_SEND_FAILED`/
-`SES_SENT_SUMMARY` in the output — this is also the Managed Agents run's operational
-signal, PRD FR-19/AC-17, in addition to native run history). SES is still in sandbox
-mode — subscriber fan-out only reaches addresses individually verified as SES test
-identities until production access is requested.
+---
 
-STEP 7 — Fail-safe. The brief Markdown file from STEP 4 must ALWAYS be produced
-regardless of audio/email outcome — it already exists at `/workspace/brief.md` by the
-time STEP 6 runs, so an audio/email failure never loses the brief's content, only its
-delivery. If `python3.13 /opt/pipeline/audio_email.py` prints `AUDIO_STEP_FAILED` it has
-already fallen back to sending a text-only email (brief body, no attachment) — that is
-acceptable; note it in the summary. If the whole STEP 6 command fails (e.g. an SES
-error), do NOT lose the brief: report the failure clearly in the session's final summary
-and, if possible, retry the STEP 6 command once. Never block on an audio/email error —
-a fresh microVM session has no local human to notice a stuck run, so this fail-safe
-matters even more here than on the local Desktop task.
+## Daily workflow
 
-STEP 8 — Finish with a one-sentence highlight and whether audio was attached. Since this
-runs unattended in a scheduled Managed Agents session (no owner watching the chat), the
-session's own run-history/webhook signal (PRD FR-19/AC-17) is the primary way the owner
-learns the outcome — but still end the session with a clear final summary in case the
-transcript is inspected.
+### 1. Set up
+- Determine today's local date (via the date in context or `date` in bash).
+- Read the source list `sources.md` from **this skill's own folder**. It's tiered by priority.
+- Optional but recommended: read the **most recent prior brief** in `WORKING_FOLDER` (check
+  today−1, and if absent walk back up to ~5 days to cover weekends/gaps) so you can **avoid
+  repeating** stories and instead report genuine *updates* ("follow-up: ...").
 
-Reader context (Markus): Applied AI Manager at Anthropic focused on Industries customers
-in DACH; expert-level in Gen AI, LLMs, agentic AI, AWS Bedrock and Claude models. Dates
-as DD.MM.YYYY. If a source fails to fetch, fall back to a date-scoped web search and
-continue.
+### 2. Gather (cast a wide net, last ~24–48h)
+Work down the tiers, favoring breadth then pruning:
+- **Tier 1 (labs)** and **Tier 2 (papers — esp. Hugging Face Daily Papers + arXiv cs.CL/cs.LG/
+  cs.AI RSS)** every day. These are the backbone.
+- **Tier 4 (tech press)** and **Tier 7 (HN, Reddit, GitHub/HF trending)** every day for industry
+  + developer pulse.
+- **Tier 3 (benchmarks)**, **Tier 8 (policy)**, **Tier 9 (chips/infra)** — scan; include only
+  when there's real news.
+- **Tier 6 (curated newsletters)** — use as a **cross-check** at the end to catch anything you
+  missed; don't just copy them.
+
+Mechanics:
+- Prefer **RSS/Atom feeds** (listed in sources.md) — fetch with `WebFetch`; they're structured
+  and fetch-friendly.
+- For sites without a feed, use `WebSearch` with date-scoped queries, e.g. `"<topic>" AI news`
+  and rely on freshness; or search a site directly (`site:techcrunch.com AI`).
+- **Filter by publication date.** Feeds and index pages routinely return items days or weeks old
+  (arXiv RSS especially, and "trending" pages have no fixed window). For every candidate, check
+  its publish/update timestamp and **discard anything outside the last ~48h** unless it's a
+  genuine follow-up to a still-developing story. When a date is missing or ambiguous, treat the
+  item as unverified and confirm via a second source before including it.
+- **Budget the fetches.** You don't need every source — batch related fetches, work top tiers
+  first, and **stop once you have strong, diverse coverage** (~25–40 candidates) across business
+  + technical. Don't exhaustively crawl every feed every day.
+- Capture per item: title, 1–2 line gist, outlet, URL, and **publish date**.
+
+### 3. Paywall handling (important — don't skip paywalled scoops)
+Outlets like **The Information, Bloomberg, WSJ, FT, NYT** break many top stories but usually
+won't fetch. When you hit one:
+1. Note the headline + outlet as the originating scoop.
+2. Run a **`WebSearch` for the same story** to find **free coverage** (TechCrunch, The Verge,
+   Axios, Reuters, AP, VentureBeat, company blog, or a newsletter recap). Open-source/company
+   primary sources are best.
+3. Write the summary from the free coverage, and in **Sources** list both the free source(s)
+   **and** the original scoop (so the reader can dig in if they have access). Mark the
+   paywalled one if helpful: `[The Information (paywall)](url)`.
+4. If no free coverage exists yet, still include a short headline-only item noting "originally
+   reported by {outlet}; no open coverage found yet."
+
+### 4. Dedupe & cluster
+- Many outlets cover the same event. **Merge** them into one item with multiple Sources rather
+  than repeating.
+- Cluster related items (e.g., three chip-supply deals) into one item when that tells a cleaner
+  story.
+- Drop pure rehashes of yesterday unless there's a material update.
+
+### 5. Rank & select
+Prioritize by importance to the reader's role. A rough rubric (higher = lead with it):
+- New frontier model / major capability release / significant paper with results.
+- Anything **directly about Anthropic** or its direct competitors' models (OpenAI, Google/
+  DeepMind, Meta, Mistral, xAI, major Chinese open-weight labs).
+- Benchmark SOTA changes; agentic/coding/enterprise-AI developments (the reader's domain).
+- Big deals/funding/chips/infra that shift the competitive or cost landscape.
+- Policy/safety actions affecting frontier labs.
+Down-weight: minor product tweaks, marketing, rumor without substance, stories with no credible
+source.
+
+Target **8–15 headlines** and **5–10 deep dives**. Quality over quantity — a tight brief beats a
+bloated one.
+
+### 6. Write
+- Write the file per the **Output contract**. Build it section by section.
+- Each deep-dive summary: lead with facts, then the Anthropic-lens sentence where it adds
+  insight. Verify numbers against the source; don't invent figures, dates, or benchmark scores.
+  If a claim is a rumor/unconfirmed, say so.
+- Keep links as real URLs you actually retrieved. **Never fabricate URLs or sources.** If you
+  couldn't verify a link, omit it or mark the item as unverified.
+- Category emoji for headlines: 🔬 research/models · 🏢 industry/deals · 🛠️ product/tools ·
+  📊 benchmarks · 🏛️ policy/safety.
+
+### 7. Finish
+- Save to the working folder path above.
+- Reply with a one-sentence highlight and a `computer://` link to the file (or, in this
+  runtime, its `/workspace` path). Keep the chat reply short — the brief is the deliverable.
+
+---
+
+## Optional: audio / listening-script output
+
+Produce this **only when an audio/narrated version is requested** (e.g. by the scheduled task —
+which it always is in this runtime). It is a separate, derived artifact — the Markdown brief is
+still written exactly as above and remains primary. This skill produces only the *script*;
+converting it to speech and delivering it is the caller's job.
+
+The listening script is **plain text optimized for the ear**, not the Markdown:
+
+- **No URLs, no emoji, no Markdown syntax, no "Sources:" lines.** None of that reads well aloud.
+- **Length ~800–1,200 words** (≈5–8 minutes at ~150 wpm) — sized for a commute. Trim on quiet
+  days.
+- **Structure:** a spoken intro ("Your AI brief for {Weekday}, {Month} {D}. Top story today…"),
+  then a quick run-through of the headlines, then the deep dives in flowing prose. Use natural
+  sentence transitions rather than section headers.
+- **Normalize for pronunciation:** "$2.5B" → "2.5 billion dollars"; "85.6%" → "eighty-five point
+  six percent" where clarity helps; expand or letter-read acronyms (e.g. "RLHF") the first time
+  if it aids comprehension.
+- **Keep it self-contained:** a listener can't click anything, so phrase each item so it stands
+  on its own without the link.
+
+Save the script as plain UTF-8 text where the caller expects it (in this runtime,
+`{WORKING_FOLDER}/listening-script.txt` — the caller's prompt specifies the exact path). Do not
+embed any credentials, service names, or delivery mechanics in the script — those belong to the
+task, not the brief.
+
+---
+
+## Quality bar & guardrails
+- **Accuracy first.** This brief informs a professional's view of their field. Every number,
+  name, and date must trace to a source you fetched. When unsure, hedge explicitly
+  ("reportedly", "unconfirmed").
+- **No hallucinated sources or links.** Real URLs only.
+- **Even-handed.** Report competitor wins straight; the Anthropic lens is analysis, not spin.
+- **Dense, not padded.** Match the source newsletter's information density. Cut filler
+  sentences.
+- **Technical depth is welcome** — include architectures, methods, eval methodology, and
+  caveats (e.g., "parity only on the agentic dimension, not across all capabilities").
+- **Dedupe aggressively** so the reader isn't re-reading the same story five times.
+- If a day is genuinely quiet, a shorter brief is fine — don't manufacture items.
+
+## Tips
+- arXiv RSS is high-volume: filter by title/abstract keywords (LLM, agent, reasoning, RL, eval,
+  benchmark, scaling, MoE, long-context, RAG, multimodal, alignment, interpretability,
+  inference, quantization, distillation, diffusion) and surface only the few with notable
+  results or strong community attention (cross-check Hugging Face Daily Papers).
+- Hugging Face Daily Papers is the best single technical-signal source — start there for
+  research.
+- smol.ai's "AI News" and Zvi's roundup are excellent end-of-pass cross-checks for "what did I
+  miss in the discourse."
+- Keep `sources.md` current: if a feed dies, fall back to WebSearch and fix the URL when you
+  can.
+
+## Reader context (Markus)
+Applied AI Manager at Anthropic focused on Industries customers in DACH; expert-level in Gen AI,
+LLMs, agentic AI, AWS Bedrock and Claude models. Dates as DD.MM.YYYY. If a source fails to
+fetch, fall back to a date-scoped web search and continue.
