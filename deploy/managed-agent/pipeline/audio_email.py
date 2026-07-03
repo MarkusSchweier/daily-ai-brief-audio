@@ -28,13 +28,18 @@ gated on subscriber sends), the subscriber fan-out (DynamoDB `brief-subscribers`
 GSI `status-index`, per-recipient failure isolation), and the sign-up/disclaimer header
 + per-subscriber unsubscribe footer injected into the HTML body.
 
-Env in (unchanged from deploy/audio_email.py): LISTENING_SCRIPT_PATH, BRIEF_HTML_PATH,
-MP3_OUT_PATH, EMAIL_SUBJECT.
+Env in for send mode (unchanged from deploy/audio_email.py): LISTENING_SCRIPT_PATH,
+BRIEF_HTML_PATH, MP3_OUT_PATH, EMAIL_SUBJECT. Not required for `read-yesterday` mode —
+see below.
 Optional env in (unchanged): SUBSCRIBERS_TABLE_NAME (default "brief-subscribers"),
 SUBSCRIBERS_API_BASE_URL.
 New optional env in: BRIEF_MARKDOWN_PATH (the brief Markdown to archive to S3 after a
 successful send; if unset, archiving is skipped rather than failing the run — the
-send is never gated on archiving succeeding).
+send is never gated on archiving succeeding). WORKING_FOLDER (default "/workspace",
+matching the skill's own Configuration section) — where `read-yesterday` mode writes
+the fetched prior brief. PIPELINE_TIMEZONE (default "Europe/Berlin", matching the
+deployment's schedule timezone — ADR-0006) — the local-date basis for both the S3
+archive key and for resolving "today" when reading the most recent prior brief.
 """
 
 import boto3, time, urllib.parse, os, sys
@@ -58,23 +63,53 @@ SENDER = "aibriefing@mschweier.com"; RECIP = "mail@mschweier.com"
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SUBSCRIBERS_TABLE_NAME = os.environ.get("SUBSCRIBERS_TABLE_NAME", "brief-subscribers")
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
+# Where the skill looks for a prior brief to read (its own "Configuration: WORKING_FOLDER"
+# section) and where this module writes today's brief's derived artifacts — matched to the
+# skill's own default so `read-yesterday` mode's output lands where the skill will actually
+# look for it via its normal "search WORKING_FOLDER" behavior, no skill-side special-casing.
+WORKING_FOLDER = os.environ.get("WORKING_FOLDER", "/workspace")
 # Date basis for the briefs/ archive: the run's local calendar date in the pipeline's
 # timezone (docs/adr/0005 / docs/adr/0006), so keys line up with "today" the same way
-# the native schedule.cron's timezone field does, independent of UTC.
-PIPELINE_TIMEZONE = os.environ.get("PIPELINE_TIMEZONE", "America/Los_Angeles")
+# the native schedule.cron's timezone field does, independent of UTC. Must match the
+# deployment's schedule.timezone (ADR-0006) -- a mismatch would archive/read under the
+# wrong date near midnight in either zone.
+PIPELINE_TIMEZONE = os.environ.get("PIPELINE_TIMEZONE", "Europe/Berlin")
 
 
 def _today_local_date() -> str:
     return datetime.now(ZoneInfo(PIPELINE_TIMEZONE)).strftime("%Y-%m-%d")
 
 
+# No AWS_SHARED_CREDENTIALS_FILE, no explicit credentials anywhere below — boto3
+# resolves the microVM's IAM execution role via IMDSv2 automatically (docs/adr/0004).
+s3 = boto3.client("s3", region_name=REGION, config=Config(s3={"addressing_style": "path"}))
+
+# --- read-yesterday mode: must run before any send-mode env var is required below ---
+# (a prior version of this branch lived after the send-mode env reads, which meant
+# invoking `read-yesterday` as the designed "run before writing today's brief" first
+# step would crash immediately on a missing LISTENING_SCRIPT_PATH/etc — those files
+# don't exist yet at that point in a real run.)
+if len(sys.argv) > 1 and sys.argv[1] == "read-yesterday":
+    prior = brief_history.read_most_recent_prior_brief(s3, _today_local_date())
+    if prior is not None:
+        # Write under the skill's own dated-filename convention (`AI Brief - YYYY-MM-DD.md`)
+        # using the PRIOR BRIEF'S OWN actual date (not always "yesterday" -- could be several
+        # days back over a weekend/holiday/missed run), so the skill's normal WORKING_FOLDER
+        # search finds it and reasons about "how long ago was this" correctly rather than
+        # mislabeling an older story as an immediate follow-up.
+        dated_path = os.path.join(WORKING_FOLDER, f"AI Brief - {prior.date}.md")
+        with open(dated_path, "w", encoding="utf-8") as f:
+            f.write(prior.markdown)
+        print(f"PRIOR_BRIEF_FOUND date={prior.date} wrote={dated_path}")
+    else:
+        print("PRIOR_BRIEF_NOT_FOUND")
+    raise SystemExit(0)
+
+# --- send mode only below this point ---
 script = open(os.environ["LISTENING_SCRIPT_PATH"], encoding="utf-8").read()
 brief_html = open(os.environ["BRIEF_HTML_PATH"], encoding="utf-8").read()
 mp3_out = os.environ["MP3_OUT_PATH"]; subject = os.environ["EMAIL_SUBJECT"]
-# No AWS_SHARED_CREDENTIALS_FILE, no explicit credentials anywhere below — boto3
-# resolves the microVM's IAM execution role via IMDSv2 automatically (docs/adr/0004).
 polly = boto3.client("polly", region_name=REGION)
-s3 = boto3.client("s3", region_name=REGION, config=Config(s3={"addressing_style": "path"}))
 ses = boto3.client("ses", region_name=REGION)
 audio_ok = True
 try:
@@ -240,22 +275,16 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
 
 
 if __name__ == "__main__":
-    # Two invocation modes, both driven by argv[1] so the ported skill (a thin
-    # orchestration prompt + this module) can call this file both to read yesterday's
-    # brief (docs/adr/0005) before writing today's, and to send + archive after.
+    # By this point, `read-yesterday` mode has already been handled and exited above
+    # (before the send-mode env vars were even read) -- this block is send mode only.
     #
-    #   python3 audio_email.py read-yesterday       -> prints yesterday's brief Markdown
-    #                                                   to stdout, or nothing if none exists
+    #   python3 audio_email.py read-yesterday       -> writes the prior brief (if any) to
+    #                                                   {WORKING_FOLDER}/AI Brief - <its
+    #                                                   actual date>.md; see above
     #   python3 audio_email.py            (no args) -> send today's brief (as today, via
     #                                                   the module-level script above),
     #                                                   then archive it to S3 if
     #                                                   BRIEF_MARKDOWN_PATH is set
-    if len(sys.argv) > 1 and sys.argv[1] == "read-yesterday":
-        prior = brief_history.read_most_recent_prior_brief(s3, _today_local_date())
-        if prior is not None:
-            print(prior.markdown)
-        raise SystemExit(0)
-
     dynamodb = boto3.client("dynamodb", region_name=REGION)
     send_all(ses, dynamodb, subject, brief_html, mp3_bytes, os.path.basename(mp3_out), SUBSCRIBERS_TABLE_NAME)
 

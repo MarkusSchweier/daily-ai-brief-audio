@@ -249,3 +249,108 @@ def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_modul
             part for part in parsed.walk() if part.get_content_disposition() == "attachment"
         ]
         assert attachment_parts == []
+
+
+# ---------------------------------------------------------------------------
+# `read-yesterday` CLI mode — the exact bug this section guards against: this
+# mode is meant to run BEFORE today's brief/HTML/script exist, so it must not
+# require LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/EMAIL_SUBJECT, and
+# it must write the prior brief under ITS OWN actual date (not an assumed
+# "yesterday"), or the skill could mislabel an older story as an immediate
+# follow-up. Loaded as a *separate* module instance from `audio_email_module`
+# (which is fixed to send-mode via conftest.py) because module-level behavior
+# differs by sys.argv, matching how the real Lambda invokes this file twice.
+# ---------------------------------------------------------------------------
+
+import importlib.util
+import sys
+from pathlib import Path
+
+from moto import mock_aws
+
+_PIPELINE_DIR = Path(__file__).resolve().parent.parent / "pipeline"
+_AUDIO_EMAIL_PATH = _PIPELINE_DIR / "audio_email.py"
+
+
+def _run_read_yesterday_mode(working_folder, seed=None):
+    """Load audio_email.py fresh in `read-yesterday` mode against a mocked S3.
+
+    `seed`, if given, is (date, markdown) written to the briefs/ store before the
+    module loads. Deliberately does NOT set LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/
+    MP3_OUT_PATH/EMAIL_SUBJECT — proving read-yesterday mode doesn't need them.
+    """
+    env_overrides = {
+        "WORKING_FOLDER": str(working_folder),
+        "AWS_ACCESS_KEY_ID": "testing",
+        "AWS_SECRET_ACCESS_KEY": "testing",
+        "AWS_SECURITY_TOKEN": "testing",
+        "AWS_SESSION_TOKEN": "testing",
+        "AWS_DEFAULT_REGION": "us-east-1",
+    }
+    old_env = {k: os.environ.get(k) for k in env_overrides}
+    old_shared_cred_file = os.environ.pop("AWS_SHARED_CREDENTIALS_FILE", None)
+    old_argv = sys.argv
+    os.environ.update(env_overrides)
+    sys.argv = ["audio_email.py", "read-yesterday"]
+
+    module_name = "managed_agent_audio_email_read_yesterday_under_test"
+    try:
+        with mock_aws():
+            import boto3
+
+            s3 = boto3.client("s3", region_name="us-east-1")
+            s3.create_bucket(Bucket="cowork-polly-tts-740353583786")
+            if seed is not None:
+                date, markdown = seed
+                s3.put_object(
+                    Bucket="cowork-polly-tts-740353583786",
+                    Key=f"briefs/{date}/brief.md",
+                    Body=markdown.encode("utf-8"),
+                )
+
+            spec = importlib.util.spec_from_file_location(module_name, _AUDIO_EMAIL_PATH)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except SystemExit:
+                pass  # read-yesterday mode always exits 0 -- expected, not a failure
+    finally:
+        sys.argv = old_argv
+        for k, v in old_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        if old_shared_cred_file is not None:
+            os.environ["AWS_SHARED_CREDENTIALS_FILE"] = old_shared_cred_file
+        sys.modules.pop(module_name, None)
+
+
+def test_read_yesterday_mode_needs_no_send_mode_env_vars(tmp_path):
+    """The regression this test guards: read-yesterday mode used to sit after the
+    module-level reads of LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/
+    EMAIL_SUBJECT, so invoking it as designed -- before today's brief exists --
+    crashed with a KeyError. None of those env vars are set here; a clean run
+    (no exception escaping _run_read_yesterday_mode) is the assertion."""
+    _run_read_yesterday_mode(tmp_path)  # must not raise
+
+
+def test_read_yesterday_mode_writes_prior_briefs_own_actual_date(tmp_path):
+    """A Monday run after a Friday brief (weekend gap, no Sat/Sun runs) must write
+    the file dated Friday, not a guessed "yesterday" (Sunday) -- mislabeling the
+    date is exactly what would make the skill call a 3-day-old story a same-day
+    follow-up."""
+    _run_read_yesterday_mode(tmp_path, seed=("2026-06-26", "Friday's brief content"))
+
+    written = tmp_path / "AI Brief - 2026-06-26.md"
+    assert written.exists()
+    assert written.read_text(encoding="utf-8") == "Friday's brief content"
+    # No file guessing "yesterday" under some other date got written.
+    assert list(tmp_path.glob("AI Brief - *.md")) == [written]
+
+
+def test_read_yesterday_mode_with_no_prior_brief_writes_nothing(tmp_path):
+    _run_read_yesterday_mode(tmp_path, seed=None)
+
+    assert list(tmp_path.glob("AI Brief - *.md")) == []
