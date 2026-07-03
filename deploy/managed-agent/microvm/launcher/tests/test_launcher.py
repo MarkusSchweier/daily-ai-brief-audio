@@ -8,7 +8,9 @@ import json
 import sys
 from pathlib import Path
 
+import boto3
 import pytest
+from moto import mock_aws
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -38,6 +40,7 @@ def _config() -> LauncherConfig:
         environment_key_secret_id="arn:aws:secretsmanager:us-east-1:740353583786:secret:test-env-key",
         execution_role_arn="arn:aws:iam::740353583786:role/test-microvm-role",
         aws_region="us-east-1",
+        idempotency_table="daily-brief-agent-idempotency-test",
     )
 
 
@@ -134,6 +137,7 @@ def _required_env(monkeypatch, *, signing_secret_arn="arn:aws:secretsmanager:us-
     monkeypatch.setenv("MICROVM_IMAGE_IDENTIFIER", "arn:aws:lambda:us-east-1:740353583786:microvm-image:test")
     monkeypatch.setenv("ENVIRONMENT_KEY_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:740353583786:secret:env-key")
     monkeypatch.setenv("MICROVM_EXECUTION_ROLE_ARN", "arn:aws:iam::740353583786:role/test-microvm-role")
+    monkeypatch.setenv("IDEMPOTENCY_TABLE", "daily-brief-agent-idempotency-test")
     if signing_secret_arn is None:
         monkeypatch.delenv("SIGNING_SECRET_ARN", raising=False)
     else:
@@ -145,6 +149,33 @@ def _api_gateway_event(body: str = "{}") -> dict:
         "body": body,
         "headers": {"webhook-signature": "sig", "webhook-timestamp": "123", "webhook-id": "evt_1"},
     }
+
+
+@pytest.fixture
+def aws_credentials(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+
+@pytest.fixture
+def idempotency_table(aws_credentials):
+    """A real (moto-mocked) DynamoDB table matching the CDK stack's
+    _build_idempotency_table() shape — see test_idempotency.py's identical
+    fixture. Needed here because handler() (docs/adr/0010) always wires the
+    real idempotent executor now, even on this file's "no AWS calls" pure-logic
+    tests, whenever a test exercises handler()'s full success path."""
+    with mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        client.create_table(
+            TableName="daily-brief-agent-idempotency-test",
+            KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        yield "daily-brief-agent-idempotency-test"
 
 
 def test_handler_denies_and_never_verifies_when_signing_secret_unset():
@@ -190,7 +221,7 @@ def test_handler_denies_invalid_signature_before_launching(monkeypatch):
     assert _FakeBoto3MicroVmClient.instances == []  # RunMicrovm client never constructed
 
 
-def test_handler_launches_on_valid_signature(monkeypatch):
+def test_handler_launches_on_valid_signature(monkeypatch, idempotency_table):
     _required_env(monkeypatch)
     monkeypatch.setattr(launcher_module, "_get_secret", lambda arn: "whsec_test")
     monkeypatch.setattr(launcher_module, "Boto3MicroVmClient", _FakeBoto3MicroVmClient)

@@ -53,6 +53,7 @@ def _config() -> LauncherConfig:
         environment_key_secret_id="arn:aws:secretsmanager:us-east-1:740353583786:secret:test-env-key",
         execution_role_arn="arn:aws:iam::740353583786:role/test-microvm-role",
         aws_region="us-east-1",
+        idempotency_table=_IDEMPOTENCY_TABLE_NAME,
     )
 
 
@@ -224,3 +225,39 @@ def test_handler_still_denies_invalid_signature_before_launching(monkeypatch, id
 
     assert result["statusCode"] == 401
     assert _FakeBoto3MicroVmClient.instances == []
+
+
+def test_handler_denies_when_idempotency_table_unset():
+    """The fail-open bug this test exists to prevent regressing (reviewer
+    finding on docs/adr/0010-restore-webhook-idempotency.md): a config
+    without an idempotency table must be treated as 'cannot dedup' (deny),
+    never as 'dedup not required' (silently proceed without it). A silent
+    no-dedup fallback risks the exact harm ADR-0010 exists to prevent --
+    duplicate SES sends that can't be un-sent -- so this must fail closed,
+    exactly like the adjacent signing-secret check. Injects a LauncherConfig
+    directly (via handler()'s config= parameter) with idempotency_table=""
+    rather than deleting the env var, since _load_config() now separately
+    fails even harder (KeyError at cold start) -- this test is about
+    handler()'s own defense-in-depth check."""
+    _FakeBoto3MicroVmClient.instances.clear()
+    verifier_calls = []
+
+    def verifier(*args):
+        verifier_calls.append(args)
+        return True  # would incorrectly authorize the request if ever reached
+
+    config = LauncherConfig(
+        environment_id="env_test",
+        image_identifier="arn:aws:lambda:us-east-1:740353583786:microvm-image:test",
+        environment_key_secret_id="arn:aws:secretsmanager:us-east-1:740353583786:secret:test-env-key",
+        execution_role_arn="arn:aws:iam::740353583786:role/test-microvm-role",
+        aws_region="us-east-1",
+        idempotency_table="",
+        signing_secret_arn="arn:aws:secretsmanager:us-east-1:740353583786:secret:signing",
+    )
+
+    result = handler(_api_gateway_event(), verifier=verifier, config=config)
+
+    assert result["statusCode"] == 500
+    assert verifier_calls == []  # verification must not even be attempted
+    assert _FakeBoto3MicroVmClient.instances == []  # RunMicrovm client never constructed

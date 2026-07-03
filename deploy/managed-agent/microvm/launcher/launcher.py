@@ -218,6 +218,10 @@ def _load_config() -> LauncherConfig:
         aws_region=region,
         # Required, not .get(...): a Lambda cold-starting without this env var
         # must fail loudly here, not fall through to handler()'s fail-closed
+        # check on every request (same convention as signing_secret_arn below).
+        idempotency_table=os.environ["IDEMPOTENCY_TABLE"],
+        # Required, not .get(...): a Lambda cold-starting without this env var
+        # must fail loudly here, not fall through to handler()'s fail-closed
         # check on every request. The dataclass field stays Optional because
         # LauncherConfig is also constructed directly in tests without a real
         # secret ARN — handler() below is what actually enforces the
@@ -293,6 +297,15 @@ def handler(
         _log("error", "denying webhook: no signing secret configured")
         return {"statusCode": 500, "body": "signing secret not configured"}
 
+    # Fail CLOSED (docs/adr/0010-restore-webhook-idempotency.md): an unset/empty
+    # idempotency_table means "cannot dedup," not "dedup not required." Silently
+    # degrading to no-dedup risks the exact harm ADR-0010 exists to prevent
+    # (duplicate SES sends that can't be un-sent), so this is checked up front,
+    # before signature verification, mirroring the signing-secret check above.
+    if not config.idempotency_table:
+        _log("error", "denying webhook: no idempotency table configured")
+        return {"statusCode": 500, "body": "idempotency table not configured"}
+
     signing_secret = _get_secret(config.signing_secret_arn)
     if not verifier(raw_body, headers, signing_secret):
         _log("info", "denying webhook: signature verification failed")
@@ -300,12 +313,7 @@ def handler(
 
     client = Boto3MicroVmClient(region_name=config.aws_region)
     launcher = Launcher(config, client)
-
-    idempotency_table = os.environ.get("IDEMPOTENCY_TABLE")
-    if idempotency_table:
-        launcher._launch_executor = _build_idempotent_executor(launcher, idempotency_table)
-    else:  # pragma: no cover - defensive; IDEMPOTENCY_TABLE is always set by the CDK stack
-        _log("warning", "IDEMPOTENCY_TABLE not set; running without dedup")
+    launcher._launch_executor = _build_idempotent_executor(launcher, config.idempotency_table)
 
     payload = json.loads(raw_body) if raw_body else {}
     return launcher.handle(WebhookEvent.from_payload(payload))
