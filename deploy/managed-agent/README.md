@@ -131,6 +131,7 @@ Polly → SES → S3 archive, ~16 minutes) after redeploying.
 | `projectName` | Lower-case resource-name prefix (Lambda names, role names, the image-artifact bucket name). **Keep short** — the bucket name is `<projectName>-image-artifacts-<account>-<region>`, capped at AWS's 63-character S3 bucket-name limit; the stack raises a synth-time error if a longer value would violate it. | `daily-brief-agent` |
 | `anthropicEnvironmentId` | The Claude self_hosted environment id (`env_...`) created in step 3 below. Required for the launcher to reference the right environment; a placeholder is fine for `cdk synth`, but a real deploy needs the real id. | empty placeholder |
 | `microvmImageIdentifier` | Name of the microVM image built in step 5. Resolved to a full ARN (`arn:aws:lambda:<region>:<account>:microvm-image:<name>`) inside the stack. | `claude-daily-brief-worker` |
+| `feedbackTokenSecretArn` | The `deploy/feedback/` stack's `FeedbackTokenSecretArn` output (docs/prd/reader-feedback.md, ADR-0011/ADR-0012). Optional and backward-compatible: when supplied, `MicroVmExecutionRole` gains a `ReadFeedbackTokenSecret` statement scoped to exactly that ARN; when absent, no grant is added and the stack still synths/deploys cleanly (e.g. before the feedback stack exists). Deploy `deploy/feedback/` first, populate its secret, then re-deploy this stack with this context value — see `deploy/feedback/README.md`'s wiring section. | unset — no grant added |
 
 Pass via `-c key=value` on any `cdk` command, e.g.:
 

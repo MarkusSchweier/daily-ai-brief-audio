@@ -597,3 +597,199 @@ def test_read_recent_briefs_mode_with_no_prior_briefs_writes_nothing(tmp_path):
     _run_read_recent_briefs_mode(tmp_path, seeds=())
 
     assert list(tmp_path.glob("AI Brief - *.md")) == []
+
+
+# ---------------------------------------------------------------------------
+# Feedback link (docs/prd/reader-feedback.md FR-5, ADR-0011, ADR-0012 §B): a fresh
+# module instance per test (not the session-scoped `audio_email_module` fixture) so
+# each test can set its own FEEDBACK_BASE_URL / FEEDBACK_TOKEN_SECRET_ARN combination
+# -- mirrors the `read-recent-briefs` loader above, adapted for send mode.
+# ---------------------------------------------------------------------------
+
+FEEDBACK_SECRET_ARN = "arn:aws:secretsmanager:us-east-1:740353583786:secret:feedback-test-xxxxx"
+FEEDBACK_SECRET_VALUE = "test-feedback-signing-secret"
+
+
+def _load_audio_email_module_for_feedback_test(tmp_path, *, feedback_base_url="", feedback_secret_arn=""):
+    """Load a fresh instance of audio_email.py (send mode) with its own
+    FEEDBACK_BASE_URL / FEEDBACK_TOKEN_SECRET_ARN env vars, against a mocked AWS
+    session that (when a secret ARN is given) has the feedback signing secret
+    pre-created so `_get_feedback_signing_secret()` can fetch it."""
+    script_path = tmp_path / "listening-script.txt"
+    html_path = tmp_path / "brief.html"
+    mp3_path = tmp_path / "brief.mp3"
+    script_path.write_text("This is the listening script.", encoding="utf-8")
+    html_path.write_text("<html><body><h1>Brief</h1></body></html>", encoding="utf-8")
+
+    env_overrides = {
+        "LISTENING_SCRIPT_PATH": str(script_path),
+        "BRIEF_HTML_PATH": str(html_path),
+        "MP3_OUT_PATH": str(mp3_path),
+        "EMAIL_SUBJECT": "Test AI Brief",
+        "FEEDBACK_BASE_URL": feedback_base_url,
+        "FEEDBACK_TOKEN_SECRET_ARN": feedback_secret_arn,
+        "AWS_ACCESS_KEY_ID": "testing",
+        "AWS_SECRET_ACCESS_KEY": "testing",
+        "AWS_SECURITY_TOKEN": "testing",
+        "AWS_SESSION_TOKEN": "testing",
+        "AWS_DEFAULT_REGION": "us-east-1",
+    }
+    old_env = {k: os.environ.get(k) for k in env_overrides}
+    old_shared_cred_file = os.environ.pop("AWS_SHARED_CREDENTIALS_FILE", None)
+    os.environ.update(env_overrides)
+
+    module_name = f"managed_agent_audio_email_feedback_test_{id(tmp_path)}"
+    mock = mock_aws()
+    mock.start()
+    try:
+        if feedback_secret_arn:
+            import boto3
+
+            secretsmanager = boto3.client("secretsmanager", region_name="us-east-1")
+            secretsmanager.create_secret(Name="feedback-test-secret", SecretString=FEEDBACK_SECRET_VALUE)
+            # moto assigns its own ARN on create_secret; re-fetch and monkeypatch the
+            # module's expected ARN after load isn't needed -- instead, describe the
+            # secret to discover the ARN moto actually assigned, and pass THAT as the
+            # env var so the module's GetSecretValue(SecretId=<that ARN>) call resolves.
+            described = secretsmanager.describe_secret(SecretId="feedback-test-secret")
+            os.environ["FEEDBACK_TOKEN_SECRET_ARN"] = described["ARN"]
+
+        spec = importlib.util.spec_from_file_location(module_name, _AUDIO_EMAIL_PATH)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module, mock
+    except Exception:
+        mock.stop()
+        raise
+    finally:
+        for k, v in old_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        if old_shared_cred_file is not None:
+            os.environ["AWS_SHARED_CREDENTIALS_FILE"] = old_shared_cred_file
+
+
+def test_feedback_link_present_with_valid_config(tmp_path):
+    module, mock = _load_audio_email_module_for_feedback_test(
+        tmp_path, feedback_base_url="https://feedback.mschweier.com", feedback_secret_arn="placeholder"
+    )
+    try:
+        ses_client = FakeSesClient()
+        ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("alice@example.com")])
+
+        module.send_all(
+            ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+        )
+
+        assert len(ses_client.sent_to) == 2  # owner + alice
+        for entry in ses_client.sent_to:
+            body = _html_body_text(entry["raw"])
+            assert "feedback.mschweier.com/?t=" in body
+            assert "Share feedback" in body
+    finally:
+        mock.stop()
+
+
+def test_feedback_link_gracefully_absent_when_config_missing_send_still_succeeds(tmp_path):
+    module, mock = _load_audio_email_module_for_feedback_test(
+        tmp_path, feedback_base_url="", feedback_secret_arn=""
+    )
+    try:
+        ses_client = FakeSesClient()
+        ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("bob@example.com")])
+
+        sent, failed, sub_sent, sub_failed, query_failed = module.send_all(
+            ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+        )
+
+        assert sent == 2  # owner + bob -- send is unaffected
+        assert failed == 0
+        assert len(ses_client.sent_to) == 2
+        for entry in ses_client.sent_to:
+            body = _html_body_text(entry["raw"])
+            assert "Share feedback" not in body
+            assert "/?t=" not in body
+    finally:
+        mock.stop()
+
+
+def test_feedback_link_gracefully_absent_when_base_url_missing_but_secret_configured(tmp_path):
+    module, mock = _load_audio_email_module_for_feedback_test(
+        tmp_path, feedback_base_url="", feedback_secret_arn="placeholder"
+    )
+    try:
+        ses_client = FakeSesClient()
+        ddb_client = FakeDynamoDBClient(subscriber_items=[])
+
+        sent, failed, _, _, _ = module.send_all(
+            ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+        )
+
+        assert sent == 1
+        assert failed == 0
+        body = _html_body_text(ses_client.sent_to[0]["raw"])
+        assert "Share feedback" not in body
+    finally:
+        mock.stop()
+
+
+def test_feedback_link_uses_correct_per_recipient_identity(tmp_path):
+    """AC-5/AC-7: the owner's link attributes to RECIP; each subscriber's link
+    attributes to their own email -- proven here by decoding each recipient's token
+    payload and checking the embedded identity matches who actually got that email."""
+    module, mock = _load_audio_email_module_for_feedback_test(
+        tmp_path, feedback_base_url="https://feedback.mschweier.com", feedback_secret_arn="placeholder"
+    )
+    try:
+        ses_client = FakeSesClient()
+        ddb_client = FakeDynamoDBClient(
+            subscriber_items=[
+                _ddb_item("alice@example.com", unsubscribe_token="tok-a"),
+                _ddb_item("bob@example.com", unsubscribe_token="tok-b"),
+            ]
+        )
+
+        module.send_all(
+            ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+        )
+
+        secret = module._get_feedback_signing_secret()
+        assert secret == FEEDBACK_SECRET_VALUE
+
+        for entry in ses_client.sent_to:
+            body = _html_body_text(entry["raw"])
+            token = body.split("/?t=")[1].split('"')[0]
+            result = module.feedback_token.validate(secret, token)
+            assert result.valid is True
+            assert result.identity == entry["recipient"]
+    finally:
+        mock.stop()
+
+
+def test_feedback_link_generation_failure_never_blocks_send(tmp_path, monkeypatch):
+    """Belt-and-braces on the fail-safe: even if token generation itself raises for
+    some unexpected reason, the send must proceed without the link, never raise."""
+    module, mock = _load_audio_email_module_for_feedback_test(
+        tmp_path, feedback_base_url="https://feedback.mschweier.com", feedback_secret_arn="placeholder"
+    )
+    try:
+        monkeypatch.setattr(
+            module.feedback_token, "generate", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+
+        ses_client = FakeSesClient()
+        ddb_client = FakeDynamoDBClient(subscriber_items=[])
+
+        sent, failed, _, _, _ = module.send_all(
+            ses_client, ddb_client, "Subject", "<p>brief</p>", None, "brief.mp3", "brief-subscribers-test"
+        )
+
+        assert sent == 1
+        assert failed == 0
+        body = _html_body_text(ses_client.sent_to[0]["raw"])
+        assert "Share feedback" not in body
+    finally:
+        mock.stop()
