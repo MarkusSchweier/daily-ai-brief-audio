@@ -1,0 +1,6 @@
+# Dev/test dependencies for deploy/managed-agent/'s own pytest suite
+# (deploy/managed-agent/tests/). Mirrors the repo-root requirements-dev.txt shape.
+# The CDK app's own dev deps live separately in deploy/managed-agent/cdk/requirements-dev.txt.
+pytest>=8.0.0
+boto3>=1.34.0
+moto[s3,dynamodb,ses]>=5.0.0
