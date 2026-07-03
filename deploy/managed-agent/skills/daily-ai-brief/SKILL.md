@@ -50,10 +50,11 @@ or the applied-AI/SA function). Keep this analytical and even-handed, not booste
 ## Configuration
 
 - **WORKING_FOLDER:** `/workspace`
-  This is the only path you need to know. The dated brief is written here, and yesterday's
-  briefs are read from here (via the deployment's S3-backed "read yesterday" step — see the
-  deployment prompt, not this skill, for that mechanism). If this folder ever moves, change it
-  in this one place.
+  This is the only path you need to know. The dated brief is written here, and recent prior
+  briefs are read from here — up to the last few days' worth (via the deployment's S3-backed
+  "read-recent-briefs" step, which runs before this skill and writes each one under its own
+  actual date; see the deployment prompt, not this skill, for that mechanism). If this folder
+  ever moves, change it in this one place.
 - **Source list:** `sources.md`, located in **this skill's own folder** (the directory this
   `SKILL.md` lives in). Read it from there — do not assume an absolute path, so the skill keeps
   working if it's relocated or reinstalled.

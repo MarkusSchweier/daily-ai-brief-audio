@@ -11,14 +11,14 @@ things differ, both required by the runtime, not by any content change:
    microVM there is no such file and none is needed: boto3 picks up the microVM's IAM
    execution role automatically via IMDSv2 (docs/adr/0004) — every `boto3.client(...)`
    call below takes no explicit credentials, exactly like Lambda/EC2 code.
-2. **S3-based "yesterday's brief" read + "today's brief" archive** (docs/adr/0005),
-   via `deploy.managed-agent.pipeline.brief_history`, replacing the local
+2. **S3-based recent-priors read + "today's brief" archive** (docs/adr/0005), via
+   `deploy.managed-agent.pipeline.brief_history`, replacing the local
    `Daily AI Briefs/` folder the research step used to read/write across runs.
    Wired in here (not in the skill) because this is the module that already knows how
    to talk to the pipeline's S3 bucket; the research/writing skill
    (deploy/managed-agent/skills/daily-ai-brief/SKILL.md) invokes the read/archive
-   helpers via this module's `read_yesterdays_brief` / `archive_todays_brief` CLI
-   subcommands (see `__main__` below) so the skill itself never needs its own AWS
+   behavior via this module's `read-recent-briefs` / (no-argument, send mode)
+   CLI subcommands (see `__main__` below) so the skill itself never needs its own AWS
    plumbing.
 
 Everything else is verbatim from `deploy/audio_email.py`: async Polly synthesis via
@@ -29,15 +29,15 @@ GSI `status-index`, per-recipient failure isolation), and the sign-up/disclaimer
 + per-subscriber unsubscribe footer injected into the HTML body.
 
 Env in for send mode (unchanged from deploy/audio_email.py): LISTENING_SCRIPT_PATH,
-BRIEF_HTML_PATH, MP3_OUT_PATH, EMAIL_SUBJECT. Not required for `read-yesterday` mode —
-see below.
+BRIEF_HTML_PATH, MP3_OUT_PATH, EMAIL_SUBJECT. Not required for `read-recent-briefs`
+mode — see below.
 Optional env in (unchanged): SUBSCRIBERS_TABLE_NAME (default "brief-subscribers"),
 SUBSCRIBERS_API_BASE_URL.
 New optional env in: BRIEF_MARKDOWN_PATH (the brief Markdown to archive to S3 after a
 successful send; if unset, archiving is skipped rather than failing the run — the
 send is never gated on archiving succeeding). WORKING_FOLDER (default "/workspace",
-matching the skill's own Configuration section) — where `read-yesterday` mode writes
-the fetched prior brief. PIPELINE_TIMEZONE (default "Europe/Berlin", matching the
+matching the skill's own Configuration section) — where `read-recent-briefs` mode
+writes each fetched prior brief. PIPELINE_TIMEZONE (default "Europe/Berlin", matching the
 deployment's schedule timezone — ADR-0006) — the local-date basis for both the S3
 archive key and for resolving "today" when reading the most recent prior brief.
 """
@@ -63,10 +63,11 @@ SENDER = "aibriefing@mschweier.com"; RECIP = "mail@mschweier.com"
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SUBSCRIBERS_TABLE_NAME = os.environ.get("SUBSCRIBERS_TABLE_NAME", "brief-subscribers")
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
-# Where the skill looks for a prior brief to read (its own "Configuration: WORKING_FOLDER"
+# Where the skill looks for prior briefs to read (its own "Configuration: WORKING_FOLDER"
 # section) and where this module writes today's brief's derived artifacts — matched to the
-# skill's own default so `read-yesterday` mode's output lands where the skill will actually
-# look for it via its normal "search WORKING_FOLDER" behavior, no skill-side special-casing.
+# skill's own default so `read-recent-briefs` mode's output lands where the skill will
+# actually look for it via its normal "search WORKING_FOLDER" behavior, no skill-side
+# special-casing.
 WORKING_FOLDER = os.environ.get("WORKING_FOLDER", "/workspace")
 # Date basis for the briefs/ archive: the run's local calendar date in the pipeline's
 # timezone (docs/adr/0005 / docs/adr/0006), so keys line up with "today" the same way
@@ -84,25 +85,33 @@ def _today_local_date() -> str:
 # resolves the microVM's IAM execution role via IMDSv2 automatically (docs/adr/0004).
 s3 = boto3.client("s3", region_name=REGION, config=Config(s3={"addressing_style": "path"}))
 
-# --- read-yesterday mode: must run before any send-mode env var is required below ---
-# (a prior version of this branch lived after the send-mode env reads, which meant
-# invoking `read-yesterday` as the designed "run before writing today's brief" first
-# step would crash immediately on a missing LISTENING_SCRIPT_PATH/etc — those files
-# don't exist yet at that point in a real run.)
-if len(sys.argv) > 1 and sys.argv[1] == "read-yesterday":
-    prior = brief_history.read_most_recent_prior_brief(s3, _today_local_date())
-    if prior is not None:
-        # Write under the skill's own dated-filename convention (`AI Brief - YYYY-MM-DD.md`)
-        # using the PRIOR BRIEF'S OWN actual date (not always "yesterday" -- could be several
-        # days back over a weekend/holiday/missed run), so the skill's normal WORKING_FOLDER
-        # search finds it and reasons about "how long ago was this" correctly rather than
-        # mislabeling an older story as an immediate follow-up.
-        dated_path = os.path.join(WORKING_FOLDER, f"AI Brief - {prior.date}.md")
-        with open(dated_path, "w", encoding="utf-8") as f:
-            f.write(prior.markdown)
-        print(f"PRIOR_BRIEF_FOUND date={prior.date} wrote={dated_path}")
+# --- read-recent-briefs mode: must run before any send-mode env var is required below ---
+# (an earlier version of this branch lived after the send-mode env reads, which meant
+# invoking it as designed -- before today's brief exists -- crashed immediately on a
+# missing LISTENING_SCRIPT_PATH/etc.) Named for what it now does: fetches up to the last
+# few prior briefs (default brief_history.DEFAULT_RECENT_BRIEFS_COUNT, not just one), so
+# the skill can both avoid repeating recent stories and correctly identify genuine
+# multi-day follow-ups -- "read-yesterday" was renamed because it stopped being accurate
+# once this covered more than a single day.
+if len(sys.argv) > 1 and sys.argv[1] == "read-recent-briefs":
+    count = int(sys.argv[2]) if len(sys.argv) > 2 else brief_history.DEFAULT_RECENT_BRIEFS_COUNT
+    priors = brief_history.read_recent_prior_briefs(s3, _today_local_date(), count=count)
+    if priors:
+        # Write each under the skill's own dated-filename convention
+        # (`AI Brief - YYYY-MM-DD.md`), using each brief's OWN actual date (not "N days
+        # ago" arithmetic -- could span a weekend/holiday/missed run), so the skill's
+        # normal WORKING_FOLDER search finds all of them and reasons about "how long ago
+        # was this" correctly rather than mislabeling an older story as an immediate
+        # follow-up.
+        written = []
+        for prior in priors:
+            dated_path = os.path.join(WORKING_FOLDER, f"AI Brief - {prior.date}.md")
+            with open(dated_path, "w", encoding="utf-8") as f:
+                f.write(prior.markdown)
+            written.append(dated_path)
+        print(f"PRIOR_BRIEFS_FOUND count={len(priors)} dates={','.join(p.date for p in priors)} wrote={written}")
     else:
-        print("PRIOR_BRIEF_NOT_FOUND")
+        print("PRIOR_BRIEFS_NOT_FOUND")
     raise SystemExit(0)
 
 # --- send mode only below this point ---
@@ -275,12 +284,16 @@ def send_all(ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_fi
 
 
 if __name__ == "__main__":
-    # By this point, `read-yesterday` mode has already been handled and exited above
-    # (before the send-mode env vars were even read) -- this block is send mode only.
+    # By this point, `read-recent-briefs` mode has already been handled and exited
+    # above (before the send-mode env vars were even read) -- this block is send mode
+    # only.
     #
-    #   python3 audio_email.py read-yesterday       -> writes the prior brief (if any) to
+    #   python3 audio_email.py read-recent-briefs [count]
+    #                                                -> writes up to `count` (default
+    #                                                   brief_history.DEFAULT_RECENT_BRIEFS_COUNT)
+    #                                                   prior briefs, each to
     #                                                   {WORKING_FOLDER}/AI Brief - <its
-    #                                                   actual date>.md; see above
+    #                                                   own actual date>.md; see above
     #   python3 audio_email.py            (no args) -> send today's brief (as today, via
     #                                                   the module-level script above),
     #                                                   then archive it to S3 if

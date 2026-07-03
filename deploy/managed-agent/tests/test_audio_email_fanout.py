@@ -252,12 +252,14 @@ def test_audio_failure_still_sends_text_only_email_to_everyone(audio_email_modul
 
 
 # ---------------------------------------------------------------------------
-# `read-yesterday` CLI mode — the exact bug this section guards against: this
-# mode is meant to run BEFORE today's brief/HTML/script exist, so it must not
-# require LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/EMAIL_SUBJECT, and
-# it must write the prior brief under ITS OWN actual date (not an assumed
-# "yesterday"), or the skill could mislabel an older story as an immediate
-# follow-up. Loaded as a *separate* module instance from `audio_email_module`
+# `read-recent-briefs` CLI mode — the exact bug this section guards against:
+# this mode is meant to run BEFORE today's brief/HTML/script exist, so it must
+# not require LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/EMAIL_SUBJECT,
+# and it must write each prior brief under ITS OWN actual date (not assumed
+# "N days ago" arithmetic), or the skill could mislabel an older story as an
+# immediate follow-up. Renamed from `read-yesterday` once it started fetching
+# more than a single day (brief_history.DEFAULT_RECENT_BRIEFS_COUNT, 3 by
+# default). Loaded as a *separate* module instance from `audio_email_module`
 # (which is fixed to send-mode via conftest.py) because module-level behavior
 # differs by sys.argv, matching how the real Lambda invokes this file twice.
 # ---------------------------------------------------------------------------
@@ -272,12 +274,13 @@ _PIPELINE_DIR = Path(__file__).resolve().parent.parent / "pipeline"
 _AUDIO_EMAIL_PATH = _PIPELINE_DIR / "audio_email.py"
 
 
-def _run_read_yesterday_mode(working_folder, seed=None):
-    """Load audio_email.py fresh in `read-yesterday` mode against a mocked S3.
+def _run_read_recent_briefs_mode(working_folder, seeds=(), count_arg=None):
+    """Load audio_email.py fresh in `read-recent-briefs` mode against a mocked S3.
 
-    `seed`, if given, is (date, markdown) written to the briefs/ store before the
-    module loads. Deliberately does NOT set LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/
-    MP3_OUT_PATH/EMAIL_SUBJECT — proving read-yesterday mode doesn't need them.
+    `seeds`, if given, is an iterable of (date, markdown) written to the briefs/
+    store before the module loads. `count_arg`, if given, is passed as the CLI's
+    optional count argument. Deliberately does NOT set LISTENING_SCRIPT_PATH/
+    BRIEF_HTML_PATH/MP3_OUT_PATH/EMAIL_SUBJECT — proving this mode doesn't need them.
     """
     env_overrides = {
         "WORKING_FOLDER": str(working_folder),
@@ -291,17 +294,19 @@ def _run_read_yesterday_mode(working_folder, seed=None):
     old_shared_cred_file = os.environ.pop("AWS_SHARED_CREDENTIALS_FILE", None)
     old_argv = sys.argv
     os.environ.update(env_overrides)
-    sys.argv = ["audio_email.py", "read-yesterday"]
+    argv = ["audio_email.py", "read-recent-briefs"]
+    if count_arg is not None:
+        argv.append(str(count_arg))
+    sys.argv = argv
 
-    module_name = "managed_agent_audio_email_read_yesterday_under_test"
+    module_name = "managed_agent_audio_email_read_recent_briefs_under_test"
     try:
         with mock_aws():
             import boto3
 
             s3 = boto3.client("s3", region_name="us-east-1")
             s3.create_bucket(Bucket="cowork-polly-tts-740353583786")
-            if seed is not None:
-                date, markdown = seed
+            for date, markdown in seeds:
                 s3.put_object(
                     Bucket="cowork-polly-tts-740353583786",
                     Key=f"briefs/{date}/brief.md",
@@ -314,7 +319,7 @@ def _run_read_yesterday_mode(working_folder, seed=None):
             try:
                 spec.loader.exec_module(module)
             except SystemExit:
-                pass  # read-yesterday mode always exits 0 -- expected, not a failure
+                pass  # read-recent-briefs mode always exits 0 -- expected, not a failure
     finally:
         sys.argv = old_argv
         for k, v in old_env.items():
@@ -327,30 +332,70 @@ def _run_read_yesterday_mode(working_folder, seed=None):
         sys.modules.pop(module_name, None)
 
 
-def test_read_yesterday_mode_needs_no_send_mode_env_vars(tmp_path):
-    """The regression this test guards: read-yesterday mode used to sit after the
-    module-level reads of LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/
-    EMAIL_SUBJECT, so invoking it as designed -- before today's brief exists --
-    crashed with a KeyError. None of those env vars are set here; a clean run
-    (no exception escaping _run_read_yesterday_mode) is the assertion."""
-    _run_read_yesterday_mode(tmp_path)  # must not raise
+def test_read_recent_briefs_mode_needs_no_send_mode_env_vars(tmp_path):
+    """The regression this test guards: this mode used to sit after the module-level
+    reads of LISTENING_SCRIPT_PATH/BRIEF_HTML_PATH/MP3_OUT_PATH/EMAIL_SUBJECT, so
+    invoking it as designed -- before today's brief exists -- crashed with a KeyError.
+    None of those env vars are set here; a clean run (no exception) is the assertion."""
+    _run_read_recent_briefs_mode(tmp_path)  # must not raise
 
 
-def test_read_yesterday_mode_writes_prior_briefs_own_actual_date(tmp_path):
-    """A Monday run after a Friday brief (weekend gap, no Sat/Sun runs) must write
-    the file dated Friday, not a guessed "yesterday" (Sunday) -- mislabeling the
-    date is exactly what would make the skill call a 3-day-old story a same-day
-    follow-up."""
-    _run_read_yesterday_mode(tmp_path, seed=("2026-06-26", "Friday's brief content"))
+def test_read_recent_briefs_mode_writes_each_priors_own_actual_date(tmp_path):
+    """Three priors spanning a weekend gap must each be written under their own real
+    date, not guessed "N days ago" arithmetic -- mislabeling dates is exactly what
+    would make the skill call an older story an immediate follow-up."""
+    _run_read_recent_briefs_mode(
+        tmp_path,
+        seeds=[
+            ("2026-06-24", "Wednesday's brief content"),
+            ("2026-06-25", "Thursday's brief content"),
+            ("2026-06-26", "Friday's brief content"),
+        ],
+    )
 
-    written = tmp_path / "AI Brief - 2026-06-26.md"
-    assert written.exists()
-    assert written.read_text(encoding="utf-8") == "Friday's brief content"
-    # No file guessing "yesterday" under some other date got written.
-    assert list(tmp_path.glob("AI Brief - *.md")) == [written]
+    expected = {
+        "AI Brief - 2026-06-24.md": "Wednesday's brief content",
+        "AI Brief - 2026-06-25.md": "Thursday's brief content",
+        "AI Brief - 2026-06-26.md": "Friday's brief content",
+    }
+    written = {p.name: p.read_text(encoding="utf-8") for p in tmp_path.glob("AI Brief - *.md")}
+    assert written == expected
 
 
-def test_read_yesterday_mode_with_no_prior_brief_writes_nothing(tmp_path):
-    _run_read_yesterday_mode(tmp_path, seed=None)
+def test_read_recent_briefs_mode_defaults_to_three(tmp_path):
+    """With five priors available, the default (no count argument) must write only
+    the three most recent -- not all five, and not just one."""
+    _run_read_recent_briefs_mode(
+        tmp_path,
+        seeds=[
+            ("2026-06-22", "brief 1"),
+            ("2026-06-23", "brief 2"),
+            ("2026-06-24", "brief 3"),
+            ("2026-06-25", "brief 4"),
+            ("2026-06-26", "brief 5"),
+        ],
+    )
+
+    written_dates = sorted(p.name for p in tmp_path.glob("AI Brief - *.md"))
+    assert written_dates == [
+        "AI Brief - 2026-06-24.md",
+        "AI Brief - 2026-06-25.md",
+        "AI Brief - 2026-06-26.md",
+    ]
+
+
+def test_read_recent_briefs_mode_count_argument_is_honored(tmp_path):
+    _run_read_recent_briefs_mode(
+        tmp_path,
+        seeds=[("2026-06-25", "brief 4"), ("2026-06-26", "brief 5")],
+        count_arg=1,
+    )
+
+    written = list(tmp_path.glob("AI Brief - *.md"))
+    assert [p.name for p in written] == ["AI Brief - 2026-06-26.md"]
+
+
+def test_read_recent_briefs_mode_with_no_prior_briefs_writes_nothing(tmp_path):
+    _run_read_recent_briefs_mode(tmp_path, seeds=())
 
     assert list(tmp_path.glob("AI Brief - *.md")) == []

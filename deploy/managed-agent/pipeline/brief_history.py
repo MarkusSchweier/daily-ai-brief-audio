@@ -2,19 +2,21 @@
 working folder that Managed Agents sessions cannot share (docs/adr/0005).
 
 Each scheduled run starts in a fresh, empty microVM sandbox — there is no filesystem
-carried over from yesterday's run. This module gives the ported research/writing skill
+carried over from prior runs. This module gives the ported research/writing skill
 (deploy/managed-agent/skills/daily-ai-brief/SKILL.md) and the pipeline entrypoint a way
-to (a) read the single most recent PRIOR day's brief so research avoids repeating
-yesterday's stories, and (b) archive today's produced brief durably once the run
-completes — both against the existing `cowork-polly-tts-740353583786` bucket, under a
-new `briefs/` prefix (no new bucket, per ADR-0005 / PRD AC-12).
+to (a) read the most recent PRIOR briefs (plural — see below) so research avoids
+repeating recent stories and can correctly label genuine follow-ups, and (b) archive
+today's produced brief durably once the run completes — both against the existing
+`cowork-polly-tts-740353583786` bucket, under a new `briefs/` prefix (no new bucket,
+per ADR-0005 / PRD AC-12).
 
-Read-latest, not date arithmetic: "yesterday" is resolved by listing `briefs/` and
-taking the greatest `YYYY-MM-DD` key strictly less than today's date, not by computing
-`today - 1 day`. Because keys are zero-padded ISO dates, lexicographic order is
-chronological order, so this is a cheap listing + max — and it is what makes Mondays,
-holidays, and missed runs fall out for free (ADR-0005): "yesterday" is simply the most
-recent brief that actually exists, exactly like reading the local folder today.
+Read-latest N, not date arithmetic: the prior briefs are resolved by listing `briefs/`
+and taking the greatest `YYYY-MM-DD` keys strictly less than today's date, not by
+computing `today - 1 day`, `today - 2 days`, etc. Because keys are zero-padded ISO
+dates, lexicographic order is chronological order, so this is a cheap listing + slice
+from the end — and it is what makes Mondays, holidays, and missed runs fall out for
+free (ADR-0005): the "N most recent priors" are simply whichever briefs actually exist,
+exactly like scanning a local folder for the last few dated files.
 
 IAM: needs `s3:GetObject`/`s3:PutObject` on the bucket (already granted, unchanged) plus
 `s3:ListBucket` on the bucket ARN scoped to the `briefs/*` prefix (the one addition
@@ -38,10 +40,13 @@ _DATED_PREFIX_RE = re.compile(r"^briefs/(\d{4}-\d{2}-\d{2})/$")
 
 @dataclass(frozen=True)
 class PriorBrief:
-    """The most recent prior brief found in the store."""
+    """One prior brief found in the store."""
 
     date: str  # "YYYY-MM-DD"
     markdown: str
+
+
+DEFAULT_RECENT_BRIEFS_COUNT = 3
 
 
 def _list_dated_prefixes(s3_client, bucket: str = BUCKET) -> list[str]:
@@ -63,32 +68,45 @@ def _list_dated_prefixes(s3_client, bucket: str = BUCKET) -> list[str]:
     return sorted(dates)
 
 
-def read_most_recent_prior_brief(s3_client, today: str, bucket: str = BUCKET) -> PriorBrief | None:
-    """Read the most recent brief strictly before `today` (an ISO "YYYY-MM-DD" string).
+def read_recent_prior_briefs(
+    s3_client, today: str, count: int = DEFAULT_RECENT_BRIEFS_COUNT, bucket: str = BUCKET
+) -> list[PriorBrief]:
+    """Read up to `count` most recent briefs strictly before `today` (an ISO
+    "YYYY-MM-DD" string), most recent first.
 
-    Returns None if no such brief exists — the first-ever run (empty store) and a
-    listing/read error both degrade to None rather than raising, so the research step
-    can proceed with no "avoid-repeats" input, exactly as a first-ever local run would
-    (ADR-0005, PRD AC-5's edge cases: weekends, holidays, missed runs, and cold start).
+    Returns an empty list if none exist, and returns fewer than `count` whenever fewer
+    exist (a first-ever run, an early run with a young store, weekends/holidays that
+    just don't have that many priors yet) — this always degrades to whatever was
+    actually found rather than raising, so the research step can proceed with partial
+    or no "avoid-repeats" input, exactly as a first-ever local run would (ADR-0005,
+    PRD AC-5's edge cases: weekends, holidays, missed runs, and cold start). A read
+    failure on any individual date is logged and that date is skipped, not treated as
+    a reason to abort reading the others.
     """
     try:
         dates = [d for d in _list_dated_prefixes(s3_client, bucket) if d < today]
     except Exception as e:
         print("BRIEF_HISTORY_LIST_FAILED:", repr(e))
-        return None
+        return []
     if not dates:
-        return None
+        return []
 
-    most_recent = dates[-1]  # lexicographic max == chronological max (ISO dates)
-    key = f"{BRIEFS_PREFIX}{most_recent}/brief.md"
-    try:
-        obj = s3_client.get_object(Bucket=bucket, Key=key)
-        markdown = obj["Body"].read().decode("utf-8")
-    except Exception as e:
-        print("BRIEF_HISTORY_READ_FAILED:", key, repr(e))
-        return None
+    # Lexicographic order == chronological order for zero-padded ISO dates, so the
+    # last `count` entries are the `count` most recent; reversed to most-recent-first.
+    recent_dates = list(reversed(dates[-count:]))
 
-    return PriorBrief(date=most_recent, markdown=markdown)
+    results: list[PriorBrief] = []
+    for date in recent_dates:
+        key = f"{BRIEFS_PREFIX}{date}/brief.md"
+        try:
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+            markdown = obj["Body"].read().decode("utf-8")
+        except Exception as e:
+            print("BRIEF_HISTORY_READ_FAILED:", key, repr(e))
+            continue
+        results.append(PriorBrief(date=date, markdown=markdown))
+
+    return results
 
 
 def archive_todays_brief(
