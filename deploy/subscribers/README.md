@@ -55,6 +55,8 @@ separate stacks. The pre-existing Polly/S3/SES resources (`deploy/iam-policy.jso
 |---|---|---|
 | `subscribeDomainName` | The subscribe site's own origin, used to lock down HTTP API CORS and (if `certificateArn` is also set) as the CloudFront alias | `briefing.mschweier.com` (CORS only; no CloudFront alias) |
 | `certificateArn` | An existing **us-east-1** ACM certificate ARN, validated for `subscribeDomainName` | unset — distribution serves on its default `*.cloudfront.net` domain only |
+| `feedbackTokenSecretArn` | The `deploy/feedback/` stack's `FeedbackTokenSecretArn` output (docs/prd/reader-feedback.md, ADR-0011/ADR-0012). Optional and backward-compatible: when supplied, `WelcomeSendFunctionRole` gains a `ReadFeedbackTokenSecret` statement scoped to exactly that ARN and the welcome-send Lambda's `FEEDBACK_TOKEN_SECRET_ARN` env var is set; when absent, no grant/env var is added and the stack still synths/deploys cleanly. | unset — no grant added |
+| `feedbackBaseUrl` | The feedback site's base URL to embed in the welcome email's feedback link (e.g. the feedback stack's `DistributionDomainName` output during validation, or `https://feedback.mschweier.com` after DNS cutover). Deliberately has **no** default pointing at the live custom domain (ADR-0012 §B "DNS sequencing") — if unset while `feedbackTokenSecretArn` is set, the welcome-send Lambda's handler simply skips the link (fail-safe, never blocks the send). | unset — no env var added, link skipped |
 
 Pass via `-c key=value` on any `cdk` command, e.g.:
 
