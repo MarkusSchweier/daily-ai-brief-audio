@@ -344,13 +344,42 @@
             return k !== "free_text_feedback";
           });
           if (correlationEntries.length > 0) {
-            var calibPre = document.createElement("pre");
-            var correlationOnly = {};
-            correlationEntries.forEach(function (k) {
-              correlationOnly[k] = record.calibration[k];
+            var calibTable = document.createElement("table");
+            calibTable.className = "data-table";
+
+            var calibThead = document.createElement("thead");
+            var calibHeadRow = document.createElement("tr");
+            ["Criterion", "Correlation with reader score", "Editions compared"].forEach(function (label) {
+              var th = document.createElement("th");
+              th.textContent = label;
+              calibHeadRow.appendChild(th);
             });
-            calibPre.textContent = JSON.stringify(correlationOnly, null, 2);
-            detailContent.appendChild(calibPre);
+            calibThead.appendChild(calibHeadRow);
+            calibTable.appendChild(calibThead);
+
+            var calibTbody = document.createElement("tbody");
+            correlationEntries.forEach(function (criterion) {
+              var entry = record.calibration[criterion] || {};
+              var tr = document.createElement("tr");
+
+              var nameTd = document.createElement("td");
+              nameTd.textContent = CRITERIA_LABELS[criterion] || criterion;
+
+              var correlationTd = document.createElement("td");
+              correlationTd.textContent = entry.insufficient_data
+                ? "Insufficient feedback to calibrate"
+                : (entry.correlation === null || entry.correlation === undefined ? "—" : entry.correlation.toFixed(2));
+
+              var editionsTd = document.createElement("td");
+              editionsTd.textContent = entry.n_editions === null || entry.n_editions === undefined ? "—" : entry.n_editions;
+
+              tr.appendChild(nameTd);
+              tr.appendChild(correlationTd);
+              tr.appendChild(editionsTd);
+              calibTbody.appendChild(tr);
+            });
+            calibTable.appendChild(calibTbody);
+            detailContent.appendChild(calibTable);
           }
 
           // FR-15: reader free-text suggestions, surfaced for the reviewer alongside

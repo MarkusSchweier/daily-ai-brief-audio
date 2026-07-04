@@ -246,7 +246,8 @@ button:disabled {
   border-radius: 0.4rem;
 }
 
-table.compare-table {
+table.compare-table,
+table.data-table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
@@ -255,14 +256,17 @@ table.compare-table {
 }
 
 table.compare-table th,
-table.compare-table td {
+table.compare-table td,
+table.data-table th,
+table.data-table td {
   text-align: left;
   padding: 0.6rem 0.9rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
 }
 
-table.compare-table th {
+table.compare-table th,
+table.data-table th {
   cursor: pointer;
   background: #f5f3ff;
   font-weight: 700;
