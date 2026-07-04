@@ -118,12 +118,19 @@ def _create_temporary_deployment(client, *, agent_id: str, environment_id: str, 
 
 
 def _start_session(client, deployment_id: str) -> str:
-    """POST /v1/deployments/{id}/sessions -- trigger one session against the
-    just-created temporary deployment (mirrors README §7's manual "run now" trigger).
-    Returns the new session id."""
-    response = client.post(f"/v1/deployments/{deployment_id}/sessions")
+    """POST /v1/deployments/{id}/run -- trigger one session against the just-created
+    temporary deployment (mirrors README §7's manual "run now" trigger). Returns the
+    new session id.
+
+    CONFIRMED LIVE (2026-07-04): the endpoint is `/run`, not `/sessions` (`/sessions`
+    404s). The response is a `deployment_run` object; the session id is under
+    `session_id`, not `id` (`id` on that object is the `drun_...` run id, a different
+    resource). Verified via a real probe deployment + run (session reached `status:
+    "idle"` -- already-correctly recognized as terminal by poll/handler.py's
+    `_session_is_terminal()` -- then both were archived)."""
+    response = client.post(f"/v1/deployments/{deployment_id}/run")
     response.raise_for_status()
-    return response.json()["id"]
+    return response.json()["session_id"]
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

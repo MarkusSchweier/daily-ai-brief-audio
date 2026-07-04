@@ -51,8 +51,8 @@ class _FakeDeploymentsClient:
         self.posts.append((path, kwargs))
         if path == "/v1/deployments":
             return _FakeResponse({"id": "depl_temp123"})
-        if path.endswith("/sessions"):
-            return _FakeResponse({"id": "sesn_new456"})
+        if path.endswith("/run"):
+            return _FakeResponse({"id": "drun_new789", "session_id": "sesn_new456"})
         if path.endswith("/archive"):
             return _FakeResponse({"ok": True})
         raise AssertionError(f"unexpected POST {path}")
