@@ -14,6 +14,17 @@ temporary deployment once the session completes (mirroring README §6 step 3's
 create-then-archive discipline -- this Lambda does not archive it inline, since the
 session is still running when this handler returns).
 
+Defense in depth (security fix, 2026-07-04): `audio_email.py`'s subscriber fan-out
+gate is now an opt-IN `ENABLE_SUBSCRIBER_FANOUT` (defaults OFF unless explicitly
+asserted -- see `deploy/managed-agent/pipeline/audio_email.py`'s
+`_resolve_skip_subscriber_fanout()`), so this Lambda's prompt not mentioning it is
+already safe by construction, with or without the `SKIP_SUBSCRIBER_FANOUT=1` export
+above. `_handle()` additionally rejects the trigger request with a 400 if the FINAL
+assembled prompt (including any caller-supplied `basePrompt`, which is prepended
+ahead of this module's own safety instruction) contains the literal string
+`ENABLE_SUBSCRIBER_FANOUT` anywhere, closing off a caller injecting/contradicting
+the safety instruction via `basePrompt`.
+
 Gated by the shared reviewer bearer secret (ADR-0013 §E) -- only a reviewer can
 trigger an evaluation run, since each run costs real Claude API usage.
 """
@@ -147,6 +158,24 @@ def _handle(event: dict[str, Any], table, client) -> dict[str, Any]:
     base_prompt = payload.get("basePrompt") or ""
 
     initial_prompt = _build_initial_prompt(base_prompt)
+
+    # Defense in depth (security fix, FIX 7): audio_email.py's subscriber fan-out
+    # gate is now an opt-IN ENABLE_SUBSCRIBER_FANOUT (default OFF unless explicitly
+    # asserted -- see deploy/managed-agent/pipeline/audio_email.py's
+    # _resolve_skip_subscriber_fanout()), so an eval run's prompt not mentioning it
+    # at all is already safe by construction. This check additionally rejects the
+    # trigger outright if the string ever appears anywhere in the FINAL assembled
+    # prompt -- including a caller-supplied `base_prompt`, which is prepended AHEAD
+    # of this module's own safety instruction and could otherwise inject/contradict
+    # it (e.g. a malicious or buggy caller asserting ENABLE_SUBSCRIBER_FANOUT=1
+    # earlier in the prompt, hoping the agent honors the first instruction it sees).
+    if "ENABLE_SUBSCRIBER_FANOUT" in initial_prompt:
+        logger.error("EVAL_TRIGGER_REJECTED_UNSAFE_PROMPT run_id=none reason=ENABLE_SUBSCRIBER_FANOUT_present")
+        return {
+            "statusCode": 400,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"ok": False, "error": "prompt must not reference ENABLE_SUBSCRIBER_FANOUT"}),
+        }
 
     try:
         deployment_id = _create_temporary_deployment(
