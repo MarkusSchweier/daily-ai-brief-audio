@@ -20,6 +20,7 @@
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
     "projectName": "daily-brief-agent",
     "anthropicEnvironmentId": "env_01ExWJJqFVT2f75H8BqcmKw8",
-    "microvmImageIdentifier": "claude-daily-brief-worker"
+    "microvmImageIdentifier": "claude-daily-brief-worker",
+    "feedbackTokenSecretArn": "arn:aws:secretsmanager:us-east-1:740353583786:secret:daily-ai-brief/feedback-token-signing-secret-EsDW6s"
   }
 }

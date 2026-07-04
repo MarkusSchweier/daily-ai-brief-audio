@@ -6,4 +6,4 @@
 // CDK stack output (e.g. "https://abc123xyz.execute-api.us-east-1.amazonaws.com").
 // After the custom domain is attached (see deploy/feedback/README.md), it can point
 // at the API's own custom domain instead. No trailing slash.
-window.BRIEF_FEEDBACK_API_BASE_URL = "https://REPLACE-WITH-EXECUTE-API-URL.execute-api.us-east-1.amazonaws.com";
+window.BRIEF_FEEDBACK_API_BASE_URL = "https://scym1b7b1g.execute-api.us-east-1.amazonaws.com";

@@ -351,6 +351,28 @@ weekday 6:07 AM run. **Confirm the owner's actual local timezone before this ste
 value in `deployment.json` is this repo's ADR assumption, not independently re-verified
 against the owner's Mac locale settings.
 
+**Deployments are immutable — confirmed live 2026-07-04.** `GET /v1/deployments/{id}`'s
+`Allow` header lists `DELETE, GET, HEAD, POST`, but both `PATCH` and `PUT` return `405`,
+and `DELETE` on an *active* deployment returns a **404** (not the expected success) — the
+actual archival mechanism is `POST /v1/deployments/{id}/archive`. There is no in-place
+update. To change anything (e.g. the `initial_prompt`'s env exports), the only path is:
+1. `POST /v1/deployments` with the **same** `agent` (a bare agent-id string, not an
+   object — `{"agent": {...}}` fails with a confusing `agent.selector.type: Field
+   required` error that is really just "wrong shape", not a real missing-selector case),
+   `environment_id`, and `schedule`, plus the revised `initial_events`
+   (`[{"type": "user.message", "content": [{"type": "text", "text": "<prompt>"}]}]` —
+   this is the wire shape `deployment.json`'s flatter `agent.initial_prompt` field maps
+   to; `deployment.json` stays in the friendlier flat shape as this repo's
+   source-of-truth, translated to `initial_events` only at call time).
+2. Confirm the new deployment is `"status": "active"` with the expected
+   `schedule.upcoming_runs_at`.
+3. **Only then** `POST /v1/deployments/{old_id}/archive` on the old one — confirm its
+   `upcoming_runs_at` becomes `[]`. Do this promptly; two active deployments on the same
+   cron/agent/environment would both fire on the next scheduled run.
+4. Update `deployment.json`'s `_live_deployment_id` to the new id (and log the
+   superseded id + reason in `_deployment_history`, so a future reader isn't left
+   wondering why the id in this file doesn't match what a stale note/memory says).
+
 ### 7. Verify end-to-end
 
 Mirrors the reference implementation's own `verify.py` operator flow and this repo's
