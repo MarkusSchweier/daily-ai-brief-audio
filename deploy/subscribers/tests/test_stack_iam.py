@@ -16,8 +16,8 @@ from aws_cdk.assertions import Match, Template
 from brief_subscribers.stack import PIPELINE_BUCKET_NAME, SUBSCRIBER_SENDER, BriefSubscribersStack
 
 
-def _synth_template() -> Template:
-    app = cdk.App()
+def _synth_template(context: dict | None = None) -> Template:
+    app = cdk.App(context=context or {})
     stack = BriefSubscribersStack(
         app,
         "TestBriefSubscribersStack",
@@ -103,3 +103,60 @@ def test_confirm_function_invoke_target_is_the_welcome_send_function_arn():
             },
         },
     )
+
+
+def test_welcome_send_role_has_no_feedback_secret_grant_when_context_absent():
+    """docs/prd/reader-feedback.md, ADR-0011/ADR-0012 §B: the feedback-token secret
+    grant/env vars are optional and backward-compatible -- absent by default so this
+    stack keeps synthesizing/deploying cleanly before the feedback stack exists."""
+    template = _synth_template()
+    statements = _policy_statements_for_role_logical_id(template, "WelcomeSendFunctionRole")
+    sids = {s.get("Sid") for s in statements}
+    assert "ReadFeedbackTokenSecret" not in sids
+
+
+def test_welcome_send_role_has_scoped_feedback_secret_grant_when_context_supplied():
+    fake_arn = "arn:aws:secretsmanager:us-east-1:740353583786:secret:fake-xxxxx"
+    template = _synth_template(
+        context={"feedbackTokenSecretArn": fake_arn, "feedbackBaseUrl": "https://d123.cloudfront.net"}
+    )
+    statements = _policy_statements_for_role_logical_id(template, "WelcomeSendFunctionRole")
+    stmt = next(s for s in statements if s.get("Sid") == "ReadFeedbackTokenSecret")
+    assert stmt["Action"] == "secretsmanager:GetSecretValue"
+    assert stmt["Resource"] == fake_arn
+
+
+def test_welcome_send_function_gets_feedback_env_vars_when_context_supplied():
+    fake_arn = "arn:aws:secretsmanager:us-east-1:740353583786:secret:fake-xxxxx"
+    template = _synth_template(
+        context={"feedbackTokenSecretArn": fake_arn, "feedbackBaseUrl": "https://d123.cloudfront.net"}
+    )
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "FunctionName": "brief-subscribers-welcome-send",
+            "Environment": {
+                "Variables": Match.object_like(
+                    {
+                        "FEEDBACK_TOKEN_SECRET_ARN": fake_arn,
+                        "FEEDBACK_BASE_URL": "https://d123.cloudfront.net",
+                    }
+                )
+            },
+        },
+    )
+
+
+def test_welcome_send_function_omits_feedback_base_url_env_when_only_secret_arn_supplied():
+    """ADR-0012 §B DNS sequencing: feedbackBaseUrl has no default pointing at the live
+    domain -- if only the secret ARN is supplied, no FEEDBACK_BASE_URL env var is added
+    (the handler's own fail-safe then skips the link, never blocking the send)."""
+    fake_arn = "arn:aws:secretsmanager:us-east-1:740353583786:secret:fake-xxxxx"
+    template = _synth_template(context={"feedbackTokenSecretArn": fake_arn})
+    resources = template.find_resources(
+        "AWS::Lambda::Function", {"Properties": {"FunctionName": "brief-subscribers-welcome-send"}}
+    )
+    (fn_props,) = [r["Properties"] for r in resources.values()]
+    env_vars = fn_props["Environment"]["Variables"]
+    assert env_vars["FEEDBACK_TOKEN_SECRET_ARN"] == fake_arn
+    assert "FEEDBACK_BASE_URL" not in env_vars

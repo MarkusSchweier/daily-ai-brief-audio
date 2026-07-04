@@ -197,6 +197,13 @@ class ManagedAgentSandboxStack(Stack):
         self.microvm_image_identifier = (
             self.node.try_get_context("microvmImageIdentifier") or DEFAULT_IMAGE_IDENTIFIER
         )
+        # Optional, backward-compatible: the deploy/feedback/ stack's token-signing
+        # secret ARN, supplied only once that stack has been deployed and output it
+        # (docs/prd/reader-feedback.md, ADR-0011 "Owning stack" / ADR-0012 §B "Send-side
+        # wiring"). Absent by default so this stack keeps synthesizing/deploying cleanly
+        # before the feedback stack exists or before this context is supplied -- no
+        # grant, no env var, when unset (see _build_microvm_execution_role() below).
+        self.feedback_token_secret_arn = self.node.try_get_context("feedbackTokenSecretArn")
 
         self.environment_key_secret = self._build_environment_key_secret()
         self.signing_secret = self._build_signing_secret()
@@ -460,6 +467,23 @@ class ManagedAgentSandboxStack(Stack):
                 ],
             )
         )
+
+        # Sid "ReadFeedbackTokenSecret" — optional, backward-compatible (PRD
+        # docs/prd/reader-feedback.md, ADR-0011/ADR-0012 §B): only added when the
+        # feedback stack's secret ARN has been supplied via the `feedbackTokenSecretArn`
+        # context value (this stack takes no build-time dependency on the feedback
+        # stack's own synthesis, matching ADR-0012's "independent deploy lifecycles"
+        # decision -- the ARN is a plain string, not a CDK cross-stack import). Scoped to
+        # exactly that one secret ARN, same shape as ReadEnvironmentKey above.
+        if self.feedback_token_secret_arn:
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="ReadFeedbackTokenSecret",
+                    effect=iam.Effect.ALLOW,
+                    actions=["secretsmanager:GetSecretValue"],
+                    resources=[self.feedback_token_secret_arn],
+                )
+            )
 
         return role
 

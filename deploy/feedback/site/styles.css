@@ -1,0 +1,260 @@
+/* Lightweight, accessible styling — no framework, no build step. */
+
+:root {
+  color-scheme: light;
+  --fg: #1a1a2e;
+  --fg-muted: #5b5b76;
+  --bg: #ffffff;
+  --accent: #4f46e5;
+  --accent-dark: #3730a3;
+  --border: #e3e2f0;
+  --error: #b3261e;
+  --card-radius: 1.1rem;
+
+  /* Same aurora background palette as deploy/subscribers/site/styles.css, so the two
+     public-facing sites read as one brand even though they are independently
+     deployed (ADR-0012 §B). */
+  --aurora-1: #f5f3ff;
+  --aurora-2: #ddd6fe;
+  --aurora-3: #fbcfe8;
+  --aurora-4: #bfdbfe;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  line-height: 1.55;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, var(--aurora-3) 0%, transparent 55%),
+    radial-gradient(50rem 50rem at 110% 10%, var(--aurora-4) 0%, transparent 50%),
+    radial-gradient(70rem 70rem at 50% 120%, var(--aurora-2) 0%, transparent 60%),
+    var(--aurora-1);
+  background-attachment: fixed;
+}
+
+.page {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 4rem 1.25rem 5rem;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+  margin-bottom: 0.75rem;
+}
+
+h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  margin: 0 0 0.6rem;
+  color: var(--fg);
+  font-weight: 800;
+}
+
+.tagline {
+  font-size: 1.1rem;
+  color: var(--fg-muted);
+  margin: 0 0 2.25rem;
+  max-width: 34rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: var(--card-radius);
+  box-shadow: 0 12px 30px rgba(76, 29, 149, 0.08);
+  padding: 1.75rem 1.75rem 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.note-card {
+  padding: 1.25rem 1.5rem;
+}
+
+.note-copy {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--fg-muted);
+}
+
+.note-copy strong {
+  color: var(--fg);
+}
+
+.card h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.9rem;
+  color: var(--fg);
+}
+
+.form-section {
+  margin-top: 1.5rem;
+}
+
+fieldset.rating-field {
+  border: none;
+  padding: 0;
+  margin: 0 0 1.25rem;
+}
+
+fieldset.rating-field legend {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  padding: 0;
+}
+
+.rating-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.rating-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1.5px solid var(--border);
+  border-radius: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--fg-muted);
+}
+
+.rating-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.rating-option:has(input:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.rating-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent-dark);
+  outline-offset: 2px;
+}
+
+.field {
+  margin-bottom: 1.25rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.3rem;
+}
+
+.field textarea {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}
+
+.field textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+.checkbox-field label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.checkbox-field input {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+/* Honeypot: visually hidden but present in the DOM/tab order is avoided via
+   tabindex=-1 and it is not display:none (some bots skip display:none fields) —
+   same technique as deploy/subscribers/site/styles.css's honeypot, for consistency. */
+.honeypot {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+button[type="submit"] {
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.8rem 1.4rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  margin-top: 0.4rem;
+}
+
+button[type="submit"]:hover,
+button[type="submit"]:focus-visible {
+  background: var(--accent-dark);
+}
+
+button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#form-status {
+  margin-top: 1rem;
+  min-height: 1.25rem;
+  font-size: 0.9rem;
+}
+
+#form-status[data-state="error"] {
+  color: var(--error);
+}
+
+.thank-you {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.thank-you h2 {
+  margin: 0 0 0.5rem;
+}
+
+.footer-note {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+a {
+  color: var(--accent-dark);
+}

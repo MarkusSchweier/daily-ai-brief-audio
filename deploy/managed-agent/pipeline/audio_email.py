@@ -68,12 +68,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-# brief_history.py lives alongside this file both in the repo (deploy/managed-agent/
-# pipeline/) and in the microVM image (/opt/pipeline/, per the Dockerfile) — a
-# same-directory sys.path insert keeps the import working in both layouts without
-# requiring the pipeline/ directory to be installed as a package at runtime.
+# brief_history.py / feedback_token.py live alongside this file both in the repo
+# (deploy/managed-agent/pipeline/) and in the microVM image (/opt/pipeline/, per the
+# Dockerfile) — a same-directory sys.path insert keeps the import working in both
+# layouts without requiring the pipeline/ directory to be installed as a package at
+# runtime.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import brief_history  # noqa: E402
+import feedback_token  # noqa: E402 - docs/adr/0011/0012: this copy is hand-synced with
 
 REGION = "us-east-1"; BUCKET = "cowork-polly-tts-740353583786"
 # Both sends go from aibriefing@ (owner's inbox address, RECIP, is unchanged).
@@ -81,6 +83,12 @@ SENDER = "aibriefing@mschweier.com"; RECIP = "mail@mschweier.com"
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SUBSCRIBERS_TABLE_NAME = os.environ.get("SUBSCRIBERS_TABLE_NAME", "brief-subscribers")
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
+# Feedback link (docs/prd/reader-feedback.md FR-5, ADR-0011/ADR-0012): both must be set
+# for a feedback link to be embedded at all -- see _get_feedback_signing_secret() and
+# _feedback_link() below. Neither being set is the expected state before the feedback
+# stack is deployed and wired in (backward-compatible, never blocks the send).
+FEEDBACK_TOKEN_SECRET_ARN = os.environ.get("FEEDBACK_TOKEN_SECRET_ARN", "")
+FEEDBACK_BASE_URL = os.environ.get("FEEDBACK_BASE_URL", "")
 # Where the skill looks for prior briefs to read (its own "Configuration: WORKING_FOLDER"
 # section) and where this module writes today's brief's derived artifacts — matched to the
 # skill's own default so `read-recent-briefs` mode's output lands where the skill will
@@ -231,6 +239,70 @@ def _unsubscribe_link(email, token):
 
 SUBSCRIBE_SITE_URL = "https://briefing.mschweier.com"
 
+# --- Feedback link (docs/prd/reader-feedback.md FR-5, ADR-0011, ADR-0012 §B) ---------
+#
+# Fetched once per cold start (module-level cache), mirroring the launcher's
+# `_get_secret` shape (deploy/managed-agent/microvm/launcher/launcher.py). Fail-safe
+# (CLAUDE.md "never lose the brief over an audio/email glitch", already this module's
+# pattern for the audio attachment): if FEEDBACK_BASE_URL / FEEDBACK_TOKEN_SECRET_ARN
+# is unset, or the secret fetch fails, or token generation fails for any reason, the
+# feedback link is skipped entirely for that run -- the send proceeds exactly as
+# before. Never raises.
+_feedback_secret_cache = None
+_feedback_secret_fetch_attempted = False
+
+
+def _get_feedback_signing_secret():
+    """Best-effort, cached-once fetch of the feedback-token signing secret. Returns
+    None (never raises) when FEEDBACK_TOKEN_SECRET_ARN is unset or the fetch fails."""
+    global _feedback_secret_cache, _feedback_secret_fetch_attempted
+    if _feedback_secret_fetch_attempted:
+        return _feedback_secret_cache
+    _feedback_secret_fetch_attempted = True
+    if not FEEDBACK_TOKEN_SECRET_ARN:
+        return None
+    try:
+        client = boto3.client("secretsmanager", region_name=REGION)
+        response = client.get_secret_value(SecretId=FEEDBACK_TOKEN_SECRET_ARN)
+        _feedback_secret_cache = response["SecretString"]
+    except Exception as e:  # noqa: BLE001 - fail-safe: a secret-fetch glitch must never block the send
+        print("FEEDBACK_LINK_SKIPPED: secret fetch failed:", repr(e))
+        _feedback_secret_cache = None
+    return _feedback_secret_cache
+
+
+def _feedback_link(email, brief_date):
+    """Build a per-recipient feedback link, or return None if unavailable for any
+    reason (missing config, secret-fetch failure, token-generation failure). Never
+    raises -- the caller must be able to send the email regardless (see module
+    docstring / CLAUDE.md fail-safe convention)."""
+    if not FEEDBACK_BASE_URL:
+        print("FEEDBACK_LINK_SKIPPED: FEEDBACK_BASE_URL not set")
+        return None
+    secret = _get_feedback_signing_secret()
+    if not secret:
+        print("FEEDBACK_LINK_SKIPPED: signing secret unavailable")
+        return None
+    try:
+        token = feedback_token.generate(secret, email, brief_date)
+    except Exception as e:  # noqa: BLE001 - fail-safe: token generation must never block the send
+        print("FEEDBACK_LINK_SKIPPED: token generation failed:", repr(e))
+        return None
+    base = FEEDBACK_BASE_URL.rstrip("/")
+    return f"{base}/?t={urllib.parse.quote(token)}"
+
+
+def _html_with_feedback_link(html_body, feedback_link):
+    """Append a short feedback-link line, placed near the existing sign-up/unsubscribe
+    footer language for a consistent placement/tone across the email (PRD FR-5)."""
+    if not feedback_link:
+        return html_body
+    footer = (
+        '<p style="font-size:12px;color:#666;">'
+        f'Have thoughts on today\'s brief? <a href="{feedback_link}">Share feedback</a>.</p>'
+    )
+    return html_body + footer
+
 
 def _html_with_header(html_body):
     """Prepend the forward-friendly sign-up prompt + AI-curation disclaimer.
@@ -297,10 +369,16 @@ def send_all(
     # recipient (owner included — they're the most likely person to forward their copy).
     brief_html = _html_with_header(brief_html)
 
+    brief_date = _today_local_date()
+
     # 1) Owner's copy — sent from aibriefing@mschweier.com to mail@mschweier.com (recipient
     # unchanged), always attempted first and never gated on subscriber sends succeeding
-    # (PRD AC-8/FR-11).
-    owner_msg = _build_message(SENDER, RECIP, subject, brief_html, mp3_bytes, mp3_filename)
+    # (PRD AC-8/FR-11). The feedback link (if available) uses the owner's RECIP address
+    # as identity (PRD FR-5/AC-7 — the owner's own copy is attributable even though the
+    # owner has no subscribers-table row).
+    owner_feedback_link = _feedback_link(RECIP, brief_date)
+    owner_html = _html_with_feedback_link(brief_html, owner_feedback_link)
+    owner_msg = _build_message(SENDER, RECIP, subject, owner_html, mp3_bytes, mp3_filename)
     try:
         r = ses_client.send_raw_email(
             Source=SENDER, Destinations=[RECIP], RawMessage={"Data": owner_msg.as_string()}
@@ -317,6 +395,7 @@ def send_all(
     # 2) Subscriber fan-out — from aibriefing@mschweier.com, one send per confirmed
     # subscriber, each failure isolated so one bad address never blocks anyone else
     # (PRD FR-12, AC-10/AC-11). Skippable only for manual validation runs (see above).
+    # Each subscriber's feedback link (if available) uses their own email as identity.
     if skip_subscriber_fanout:
         print("SUBSCRIBER_FANOUT_SKIPPED (manual validation run)")
     else:
@@ -328,6 +407,8 @@ def send_all(
             try:
                 unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
                 subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
+                subscriber_feedback_link = _feedback_link(email, brief_date)
+                subscriber_html = _html_with_feedback_link(subscriber_html, subscriber_feedback_link)
                 subscriber_msg = _build_message(
                     SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename
                 )

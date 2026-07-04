@@ -131,6 +131,7 @@ Polly → SES → S3 archive, ~16 minutes) after redeploying.
 | `projectName` | Lower-case resource-name prefix (Lambda names, role names, the image-artifact bucket name). **Keep short** — the bucket name is `<projectName>-image-artifacts-<account>-<region>`, capped at AWS's 63-character S3 bucket-name limit; the stack raises a synth-time error if a longer value would violate it. | `daily-brief-agent` |
 | `anthropicEnvironmentId` | The Claude self_hosted environment id (`env_...`) created in step 3 below. Required for the launcher to reference the right environment; a placeholder is fine for `cdk synth`, but a real deploy needs the real id. | empty placeholder |
 | `microvmImageIdentifier` | Name of the microVM image built in step 5. Resolved to a full ARN (`arn:aws:lambda:<region>:<account>:microvm-image:<name>`) inside the stack. | `claude-daily-brief-worker` |
+| `feedbackTokenSecretArn` | The `deploy/feedback/` stack's `FeedbackTokenSecretArn` output (docs/prd/reader-feedback.md, ADR-0011/ADR-0012). Optional and backward-compatible: when supplied, `MicroVmExecutionRole` gains a `ReadFeedbackTokenSecret` statement scoped to exactly that ARN; when absent, no grant is added and the stack still synths/deploys cleanly (e.g. before the feedback stack exists). Deploy `deploy/feedback/` first, populate its secret, then re-deploy this stack with this context value — see `deploy/feedback/README.md`'s wiring section. | unset — no grant added |
 
 Pass via `-c key=value` on any `cdk` command, e.g.:
 
@@ -349,6 +350,28 @@ create a scheduled deployment targeting the `self_hosted` environment from step 
 weekday 6:07 AM run. **Confirm the owner's actual local timezone before this step**; the
 value in `deployment.json` is this repo's ADR assumption, not independently re-verified
 against the owner's Mac locale settings.
+
+**Deployments are immutable — confirmed live 2026-07-04.** `GET /v1/deployments/{id}`'s
+`Allow` header lists `DELETE, GET, HEAD, POST`, but both `PATCH` and `PUT` return `405`,
+and `DELETE` on an *active* deployment returns a **404** (not the expected success) — the
+actual archival mechanism is `POST /v1/deployments/{id}/archive`. There is no in-place
+update. To change anything (e.g. the `initial_prompt`'s env exports), the only path is:
+1. `POST /v1/deployments` with the **same** `agent` (a bare agent-id string, not an
+   object — `{"agent": {...}}` fails with a confusing `agent.selector.type: Field
+   required` error that is really just "wrong shape", not a real missing-selector case),
+   `environment_id`, and `schedule`, plus the revised `initial_events`
+   (`[{"type": "user.message", "content": [{"type": "text", "text": "<prompt>"}]}]` —
+   this is the wire shape `deployment.json`'s flatter `agent.initial_prompt` field maps
+   to; `deployment.json` stays in the friendlier flat shape as this repo's
+   source-of-truth, translated to `initial_events` only at call time).
+2. Confirm the new deployment is `"status": "active"` with the expected
+   `schedule.upcoming_runs_at`.
+3. **Only then** `POST /v1/deployments/{old_id}/archive` on the old one — confirm its
+   `upcoming_runs_at` becomes `[]`. Do this promptly; two active deployments on the same
+   cron/agent/environment would both fire on the next scheduled run.
+4. Update `deployment.json`'s `_live_deployment_id` to the new id (and log the
+   superseded id + reason in `_deployment_history`, so a future reader isn't left
+   wondering why the id in this file doesn't match what a stale note/memory says).
 
 ### 7. Verify end-to-end
 

@@ -2,29 +2,41 @@
 
 The current active PRD for this project:
 
-@send-confirmation-summary.md
+@reader-feedback.md
 
 ---
 
-Status: **Shipped (2026-07-03).** Small, additive, no-new-infrastructure change: after each daily
-Managed Agents run completes (owner copy + subscriber fan-out), a short **confirmation email to
-`mail@mschweier.com`** is sent from the existing `aibriefing@mschweier.com` sender, stating the
-brief went out and to how many **subscribers** (owner excluded from the count), with the
-DynamoDB-query-failure-vs-genuine-zero disambiguation from FR-8/AC-7. Touches **only**
-`deploy/managed-agent/pipeline/audio_email.py` (the local Desktop task is deactivated — not a
-lockstep target); no new AWS resource, IAM permission, or secret. Architect confirmed no ADR
-needed. Implemented (`a0d1450`, `445f8c1`), independently reviewed (approved) and
-security-cleared (no findings). **Deployed**: microVM image rebuilt to version `6.0` and
-**live-validated** — a real end-to-end session confirmed via raw log output (not just the agent's
-own summary) that the confirmation genuinely sent with a real SES `MessageId` and correct
-skip-mode wording. One incidental finding worth a human look: the validation run's single
-start-event triggered multiple redundant microVM launches (webhook retry) that mostly hit an
-account-level memory quota — harmless (exactly one instance won and completed the work, no
-duplicate email), but a live instance of the webhook-replay/no-idempotency risk (M1) already
-flagged as non-blocking on PR #18; worth reconsidering priority now that it's observed in
-practice. Ready for PR.
+Status: **Fully shipped, DNS cut over, ready for PR review (2026-07-04).** New epic, built and
+shipped fully autonomously overnight per the owner's explicit instruction: a public feedback web
+form, reachable via a personalized per-recipient/per-edition link embedded in the daily brief
+email (fan-out + instant-welcome-brief), with an anonymous opt-out. Standalone new
+`deploy/feedback/` CDK app (own CloudFront, DynamoDB, IAM, signed HMAC token per ADR-0011/0012);
+collection + storage only, no analysis/action on the data in scope. Reviewer + security-engineer
+both passed (one shared finding — an overscoped, unused DynamoDB grant — fixed before deploy).
+Real infrastructure is live: `FeedbackStack` deployed, secret populated, `managed-agent`/
+`subscribers` stacks redeployed with the secret wired in, microVM image rebuilt (v7.0), and the
+live scheduled deployment updated (deployments turned out to be immutable — documented the actual
+create-new/archive-old mechanism in `deploy/managed-agent/README.md`). Live-validated twice: once
+on the temporary CloudFront default domain, then again end-to-end on `https://feedback.mschweier.com`
+after the human added both DNS records and the ACM certificate issued — the real production
+`_feedback_link()` function and a real API submission both confirmed working on the final domain.
+`FEEDBACK_BASE_URL` is flipped everywhere; the CloudFront-default fallback is retired. No open
+follow-ups.
 
-Previous PRD — `instant-welcome-brief.md` (**Shipped 2026-07-03**). New sign-ups now receive the latest edition of the brief the
+Previous PRD — `send-confirmation-summary.md` (**Shipped, merged PR #21**). Small, additive
+change: after each daily Managed Agents run completes, a short confirmation email to
+`mail@mschweier.com` states the brief went out and to how many subscribers. Deployed and
+live-validated. During this validation, an M1 webhook-replay/idempotency risk (flagged
+non-blocking on PR #18) was observed live in practice — see the webhook-idempotency fix below.
+
+Previous fix — **Webhook idempotency restored** (ADR-0010, **merged PR #22**). A DynamoDB-backed
+idempotency guard (via `aws-lambda-powertools`) on the launcher Lambda now prevents duplicate
+`RunMicrovm` launches from duplicate/replayed webhook deliveries. A reviewer-found fail-open gap
+(silent no-dedup if the table env var was unset) was fixed to fail closed before deploy. Deployed
+via real `cdk deploy` and live-validated against a genuinely reproduced concurrent-duplicate
+webhook delivery (two real signed requests, one microVM, three independent sources of proof).
+
+Previous PRD — `instant-welcome-brief.md` (**Shipped, merged PR #20**). New sign-ups now receive the latest edition of the brief the
 moment they confirm their email, with a short welcome header stating the weekday send time
 (06:07 Europe/Berlin, unchanged), centralized into one canonical source the email prose and the
 deployment schedule agree on. Cross-subsystem: an audio-key pointer was added to the Managed

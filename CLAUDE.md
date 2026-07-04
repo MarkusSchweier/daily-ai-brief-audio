@@ -8,44 +8,87 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
 ## Project overview
 
 - **Name:** daily-ai-brief-audio
-- **What it does:** Turns the day's written AI brief into **narrated audio** (Amazon Polly) and
-  **emails it** (Amazon SES) with the MP3 attached and the brief as the HTML body — unattended.
-- **Status: LIVE and working.** It runs today as steps 5–8 of the weekday scheduled task
-  (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`), with the AWS resources already
-  provisioned. This repo is the **versioned source-of-truth** for those deployment artifacts —
-  it is not a standalone app. `deploy/audio_email.py` is the verbatim copy of the STEP 6 code.
-- **Not this project:** generating the brief text (that's the `daily-ai-brief` skill, steps 1–4).
-- **Brief source (this machine):** `/Users/markus/Claude Working Folder/Daily AI Briefs/`.
+- **What it does:** Researches/writes, narrates (Amazon Polly), and emails (Amazon SES) a daily
+  AI news brief — to the owner and to a public list of self-service subscribers — plus a public
+  reader-feedback form. Started as a narration/delivery layer bolted onto a separate brief-writing
+  skill; has since grown into the whole pipeline's deployment source-of-truth.
+- **Status: LIVE.** Three production surfaces, each its own deploy unit:
+  1. **`deploy/managed-agent/`** — the current production path. A self-hosted Claude Managed
+     Agents microVM runs the full weekday pipeline (research → write → narrate → send →
+     archive) on a schedule, triggered by Anthropic's webhook. See its `README.md` for the
+     full runbook (image builds, secrets, the Deployments API's create-new/archive-old
+     update mechanism — deployments are immutable, no in-place update).
+  2. **`deploy/subscribers/`** — the public subscribe/confirm/unsubscribe site at
+     `briefing.mschweier.com` (CloudFront + API Gateway + Lambdas + DynamoDB), plus the
+     instant-welcome-brief send on confirmation.
+  3. **`deploy/feedback/`** — the public reader-feedback form at `feedback.mschweier.com`,
+     reached via a personalized per-recipient/per-edition link embedded in every brief email.
+  - **The original local Claude Desktop scheduled task** (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`)
+    is now a **deactivated fallback** — re-activate only if the Managed Agents path fails. The
+    top-level `deploy/audio_email.py`, `deploy/iam-policy.json`, `deploy/audio-mail-integration.md`,
+    `deploy/scheduled-task-audio.md`, `deploy/validation-handoff.md` files describe *that* local
+    fallback path specifically — the live production code is
+    `deploy/managed-agent/pipeline/audio_email.py`, not the top-level copy.
+- **Not this project:** the actual research/writing prompt logic lives in the `daily-ai-brief`
+  skill (ported into `deploy/managed-agent/skills/daily-ai-brief/` for the microVM; the original
+  skill definition is Claude Desktop-side, outside this repo).
+- **Brief source (local fallback only):** `/Users/markus/Claude Working Folder/Daily AI Briefs/`.
 
 ## Repo layout (source-of-truth for what runs)
 
-- `deploy/scheduled-task-audio.md` — the audio+mail flow (steps 5–8) and how it runs.
-- `deploy/audio_email.py` — the exact Polly→S3→SES code (mirrors the scheduled task's inline copy).
-- `deploy/iam-policy.json` — the least-privilege IAM policy for user `cowork-polly-tts`.
-- `deploy/audio-mail-integration.md` — full setup/runbook (resource creation, DNS/SES, teardown).
-- `deploy/validation-handoff.md` — end-to-end validation runbook (smoke test).
+- `deploy/managed-agent/` — production pipeline: CDK stack (microVM, launcher Lambda, webhook,
+  idempotency table), the ported skill, `pipeline/audio_email.py` (Polly→S3→SES + subscriber
+  fan-out + feedback-link embedding), `deployment.json`/`agent.json` (Deployments API payloads).
+  **`README.md` here is the detailed runbook** — image rebuilds, secret rotation, deployment
+  updates.
+- `deploy/subscribers/` — CDK stack for `briefing.mschweier.com`: subscribe/confirm/unsubscribe
+  Lambdas, `brief-subscribers` DynamoDB table, the welcome-send Lambda. **`README.md`** has the
+  full setup/DNS runbook.
+- `deploy/feedback/` — CDK stack for `feedback.mschweier.com`: submit Lambda, `brief-feedback`
+  DynamoDB table, the signed HMAC feedback-link token scheme (ADR-0011/0012). **`README.md`**
+  has the full setup/DNS/secret-wiring runbook.
+- `deploy/scheduled-task-audio.md`, `deploy/audio_email.py`, `deploy/iam-policy.json`,
+  `deploy/audio-mail-integration.md`, `deploy/validation-handoff.md` — the **local Desktop
+  fallback path** (deactivated; re-activate only if Managed Agents fails).
+- `docs/prd/`, `docs/adr/` — PRDs and ADRs for every epic; `docs/prd/_active.md` points at the
+  current one and is auto-imported below.
 
 ## AWS resources (personal account `740353583786`, us-east-1)
 
-- IAM user `cowork-polly-tts` — least-priv (Polly synth + S3 rw on the one bucket + SES send
-  from `aibriefing@mschweier.com` only, plus a GSI-scoped DynamoDB Query for the subscriber
-  fan-out). Policy: `deploy/iam-policy.json`.
+Each stack's own `README.md` is the detailed source of truth (resources, IAM, DNS/cert setup,
+secret rotation). Summary:
+
+- **`ManagedAgentSandboxStack`** (`deploy/managed-agent/cdk/`) — microVM image/execution roles,
+  launcher Lambda + webhook API, idempotency DynamoDB table, Anthropic environment-key +
+  webhook-signing secrets.
+- **`BriefSubscribersStack`** (`deploy/subscribers/`) — `brief-subscribers` DynamoDB table,
+  subscribe/confirm/unsubscribe Lambdas, welcome-send Lambda, CloudFront site at
+  `briefing.mschweier.com`.
+- **`FeedbackStack`** (`deploy/feedback/`) — `brief-feedback` DynamoDB table, submit Lambda, the
+  shared feedback-token signing secret, CloudFront site at `feedback.mschweier.com`.
+- IAM user `cowork-polly-tts` — the **original, now-fallback-only** least-priv user (Polly synth
+  + S3 rw on one bucket + SES send from `aibriefing@mschweier.com` + a GSI-scoped DynamoDB Query)
+  used by the local Desktop task. Policy: `deploy/iam-policy.json`.
 - S3 bucket `cowork-polly-tts-740353583786` — SSE-S3, public access blocked, 7-day lifecycle
-  expiry on `audio/`.
-- SES domain identity `mschweier.com` (DKIM-verified); all mail (owner copy + subscriber
-  fan-out) sends from `aibriefing@mschweier.com`. Owner still receives at `mail@mschweier.com`
-  (recipient unchanged). SES sandbox — see `deploy/subscribers/README.md` for the
-  production-access follow-up.
+  expiry on `audio/`, plus the `briefs/` archive (brief.html + audio pointer) the feedback/welcome
+  paths read from.
+- SES domain identity `mschweier.com` (DKIM-verified); all mail sends from
+  `aibriefing@mschweier.com`. Owner still receives at `mail@mschweier.com`. **Still SES
+  sandbox** — production access is a tracked, not-yet-done follow-up (see
+  `deploy/subscribers/README.md`).
 
 ## How to validate / change
 
-There is no package build. Useful checks:
+Each subsystem has its own test suite and CDK app (`cdk synth`/`cdk diff`/`cdk deploy`, run from
+within `deploy/managed-agent/cdk/`, `deploy/subscribers/`, or `deploy/feedback/` respectively) —
+see that subsystem's `README.md` for the exact commands. For the local-fallback-only files:
 
 - Syntax: `python3 -m py_compile deploy/audio_email.py`
 - Policy JSON: `python3 -m json.tool deploy/iam-policy.json`
 - End-to-end smoke test: follow `deploy/validation-handoff.md` (Polly→S3→SES self-send).
-- When STEP 6 changes, update **both** `deploy/audio_email.py` **and** the inline copy in
-  `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (keep them identical).
+- If the local fallback's STEP 6 changes, update **both** `deploy/audio_email.py` **and** the
+  inline copy in `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (keep them identical) — this
+  is separate from `deploy/managed-agent/pipeline/audio_email.py`, the live production copy.
 
 ## Conventions
 

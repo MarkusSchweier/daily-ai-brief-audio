@@ -19,9 +19,7 @@
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
-    "subscribeDomainName": "briefing.mschweier.com",
-    "certificateArn": "arn:aws:acm:us-east-1:740353583786:certificate/1219fdd0-7cfc-4075-9fd9-cca25f752996",
-    "feedbackTokenSecretArn": "arn:aws:secretsmanager:us-east-1:740353583786:secret:daily-ai-brief/feedback-token-signing-secret-EsDW6s",
-    "feedbackBaseUrl": "https://feedback.mschweier.com"
+    "feedbackDomainName": "feedback.mschweier.com",
+    "certificateArn": "arn:aws:acm:us-east-1:740353583786:certificate/1ef8d7cb-179f-439a-aa5e-3003957f59ea"
   }
 }

@@ -55,6 +55,23 @@ class BriefSubscribersStack(Stack):
 
         self.subscribe_domain_name = self.node.try_get_context("subscribeDomainName")
         self.certificate_arn = self.node.try_get_context("certificateArn")
+        # Optional, backward-compatible: the deploy/feedback/ stack's token-signing
+        # secret ARN, supplied only once that stack has been deployed and output it
+        # (docs/prd/reader-feedback.md, ADR-0011/ADR-0012 §B). Absent by default so this
+        # stack keeps synthesizing/deploying cleanly before the feedback stack exists or
+        # before this context is supplied -- no grant, no env var, when unset (see
+        # _build_welcome_send_function() below).
+        self.feedback_token_secret_arn = self.node.try_get_context("feedbackTokenSecretArn")
+        # The feedback site's base URL for the embedded link. Per ADR-0012 §B "DNS
+        # sequencing", this deliberately does NOT default to the live
+        # https://feedback.mschweier.com host -- it must point at whatever host is
+        # actually validated at deploy time (the feedback stack's CloudFront default
+        # domain during phases 1-3, the custom domain only after the human completes
+        # DNS cutover, PRD §8 phase 4). No fallback here: if unset while
+        # feedbackTokenSecretArn IS set, the welcome-send Lambda's FEEDBACK_BASE_URL env
+        # var is simply not set, and the handler's own fail-safe skips the link (never
+        # blocks the send) -- see deploy/feedback/README.md's wiring section.
+        self.feedback_base_url = self.node.try_get_context("feedbackBaseUrl")
 
         self.table = self._build_table()
         self.common_layer = self._build_common_layer()
@@ -252,6 +269,28 @@ class BriefSubscribersStack(Stack):
                 # exactly these two object prefixes, read-only.
             )
         )
+
+        # Sid "ReadFeedbackTokenSecret" — optional, backward-compatible (PRD
+        # docs/prd/reader-feedback.md, ADR-0011/ADR-0012 §B): only added when the
+        # feedback stack's secret ARN has been supplied via the `feedbackTokenSecretArn`
+        # context value (this app takes no build-time dependency on the feedback stack's
+        # own synthesis, matching ADR-0012's "independent deploy lifecycles" decision --
+        # the ARN is a plain string, not a CDK cross-stack import). Scoped to exactly
+        # that one secret ARN, same shape as the managed-agent stack's identical grant.
+        feedback_env = {}
+        if self.feedback_token_secret_arn:
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="ReadFeedbackTokenSecret",
+                    effect=iam.Effect.ALLOW,
+                    actions=["secretsmanager:GetSecretValue"],
+                    resources=[self.feedback_token_secret_arn],
+                )
+            )
+            feedback_env["FEEDBACK_TOKEN_SECRET_ARN"] = self.feedback_token_secret_arn
+            if self.feedback_base_url:
+                feedback_env["FEEDBACK_BASE_URL"] = self.feedback_base_url
+
         fn = _lambda.Function(
             self,
             "WelcomeSendFunction",
@@ -259,6 +298,8 @@ class BriefSubscribersStack(Stack):
             role=role,
             **self._base_function_kwargs("welcome-send", timeout=Duration.seconds(60), memory_size=512),
         )
+        for key, value in feedback_env.items():
+            fn.add_environment(key, value)
         return fn
 
     def _build_confirm_function(self, welcome_send_fn: _lambda.Function) -> _lambda.Function:

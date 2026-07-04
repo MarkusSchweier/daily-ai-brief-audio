@@ -28,6 +28,7 @@ from urllib.parse import quote
 import boto3
 from botocore.exceptions import ClientError
 
+import feedback_token
 import latest_brief
 from subscriber_common import normalize_email, weekday_send_time_label
 
@@ -49,6 +50,62 @@ MAX_AUDIO_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
 # Set via CDK environment once the HTTP API exists (mirrors subscribe/handler.py's
 # API_BASE_URL wiring) -- used to build the per-subscriber unsubscribe link.
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
+
+# Feedback link (docs/prd/reader-feedback.md FR-5, ADR-0011, ADR-0012 §B): both must be
+# set for a feedback link to be embedded at all -- see _get_feedback_signing_secret()
+# and _feedback_link() below. Neither being set is the expected state before the
+# feedback stack is deployed and wired in (backward-compatible, never blocks the send).
+FEEDBACK_TOKEN_SECRET_ARN = os.environ.get("FEEDBACK_TOKEN_SECRET_ARN", "")
+FEEDBACK_BASE_URL = os.environ.get("FEEDBACK_BASE_URL", "")
+
+_feedback_secret_cache: str | None = None
+_feedback_secret_fetch_attempted = False
+
+
+def _get_feedback_signing_secret() -> str | None:
+    """Best-effort, cached-once-per-cold-start fetch of the feedback-token signing
+    secret, mirroring the launcher's `_get_secret` shape
+    (deploy/managed-agent/microvm/launcher/launcher.py). Returns None (never raises)
+    when FEEDBACK_TOKEN_SECRET_ARN is unset or the fetch fails -- the welcome send must
+    never be blocked by this (same fail-safe convention as the MP3 fetch above)."""
+    global _feedback_secret_cache, _feedback_secret_fetch_attempted
+    if _feedback_secret_fetch_attempted:
+        return _feedback_secret_cache
+    _feedback_secret_fetch_attempted = True
+    if not FEEDBACK_TOKEN_SECRET_ARN:
+        return None
+    try:
+        client = boto3.client("secretsmanager", region_name=SES_REGION)
+        response = client.get_secret_value(SecretId=FEEDBACK_TOKEN_SECRET_ARN)
+        _feedback_secret_cache = response["SecretString"]
+    except Exception as e:  # noqa: BLE001 - fail-safe: a secret-fetch glitch must never block the send
+        logger.warning("FEEDBACK_LINK_SKIPPED: secret fetch failed error=%r", e)
+        _feedback_secret_cache = None
+    return _feedback_secret_cache
+
+
+def _feedback_link(email: str, brief_date: str | None) -> str | None:
+    """Build a feedback link for `email` attributed to `brief_date`, or return None if
+    unavailable for any reason (missing config, secret-fetch failure, token-generation
+    failure, or no brief_date -- the cold-start case has no edition to attribute to).
+    Never raises."""
+    if not FEEDBACK_BASE_URL:
+        logger.info("FEEDBACK_LINK_SKIPPED: FEEDBACK_BASE_URL not set")
+        return None
+    if not brief_date:
+        logger.info("FEEDBACK_LINK_SKIPPED: no brief date to attribute (cold start)")
+        return None
+    secret = _get_feedback_signing_secret()
+    if not secret:
+        logger.info("FEEDBACK_LINK_SKIPPED: signing secret unavailable")
+        return None
+    try:
+        token = feedback_token.generate(secret, email, brief_date)
+    except Exception as e:  # noqa: BLE001 - fail-safe: token generation must never block the send
+        logger.warning("FEEDBACK_LINK_SKIPPED: token generation failed error=%r", e)
+        return None
+    base = FEEDBACK_BASE_URL.rstrip("/")
+    return f"{base}/?t={quote(token)}"
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -116,17 +173,32 @@ def _html_with_unsubscribe_footer(html_body: str, unsubscribe_link: str) -> str:
     return html_body + footer
 
 
-def _cold_start_body(unsubscribe_link: str) -> str:
+def _html_with_feedback_link(html_body: str, feedback_link: str | None) -> str:
+    """Mirrors audio_email.py's _html_with_feedback_link exactly (same placement near
+    the unsubscribe footer, same tone) -- a no-op when no link is available (PRD FR-5,
+    fail-safe: never fails or degrades the send)."""
+    if not feedback_link:
+        return html_body
+    footer = (
+        '<p style="font-size:12px;color:#666;">'
+        f'Have thoughts on today\'s brief? <a href="{feedback_link}">Share feedback</a>.</p>'
+    )
+    return html_body + footer
+
+
+def _cold_start_body(unsubscribe_link: str, feedback_link: str | None = None) -> str:
     body = (
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>"
         "<p>Thanks for confirming your subscription!</p>"
         "</body></html>"
     )
-    return _html_with_unsubscribe_footer(_cold_start_header_html() + body, unsubscribe_link)
+    body = _html_with_unsubscribe_footer(_cold_start_header_html() + body, unsubscribe_link)
+    return _html_with_feedback_link(body, feedback_link)
 
 
-def _welcome_body(brief_html: str, unsubscribe_link: str) -> str:
-    return _html_with_unsubscribe_footer(_welcome_header_html() + brief_html, unsubscribe_link)
+def _welcome_body(brief_html: str, unsubscribe_link: str, feedback_link: str | None = None) -> str:
+    body = _html_with_unsubscribe_footer(_welcome_header_html() + brief_html, unsubscribe_link)
+    return _html_with_feedback_link(body, feedback_link)
 
 
 def _fetch_audio_bytes(s3_client, audio_key: str | None) -> bytes | None:
@@ -187,11 +259,14 @@ def _handle(event: dict[str, Any], ses_client, s3_client) -> dict[str, Any]:
     brief = latest_brief.resolve_latest_brief(s3_client)
 
     if not brief.found:
-        # FR-8/AC-7: cold start -- welcome-only, no brief content, no audio.
-        html_body = _cold_start_body(unsubscribe_link)
+        # FR-8/AC-7: cold start -- welcome-only, no brief content, no audio, and no
+        # feedback link either (no edition exists yet to attribute feedback to --
+        # _feedback_link() returns None whenever brief_date is None).
+        html_body = _cold_start_body(unsubscribe_link, _feedback_link(email, None))
         mp3_bytes = None
     else:
-        html_body = _welcome_body(brief.html, unsubscribe_link)
+        feedback_link = _feedback_link(email, brief.date)
+        html_body = _welcome_body(brief.html, unsubscribe_link, feedback_link)
         mp3_bytes = _fetch_audio_bytes(s3_client, brief.audio_key)
 
     msg = _build_message(email, html_body, mp3_bytes)

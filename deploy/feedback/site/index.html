@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily AI Brief — Feedback</title>
+<meta name="description" content="Tell us what you think of the Daily AI Brief — rate it, suggest sources, leave feedback. Anonymous option available.">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="page">
+  <span class="eyebrow">The Daily AI Brief</span>
+  <h1>Help us make the brief better.</h1>
+  <p class="tagline">A couple of minutes of your time — rate what you read, tell us what's missing, and let us know what to do differently.</p>
+
+  <section class="card note-card" aria-labelledby="note-heading">
+    <p id="note-heading" class="note-copy">
+      <strong>Your feedback shapes this brief.</strong> We process every submission and put
+      your suggestions into practice wherever we can. Thanks for helping make the Daily
+      AI Brief better.
+    </p>
+  </section>
+
+  <section class="card form-section" aria-labelledby="form-heading">
+    <h2 id="form-heading">Share your feedback</h2>
+
+    <form id="feedback-form" novalidate>
+      <fieldset class="rating-field">
+        <legend>Overall rating</legend>
+        <div class="rating-group" data-name="overallRating"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Content selection — were the right stories chosen?</legend>
+        <div class="rating-group" data-name="contentSelection"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Content representation — were stories framed fairly / neutrally?</legend>
+        <div class="rating-group" data-name="contentRepresentation"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Content correctness — was the information accurate?</legend>
+        <div class="rating-group" data-name="contentCorrectness"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Content comprehensiveness — was important context missing?</legend>
+        <div class="rating-group" data-name="contentComprehensiveness"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Length — too short / too long / about right?</legend>
+        <div class="rating-group" data-name="length"></div>
+      </fieldset>
+
+      <fieldset class="rating-field">
+        <legend>Technical depth — too shallow / too deep?</legend>
+        <div class="rating-group" data-name="technicalDepth"></div>
+      </fieldset>
+
+      <div class="field">
+        <label for="additionalSources">Which additional sources should the brief feature?</label>
+        <textarea id="additionalSources" name="additionalSources" maxlength="2000" rows="3"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="otherFeedback">Any other suggestions or feedback?</label>
+        <textarea id="otherFeedback" name="otherFeedback" maxlength="2000" rows="3"></textarea>
+      </div>
+
+      <div class="field checkbox-field">
+        <label>
+          <input type="checkbox" id="anonymous" name="anonymous">
+          Provide feedback anonymously
+        </label>
+      </div>
+
+      <!-- Honeypot: hidden from real users (off-screen, not display:none, so basic
+           bots that skip hidden fields still fill it). Real submissions must leave
+           this blank. -->
+      <div class="field honeypot" aria-hidden="true">
+        <label for="website">Leave this field blank</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <button type="submit">Submit feedback</button>
+
+      <p id="form-status" role="status" aria-live="polite"></p>
+    </form>
+
+    <div id="thank-you" class="thank-you" hidden>
+      <h2>Thank you!</h2>
+      <p>Your feedback has been received. We really do process every submission.</p>
+    </div>
+  </section>
+
+  <p class="footer-note">Built and curated by an AI agent.</p>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

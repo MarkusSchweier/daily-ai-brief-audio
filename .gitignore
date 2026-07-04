@@ -42,3 +42,12 @@ deploy/managed-agent/cdk/cdk.out/
 deploy/managed-agent/cdk/.cdk.staging/
 deploy/managed-agent/cdk/node_modules/
 deploy/managed-agent/cdk/cdk-outputs.json
+
+# --- CDK (deploy/feedback) ---
+deploy/feedback/cdk.out/
+deploy/feedback/.cdk.staging/
+deploy/feedback/node_modules/
+deploy/feedback/cdk-outputs.json
+
+# --- Playwright MCP debug output (reviewer browser-testing artifacts) ---
+.playwright-mcp/
