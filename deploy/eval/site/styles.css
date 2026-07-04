@@ -1,0 +1,302 @@
+/* Lightweight, accessible styling for the internal eval review UI — no framework, no
+   build step. Same visual language (aurora background, card shape) as the sibling
+   public sites, but a wider page (this is a data-dense internal tool, not a form). */
+
+:root {
+  color-scheme: light;
+  --fg: #1a1a2e;
+  --fg-muted: #5b5b76;
+  --bg: #ffffff;
+  --accent: #4f46e5;
+  --accent-dark: #3730a3;
+  --border: #e3e2f0;
+  --error: #b3261e;
+  --success: #1b7a3d;
+  --card-radius: 1.1rem;
+
+  --aurora-1: #f5f3ff;
+  --aurora-2: #ddd6fe;
+  --aurora-3: #fbcfe8;
+  --aurora-4: #bfdbfe;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  line-height: 1.55;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, var(--aurora-3) 0%, transparent 55%),
+    radial-gradient(50rem 50rem at 110% 10%, var(--aurora-4) 0%, transparent 50%),
+    radial-gradient(70rem 70rem at 50% 120%, var(--aurora-2) 0%, transparent 60%),
+    var(--aurora-1);
+  background-attachment: fixed;
+}
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 5rem;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+  margin-bottom: 0.75rem;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin: 0 0 0.6rem;
+  font-weight: 800;
+}
+
+.tagline {
+  font-size: 1.05rem;
+  color: var(--fg-muted);
+  margin: 0 0 2rem;
+  max-width: 40rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  border-radius: var(--card-radius);
+  box-shadow: 0 12px 30px rgba(76, 29, 149, 0.08);
+  padding: 1.5rem 1.75rem 1.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.3rem;
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.field input:focus-visible,
+.field textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+}
+
+button,
+.link-button {
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0.65rem 1.2rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  background: var(--accent-dark);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.link-button {
+  background: none;
+  color: var(--accent-dark);
+  padding: 0.4rem 0;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+#gate-status,
+#trigger-status {
+  margin-top: 0.75rem;
+  min-height: 1.1rem;
+  font-size: 0.9rem;
+}
+
+#gate-status[data-state="error"],
+#trigger-status[data-state="error"] {
+  color: var(--error);
+}
+
+#trigger-status[data-state="success"] {
+  color: var(--success);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.tab-button {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1.5px solid var(--border);
+}
+
+.tab-button[aria-current="true"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.runs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.run-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+}
+
+.run-row:hover {
+  border-color: var(--accent);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-badge.pending { background: #fef3c7; color: #92400e; }
+.status-badge.complete { background: #d1fae5; color: #065f46; }
+.status-badge.failed { background: #fee2e2; color: #991b1b; }
+
+.criterion-card {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.criterion-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.criterion-score {
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+
+.criterion-evidence {
+  font-style: italic;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.override-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.override-controls select,
+.override-controls input[type="text"] {
+  padding: 0.4rem 0.5rem;
+  border: 1.5px solid var(--border);
+  border-radius: 0.4rem;
+}
+
+table.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+table.compare-table th,
+table.compare-table td {
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+table.compare-table th {
+  cursor: pointer;
+  background: #f5f3ff;
+  font-weight: 700;
+}
+
+.brief-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 45rem) {
+  .brief-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.brief-columns pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: #f8f7fc;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  max-height: 30rem;
+  overflow-y: auto;
+}
+
+.footer-note {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  margin-top: 2rem;
+}
+
+a {
+  color: var(--accent-dark);
+}

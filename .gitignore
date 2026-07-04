@@ -49,5 +49,11 @@ deploy/feedback/.cdk.staging/
 deploy/feedback/node_modules/
 deploy/feedback/cdk-outputs.json
 
+# --- CDK (deploy/eval) ---
+deploy/eval/cdk.out/
+deploy/eval/.cdk.staging/
+deploy/eval/node_modules/
+deploy/eval/cdk-outputs.json
+
 # --- Playwright MCP debug output (reviewer browser-testing artifacts) ---
 .playwright-mcp/

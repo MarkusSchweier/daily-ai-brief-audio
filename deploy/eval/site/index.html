@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily AI Brief — Evaluation Review</title>
+<meta name="description" content="Internal evaluation-harness review UI for the Daily AI Brief pipeline.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="page">
+  <span class="eyebrow">The Daily AI Brief — Internal</span>
+  <h1>Evaluation review</h1>
+  <p class="tagline">Review automated evaluation runs, agree or override each per-criterion score, and
+    compare candidates side by side.</p>
+
+  <section id="gate" class="card gate-card" aria-labelledby="gate-heading" hidden>
+    <h2 id="gate-heading">Reviewer key required</h2>
+    <p>Enter the shared reviewer bearer key (or open this page with <code>?k=&lt;key&gt;</code> once).</p>
+    <form id="gate-form">
+      <div class="field">
+        <label for="gate-key">Reviewer key</label>
+        <input type="password" id="gate-key" name="key" autocomplete="off">
+      </div>
+      <button type="submit">Unlock</button>
+      <p id="gate-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <nav id="tabs" class="tabs" hidden>
+    <button type="button" class="tab-button" data-tab="list" aria-current="true">Pending &amp; recent runs</button>
+    <button type="button" class="tab-button" data-tab="compare">Compare candidates</button>
+  </nav>
+
+  <section id="trigger-section" class="card" hidden>
+    <h2>Trigger a new evaluation</h2>
+    <form id="trigger-form">
+      <div class="field">
+        <label for="candidate-config-id">Candidate configuration id</label>
+        <input type="text" id="candidate-config-id" name="candidateConfigId" value="production">
+      </div>
+      <button type="submit">Trigger evaluation run</button>
+      <p id="trigger-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section id="list-view" class="tab-panel" hidden>
+    <h2>Runs</h2>
+    <div id="runs-list" class="runs-list"></div>
+  </section>
+
+  <section id="detail-view" class="tab-panel" hidden>
+    <button type="button" id="back-to-list" class="link-button">&larr; Back to list</button>
+    <div id="detail-content"></div>
+  </section>
+
+  <section id="compare-view" class="tab-panel" hidden>
+    <h2>Candidate comparison</h2>
+    <div id="compare-table-container"></div>
+  </section>
+
+  <p class="footer-note">Internal tool. Not for public use.</p>
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
