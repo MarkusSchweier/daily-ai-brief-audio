@@ -110,6 +110,14 @@ class EvalRecord:
     human_overrides: dict[str, HumanOverride] = field(default_factory=dict)
     research_frozen_id: str | None = None
     schema_version: int = SCHEMA_VERSION
+    # AC-18: the review UI's detail view must show the brief content and its
+    # listening script side by side with the judge scores. Inlined directly (not an
+    # S3-key pointer) -- the daily-ai-brief skill targets 8-15 headlines / 5-10 deep
+    # dives (see deploy/managed-agent/skills/daily-ai-brief/SKILL.md), which is
+    # comfortably tens of KB, nowhere near DynamoDB's 400KB item limit -- inlining is
+    # simpler and needs no additional S3 IAM grant on the `read` Lambda.
+    brief_markdown: str | None = None
+    listening_script: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +130,8 @@ class EvalRecord:
             "human_overrides": {k: v.to_dict() for k, v in self.human_overrides.items()},
             "research_frozen_id": self.research_frozen_id,
             "schema_version": self.schema_version,
+            "brief_markdown": self.brief_markdown,
+            "listening_script": self.listening_script,
         }
 
     @classmethod
@@ -136,6 +146,8 @@ class EvalRecord:
             human_overrides={k: HumanOverride.from_dict(v) for k, v in (data.get("human_overrides") or {}).items()},
             research_frozen_id=data.get("research_frozen_id"),
             schema_version=data.get("schema_version", SCHEMA_VERSION),
+            brief_markdown=data.get("brief_markdown"),
+            listening_script=data.get("listening_script"),
         )
 
     def effective_score(self, criterion: str) -> int | None:

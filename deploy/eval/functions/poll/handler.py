@@ -130,10 +130,12 @@ def _process_completed_run(row: dict[str, Any], *, s3_client, dynamodb_client, j
     latest_date = max(dated_prefixes) if dated_prefixes else None
 
     brief_markdown = None
+    listening_script = None
     candidates_json = None
     prior_briefs_markdown: list[str] = []
     if latest_date:
         brief_markdown = _fetch_text(s3_client, PIPELINE_BUCKET_NAME, f"briefs/{latest_date}/brief.md")
+        listening_script = _fetch_text(s3_client, PIPELINE_BUCKET_NAME, f"briefs/{latest_date}/listening-script.txt")
         candidates_json = _fetch_candidates_json(s3_client, PIPELINE_BUCKET_NAME, f"briefs/{latest_date}/candidates.json")
         for prior_date in sorted((d for d in dated_prefixes if d < latest_date), reverse=True)[:3]:
             prior_markdown = _fetch_text(s3_client, PIPELINE_BUCKET_NAME, f"briefs/{prior_date}/brief.md")
@@ -167,24 +169,36 @@ def _process_completed_run(row: dict[str, Any], *, s3_client, dynamodb_client, j
         created_at=int(time.time()),
         criterion_scores=criterion_scores,
         cost=cost_record,
+        # AC-18: the review UI's detail view shows the brief content and its
+        # listening script side by side with the judge scores -- inlined directly
+        # (see EvalRecord's docstring/comment for the size-vs-S3-pointer reasoning).
+        brief_markdown=brief_markdown or None,
+        listening_script=listening_script,
     )
 
     # Calibration (FR-15) is opportunistic -- run it if the feedback table is
     # configured, but it must never fail the run's completion (PRD §7 "insufficient
-    # feedback to calibrate" degrade path).
-    calibration_result = None
+    # feedback to calibrate" degrade path). Also surfaces reader free-text
+    # suggestions (extract_free_text_feedback()) into the review context, per FR-15
+    # -- previously implemented and unit-tested but never actually wired in here.
+    calibration_correlations = None
+    free_text_feedback = None
     if FEEDBACK_TABLE_NAME:
         try:
             feedback_table = dynamodb_client.Table(FEEDBACK_TABLE_NAME)
             feedback_rows = calibration.query_feedback_table(feedback_table)
             judge_scores_by_date = {latest_date: {c: s.score for c, s in criterion_scores.items() if s.score is not None}} if latest_date else {}
-            calibration_result = calibration.correlate_judge_vs_reader(judge_scores_by_date, feedback_rows)
+            calibration_correlations = calibration.correlate_judge_vs_reader(judge_scores_by_date, feedback_rows)
+            free_text_feedback = calibration.extract_free_text_feedback(feedback_rows)
         except Exception as e:  # noqa: BLE001 - calibration must never fail the run
             logger.warning("EVAL_CALIBRATION_FAILED run_id=%s error=%r", run_id, e)
 
     result = eval_record.to_dict()
-    if calibration_result:
-        result["calibration"] = {k: v.__dict__ for k, v in calibration_result.items()}
+    if calibration_correlations or free_text_feedback:
+        result["calibration"] = {
+            **{k: v.__dict__ for k, v in (calibration_correlations or {}).items()},
+            "free_text_feedback": free_text_feedback or [],
+        }
     return result
 
 
@@ -194,6 +208,24 @@ def _archive_deployment(client, deployment_id: str) -> None:
     (never the live scheduled one, which this Lambda never touches)."""
     response = client.post(f"/v1/deployments/{deployment_id}/archive")
     response.raise_for_status()
+
+
+def _archive_deployment_best_effort(client, row: dict[str, Any], run_id: str) -> None:
+    """Best-effort wrapper around `_archive_deployment()` for every terminal branch
+    (success, session-failed, poll-timeout, processing-exception) -- a leaked
+    temporary eval deployment left "active" forever is a real, if low-severity,
+    security/cost surface (FIX 6): it's a live, on-demand deployment against the
+    SAME production agent/environment the real pipeline uses, so a forgotten
+    archive leaves an extra callable surface around indefinitely. Wrapped in its own
+    try/except so an archive-endpoint failure never un-fails/un-complete a row's
+    already-decided status, and never crashes the rest of this poll cycle."""
+    deployment_id = row.get("deploymentId")
+    if not deployment_id:
+        return
+    try:
+        _archive_deployment(client, deployment_id)
+    except Exception as e:  # noqa: BLE001 - archival failure must never affect row status
+        logger.warning("EVAL_DEPLOYMENT_ARCHIVE_FAILED run_id=%s deployment_id=%s error=%r", run_id, deployment_id, e)
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -248,6 +280,7 @@ def _handle(table, s3_client, dynamodb_resource, deployments_client, judge_clien
         if _session_failed(session_status):
             logger.info("EVAL_SESSION_FAILED run_id=%s session_id=%s", run_id, session_id)
             table.update_item(Key={"runId": run_id}, UpdateExpression="SET #s = :failed", ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":failed": "failed"})
+            _archive_deployment_best_effort(deployments_client, row, run_id)
             failed += 1
             continue
 
@@ -255,6 +288,7 @@ def _handle(table, s3_client, dynamodb_resource, deployments_client, judge_clien
             if poll_count + 1 >= MAX_POLL_ATTEMPTS:
                 logger.warning("EVAL_SESSION_POLL_TIMEOUT run_id=%s session_id=%s", run_id, session_id)
                 table.update_item(Key={"runId": run_id}, UpdateExpression="SET #s = :failed", ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":failed": "failed"})
+                _archive_deployment_best_effort(deployments_client, row, run_id)
                 failed += 1
             else:
                 table.update_item(Key={"runId": run_id}, UpdateExpression="SET pollCount = :n", ExpressionAttributeValues={":n": poll_count + 1})
@@ -266,21 +300,17 @@ def _handle(table, s3_client, dynamodb_resource, deployments_client, judge_clien
             )
             table.update_item(
                 Key={"runId": run_id},
-                UpdateExpression="SET #s = :complete, record = :record",
-                ExpressionAttributeNames={"#s": "status"},
+                UpdateExpression="SET #s = :complete, #r = :record",
+                ExpressionAttributeNames={"#s": "status", "#r": "record"},
                 ExpressionAttributeValues={":complete": "complete", ":record": json.dumps(eval_record_dict)},
             )
-            deployment_id = row.get("deploymentId")
-            if deployment_id:
-                try:
-                    _archive_deployment(deployments_client, deployment_id)
-                except Exception as e:  # noqa: BLE001 - archival failure must not un-complete the eval
-                    logger.warning("EVAL_DEPLOYMENT_ARCHIVE_FAILED run_id=%s deployment_id=%s error=%r", run_id, deployment_id, e)
+            _archive_deployment_best_effort(deployments_client, row, run_id)
             processed += 1
             logger.info("EVAL_PROCESSED run_id=%s", run_id)
         except Exception as e:  # noqa: BLE001 - a processing failure marks the run failed, never crashes the poller for the rest
             logger.error("EVAL_PROCESSING_FAILED run_id=%s error=%r", run_id, e)
             table.update_item(Key={"runId": run_id}, UpdateExpression="SET #s = :failed", ExpressionAttributeNames={"#s": "status"}, ExpressionAttributeValues={":failed": "failed"})
+            _archive_deployment_best_effort(deployments_client, row, run_id)
             failed += 1
 
     return {"processed": processed, "failed": failed, "pending_seen": len(pending_rows)}
