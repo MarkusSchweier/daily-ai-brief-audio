@@ -63,7 +63,10 @@ accumulate and can be wired in as a calibration signal from the start.
   suggestions into what the judge checks for.
 - **Give a human an easy, intuitive web interface** to review each evaluation, see the brief and
   the judge's scores/rationale side by side, and agree with or override each per-criterion score
-  with an optional comment — not a CLI, not a spreadsheet.
+  with an optional comment — not a CLI, not a spreadsheet. This includes a **cross-candidate
+  comparison view** (FR-24) so completed candidate evaluations can be seen side by side by
+  aggregate score, cost, and variance — the actual decision-support screen the harness exists to
+  provide once the follow-up cost-optimization epic starts producing candidates to compare.
 - **Evaluate content-selection quality** by contrasting **all** stories/topics identified during
   research against the stories actually chosen for the final brief (was something important
   dropped? was something low-value included?). This requires the research phase to emit a durable
@@ -293,6 +296,19 @@ require renumbering anything else in this document.
     posture (how the reviewer is gated) shall be specified by the Architect in the ADR (§7); this
     PRD requires only that internal eval data and the override-submit path are **not** exposed to
     the anonymous public.
+24. **Review UI — cross-candidate comparison / leaderboard view.** *(Added 2026-07-04, after the
+    owner asked "how will I consume eval results?" and the answer surfaced a real gap: FR-18/FR-19
+    are a per-run review/correction flow, not a way to compare candidates.)* The harness shall
+    provide a **view listing all completed candidate-configuration evaluations**, each showing its
+    **aggregate per-criterion scores** (FR-17), **cost breakdown** (FR-14), and **variance across
+    replicates**, sortable/filterable by candidate — so a reviewer can compare candidates side by
+    side and decide whether one is fit to ship. This is the **decision-support** view the harness
+    exists to enable for the future cost-optimization epic (a candidate is only useful to compare if
+    it's easy to see next to the others); it is distinct from the per-run review flow (FR-18/FR-19),
+    which corrects one run's judgment rather than comparing across runs. A v1 implementation may be
+    a simple sortable table (candidate name, per-criterion aggregate score, cost, variance) — this
+    FR does not require a rich visual/charting experience, only that the comparison is genuinely
+    usable without reading raw JSON records by hand.
 
 ### F. Least-privilege, isolation, and no impact on production
 
@@ -398,6 +414,10 @@ selects — the criteria are architecture-agnostic.)*
 - **AC-20 (UI posture):** Given the review UI, When inspected, Then it meets the lightweight/
   accessibility bar of the existing sites and is **not** an open, unauthenticated public write
   surface exposing internal eval data (FR-20).
+- **AC-24 (cross-candidate comparison view):** Given two or more completed candidate-configuration
+  evaluations, When a reviewer opens the comparison/leaderboard view, Then they see each candidate's
+  aggregate per-criterion scores, cost breakdown, and replicate variance in a sortable/filterable
+  list, without needing to read raw structured records by hand (FR-24, FR-17, FR-14).
 
 ### IAM & isolation
 - **AC-21 (least-privilege IAM):** Given the harness's execution role(s), When inspected, Then they
@@ -578,16 +598,19 @@ decision is the build-vs-adopt backbone, §7.)*
      mechanism.
   5. **Calibration (FR-15).** Wire in read-only `brief-feedback` correlation + free-text surfacing,
      honoring anonymity.
-  6. **Review UI (FR-18..FR-20).** The list → side-by-side detail → agree/override/comment → submit
-     flow, gated per the ADR's reviewer-access posture, persisting overrides into the record.
+  6. **Review UI (FR-18..FR-20, FR-24).** The list → side-by-side detail → agree/override/comment →
+     submit flow, gated per the ADR's reviewer-access posture, persisting overrides into the record
+     — plus the cross-candidate comparison/leaderboard view (FR-24) once at least two candidates
+     have completed evaluations.
   7. **Validate.** Trigger an evaluation of the **current production configuration** as the baseline;
      confirm the live daily send is untouched (AC-1/AC-22); run 3 replicates and see variance
      (AC-3); freeze research and replay two writing configs (AC-4); confirm each **v1** criterion
      produces a score+rationale+evidence (AC-6, AC-7, AC-9, AC-11, AC-14 — AC-8/AC-10/AC-12/AC-13
      are out of scope and need no validation); confirm calibration against a real edition with
-     feedback (AC-15); confirm a human review override persists (AC-19); security-review the IAM and
-     the anonymity no-de-anon guarantee (AC-21/AC-15).
-- **Ship gate.** Gate 0 (ADR + human sign-off) passed; AC-1..AC-7, AC-9, AC-11..AC-23 pass (AC-8,
+     feedback (AC-15); confirm a human review override persists (AC-19); confirm the comparison view
+     shows two evaluated candidates side by side (AC-24); security-review the IAM and the anonymity
+     no-de-anon guarantee (AC-21/AC-15).
+- **Ship gate.** Gate 0 (ADR + human sign-off) passed; AC-1..AC-7, AC-9, AC-11..AC-24 pass (AC-8,
   AC-10, AC-12, AC-13 are out of scope for v1 and excluded from the ship gate); the security review
   confirms least-privilege IAM (no SES-to-subscribers, no write on `brief-feedback`, no static
   keys — AC-21), production isolation (AC-22), and that reading feedback introduces no
@@ -598,8 +621,9 @@ decision is the build-vs-adopt backbone, §7.)*
   selection, factual accuracy, length/format, dedup — the last two LLM-judge only), a full
   phase-level cost breakdown, and (default) 3-replicate variance — all in a versioned,
   extensible machine-readable record — plus an easy web review to agree with or override the
-  human-reviewed criteria; automated judge scores can be correlated against real reader feedback on
-  shared editions; and there is **zero**
+  human-reviewed criteria and a **comparison view to see multiple candidates side by side** (FR-24)
+  — the actual "should I ship this" decision screen; automated judge scores can be correlated
+  against real reader feedback on shared editions; and there is **zero**
   regression to the live daily send, the fan-out, the feedback surface's anonymity, or the brief's
   content/audio/schedule. Concretely, this epic is a success when the **next** (cost-optimization)
   epic can measure a candidate change against a real quality baseline instead of shipping on vibes —
