@@ -15,7 +15,7 @@
 | DynamoDB table | `FeedbackTable` (`brief-feedback`) | PK `submissionId`; no sort key, no GSI, no TTL — durable, indefinite storage of every submission |
 | Secrets Manager secret | `FeedbackTokenSigningSecret` (`daily-ai-brief/feedback-token-signing-secret`) | The HMAC-SHA256 signing secret feedback links are signed with (ADR-0011) — **created empty**, populated out-of-band (step below) |
 | Lambda | `SubmitFunction` (`brief-feedback-submit`) | `POST /submit` — validates, resolves anonymity, and persists one feedback record |
-| IAM role | `SubmitFunctionRole` | Function-scoped least privilege: `dynamodb:PutItem`/`GetItem`/`UpdateItem` on the one table, `secretsmanager:GetSecretValue` on the one signing secret — no SES, no other table/bucket access, no static keys |
+| IAM role | `SubmitFunctionRole` | Function-scoped least privilege: `dynamodb:PutItem` only on the one table (no throttle counter was built, so no Get/Update grant), `secretsmanager:GetSecretValue` on the one signing secret — no SES, no other table/bucket access, no static keys |
 | HTTP API | `FeedbackHttpApi` | `POST /submit`; throttled stage; CORS locked to the feedback site origin |
 | S3 bucket | `FeedbackSiteBucket` | Private, OAC-only, hosts the static feedback form |
 | CloudFront distribution | `FeedbackSiteDistribution` | Serves the site over HTTPS; its **own** distribution, not shared with the subscribe site; optional custom domain + ACM cert |

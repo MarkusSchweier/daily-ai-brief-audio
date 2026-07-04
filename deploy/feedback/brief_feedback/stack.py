@@ -126,19 +126,22 @@ class FeedbackStack(Stack):
     # ------------------------------------------------------------------
     def _build_submit_function(self) -> _lambda.Function:
         """`brief-feedback-submit`: stdlib + runtime-provided boto3 only (DynamoDB
-        PutItem/GetItem/UpdateItem, Secrets Manager GetSecretValue, and the
-        stdlib-only `feedback_token` copy) — no `requirements.txt`, no bundling, exactly
-        like the subscribers functions (ADR-0012 §B.3: "the `_LocalPipBundling`
-        platform-locked pip machinery... is therefore not needed here"). Timeout 10s /
-        128MB, matching the subscribers functions' sub-second-work default sizing.
+        PutItem, Secrets Manager GetSecretValue, and the stdlib-only `feedback_token`
+        copy) — no `requirements.txt`, no bundling, exactly like the subscribers
+        functions (ADR-0012 §B.3: "the `_LocalPipBundling` platform-locked pip
+        machinery... is therefore not needed here"). Timeout 10s / 128MB, matching the
+        subscribers functions' sub-second-work default sizing.
 
         Role — exactly these grants, nothing else (PRD FR-16, AC-15):
           - AWSLambdaBasicExecutionRole (own logs only).
-          - sid="FeedbackTablePut": PutItem + GetItem + UpdateItem on the one table ARN.
-            GetItem/UpdateItem are included (not PutItem-only) to support an in-request,
-            same-table conditional-write throttle counter keyed by a hashed identity +
-            coarse time bucket (ADR-0012 §B.3's documented option), still scoped to
-            exactly this one table ARN — no second table, no GSI, no broader resource.
+          - sid="FeedbackTablePut": PutItem only on the one table ARN. The handler
+            relies on API Gateway stage throttling alone for v1 abuse control (no
+            in-request per-identity counter was built) — ADR-0012 §B.3's documented
+            fallback for this case: "the role may be `PutItem`-only." No GetItem/
+            UpdateItem grant exists since nothing in the handler reads or updates an
+            item; adding Get/Update without the code that uses them would be an
+            unused, overscoped grant on the very table that holds reader-submitted
+            (sometimes identity-attributed) feedback.
           - sid="ReadFeedbackTokenSecret": GetSecretValue scoped to the one signing
             secret ARN this stack owns.
           - No SES. No access to brief-subscribers. No access to
@@ -158,7 +161,7 @@ class FeedbackStack(Stack):
             iam.PolicyStatement(
                 sid="FeedbackTablePut",
                 effect=iam.Effect.ALLOW,
-                actions=["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"],
+                actions=["dynamodb:PutItem"],
                 resources=[self.table.table_arn],
             )
         )

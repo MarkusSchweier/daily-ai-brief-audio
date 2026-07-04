@@ -1,5 +1,6 @@
 """CDK-synth-based assertions on the feedback submit Lambda's IAM shape (PRD FR-16,
-AC-15): exactly PutItem/GetItem/UpdateItem on the one table, GetSecretValue on the one
+AC-15): exactly PutItem on the one table (no throttle counter was built, so no Get/
+Update grant — ADR-0012 §B.3's PutItem-only fallback), GetSecretValue on the one
 signing secret, own logs — no SES, no access to any other table/bucket, no reuse of
 any subscribers-stack role.
 
@@ -47,7 +48,8 @@ def test_submit_role_has_scoped_dynamodb_and_secret_grants_only():
     assert sids == {"FeedbackTablePut", "ReadFeedbackTokenSecret"}
 
     table_stmt = next(s for s in statements if s.get("Sid") == "FeedbackTablePut")
-    assert set(table_stmt["Action"]) == {"dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"}
+    action = table_stmt["Action"]
+    assert (action if isinstance(action, list) else [action]) == ["dynamodb:PutItem"]
 
     secret_stmt = next(s for s in statements if s.get("Sid") == "ReadFeedbackTokenSecret")
     assert secret_stmt["Action"] == "secretsmanager:GetSecretValue"

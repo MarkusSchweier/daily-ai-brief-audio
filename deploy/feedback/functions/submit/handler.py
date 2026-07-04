@@ -4,8 +4,8 @@ See docs/prd/reader-feedback.md FR-6..FR-15 and
 docs/adr/0012-feedback-standalone-stack-and-token-helper-packaging.md §B "Submit
 handler behavior" for the exact behavior this implements. Runs with the
 least-privilege role in `brief_feedback/stack.py`'s `SubmitFunctionRole`
-(dynamodb:PutItem/GetItem/UpdateItem on the one table, secretsmanager:GetSecretValue
-on the one signing secret — no SES, no other table/bucket access).
+(dynamodb:PutItem on the one table, secretsmanager:GetSecretValue on the one signing
+secret — no SES, no other table/bucket access).
 """
 
 from __future__ import annotations
