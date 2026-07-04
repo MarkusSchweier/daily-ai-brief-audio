@@ -170,14 +170,20 @@ def _is_model_request_end(event: dict) -> bool:
 
 def _is_web_search_tool_use(event: dict) -> bool:
     """True for a tool-use event invoking `web_search` (the research/writing boundary
-    marker per the owner's manual mining procedure). Tolerant of a couple of plausible
-    event shapes (`tool_name` at the top level, or nested under `tool_use`) since the
-    exact beta event schema may drift -- see the module docstring's "hard to verify
-    without a real API call" caveat, also flagged in this task's final report."""
+    marker per the owner's manual mining procedure).
+
+    CONFIRMED LIVE (2026-07-04, second real eval run): the real event type is
+    `agent.tool_use`, and the tool name lives directly under the top-level `name` key
+    -- NOT `tool_name`, and NOT nested under a `tool_use` object (both of those were
+    guesses that never matched, so this heuristic silently found no boundary and
+    every run degraded to PHASE_UNKNOWN despite `web_search` genuinely appearing 17
+    times in that session). `tool_name`/nested-`tool_use.name` are kept as fallbacks
+    in case a different event shape is ever encountered, but `name` is the confirmed
+    real field."""
     event_type = event.get("type", "")
     if "tool_use" not in event_type and "tool_call" not in event_type:
         return False
-    tool_name = event.get("tool_name") or (event.get("tool_use") or {}).get("name") or ""
+    tool_name = event.get("name") or event.get("tool_name") or (event.get("tool_use") or {}).get("name") or ""
     return tool_name == "web_search"
 
 

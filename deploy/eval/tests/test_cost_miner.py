@@ -264,3 +264,21 @@ def test_fetch_session_cost_uses_the_events_endpoint_not_threads_endpoint(monkey
     paths_called = [p for p, _ in fake_client.get_calls]
     assert "/v1/sessions/sesn_live/events" in paths_called
     assert "/v1/sessions/sesn_live/threads/sthr_only" not in paths_called
+
+
+def test_web_search_boundary_recognizes_the_confirmed_live_event_shape():
+    """CONFIRMED LIVE (2026-07-04): the real event is {"type": "agent.tool_use",
+    "name": "web_search", ...} -- not the tool_name/nested-tool_use shapes this
+    heuristic originally guessed at, which never matched in production and silently
+    degraded every real run to PHASE_UNKNOWN."""
+    real_shape_web_search = {"type": "agent.tool_use", "name": "web_search", "id": "sevt_x", "input": {}}
+    events = [
+        _model_request_end(input_tokens=100),
+        real_shape_web_search,
+        _model_request_end(output_tokens=100),
+    ]
+
+    thread = cost_miner.mine_thread_cost("thread_1", events)
+
+    phases = {p.phase for p in thread.phase_breakdown}
+    assert phases == {cost_miner.PHASE_RESEARCH, cost_miner.PHASE_WRITING}
