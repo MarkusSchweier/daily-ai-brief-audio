@@ -29,6 +29,7 @@ sets credentials explicitly, exactly like deploy/audio_email.py.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 
@@ -40,6 +41,14 @@ BRIEFS_PREFIX = "briefs/"
 # CDK app/deploy unit -- it deliberately does not import this module (see that module's
 # docstring) so this constant's name/value must stay in sync there by hand.
 AUDIO_POINTER_FILENAME = "audio-pointer.json"
+# Filename for the durable "candidates considered" research artifact (PRD
+# docs/prd/eval-harness.md FR-4/AC-5, ADR-0013 §D). Written by the `daily-ai-brief`
+# skill itself to WORKING_FOLDER as `candidates.json` -- this constant is the archived
+# object's key *segment* under `briefs/<date>/`, matching the skill's own output
+# filename so a caller passing the file's contents straight through needs no renaming.
+# deploy/eval/'s judges (a different, standalone CDK app) read this same filename from
+# S3 -- kept in sync by hand, same convention as AUDIO_POINTER_FILENAME above.
+CANDIDATES_FILENAME = "candidates.json"
 
 # Matches `briefs/YYYY-MM-DD/` — the per-day folder key prefix ADR-0005 defines.
 _DATED_PREFIX_RE = re.compile(r"^briefs/(\d{4}-\d{2}-\d{2})/$")
@@ -175,3 +184,51 @@ def archive_todays_brief(
             print("BRIEF_ARCHIVED", pointer_key)
         except Exception as e:
             print("BRIEF_ARCHIVE_FAILED:", pointer_key, repr(e))
+
+
+def archive_candidates_file(
+    s3_client,
+    today: str,
+    *,
+    working_folder: str,
+    bucket: str = BUCKET,
+    candidates_filename: str = CANDIDATES_FILENAME,
+) -> bool:
+    """Archive the skill's `candidates.json` (PRD docs/prd/eval-harness.md FR-4,
+    ADR-0013 §D) to `briefs/<today>/candidates.json`, if the skill wrote one this run.
+
+    Additive and best-effort, mirroring `archive_todays_brief`'s own fail-safe
+    philosophy (CLAUDE.md: never lose the brief over a glitch):
+      - A missing file (an older run, or a run before this feature shipped, or a run
+        whose skill version hasn't yet had the candidates instruction pushed live --
+        ADR-0008's lockstep push is a separate, later step from this wrapper change)
+        is the expected common case, not an error -- logged and skipped, never raised.
+      - A read or S3-write failure is logged, never raised -- archiving this artifact
+        must never fail (or even slow) the run that already has the brief in hand.
+
+    Returns True if the artifact was archived, False otherwise (missing file or a
+    failure) -- purely informational for the caller's own logging, never meant to gate
+    anything downstream.
+    """
+    local_path = os.path.join(working_folder, candidates_filename)
+    if not os.path.exists(local_path):
+        print("CANDIDATES_ARCHIVE_SKIPPED: no candidates.json found at", local_path)
+        return False
+
+    try:
+        with open(local_path, encoding="utf-8") as f:
+            raw = f.read()
+    except Exception as e:
+        print("CANDIDATES_ARCHIVE_READ_FAILED:", local_path, repr(e))
+        return False
+
+    key = f"{BRIEFS_PREFIX}{today}/{candidates_filename}"
+    try:
+        s3_client.put_object(
+            Bucket=bucket, Key=key, Body=raw.encode("utf-8"), ContentType="application/json"
+        )
+        print("BRIEF_ARCHIVED", key)
+        return True
+    except Exception as e:
+        print("BRIEF_ARCHIVE_FAILED:", key, repr(e))
+        return False

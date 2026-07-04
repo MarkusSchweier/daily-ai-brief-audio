@@ -87,6 +87,12 @@ already exists, overwrite it.)
 **Always write the file** — never just print the brief in chat. End your turn with a one-line
 summary and a `computer://` link to the file.
 
+**Also write a candidates-considered record** (eval-harness.md FR-4): alongside the brief and the
+listening script, also write a `candidates.json` to `WORKING_FOLDER` listing every story/topic you
+considered during research — not just the ones that made the final brief. Each entry:
+`{"title": "...", "source": "...", "disposition": "included"|"excluded"}`. This is an additive,
+durable record for later evaluation of selection quality; it does not change the brief itself.
+
 **Structure (tiered):**
 
 ```

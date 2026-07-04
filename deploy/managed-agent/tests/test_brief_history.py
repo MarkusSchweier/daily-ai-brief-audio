@@ -6,6 +6,7 @@ than N exist or a listing/read fails, and archive today's brief as a self-contai
 dated folder.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -246,3 +247,65 @@ def test_next_day_reads_back_what_was_just_archived(briefs_bucket):
 
     assert [r.date for r in result] == ["2026-07-03"]
     assert result[0].markdown == "# Wednesday's brief"
+
+
+# --- archive_candidates_file (PRD docs/prd/eval-harness.md FR-4/AC-5, ADR-0013 §D) -----
+
+
+def test_candidates_file_missing_is_handled_gracefully(briefs_bucket, tmp_path):
+    """AC-5 / the developer task's own "missing file handled gracefully" requirement:
+    an older run, or a run whose skill version doesn't yet emit candidates.json,
+    must not raise and must not archive anything."""
+    archived = brief_history.archive_candidates_file(
+        briefs_bucket, "2026-07-03", working_folder=str(tmp_path)
+    )
+
+    assert archived is False
+
+    import botocore.exceptions
+    import pytest as _pytest
+
+    with _pytest.raises(botocore.exceptions.ClientError):
+        briefs_bucket.get_object(
+            Bucket=brief_history.BUCKET,
+            Key=f"briefs/2026-07-03/{brief_history.CANDIDATES_FILENAME}",
+        )
+
+
+def test_candidates_file_present_is_archived_correctly(briefs_bucket, tmp_path):
+    """AC-5: a run whose skill wrote candidates.json gets it archived verbatim
+    alongside the rest of that day's artifacts."""
+    payload = json.dumps(
+        [
+            {"title": "Story A", "source": "TechCrunch", "disposition": "included"},
+            {"title": "Story B", "source": "The Verge", "disposition": "excluded"},
+        ]
+    )
+    (tmp_path / brief_history.CANDIDATES_FILENAME).write_text(payload, encoding="utf-8")
+
+    archived = brief_history.archive_candidates_file(
+        briefs_bucket, "2026-07-03", working_folder=str(tmp_path)
+    )
+
+    assert archived is True
+    obj = briefs_bucket.get_object(
+        Bucket=brief_history.BUCKET,
+        Key=f"briefs/2026-07-03/{brief_history.CANDIDATES_FILENAME}",
+    )
+    assert obj["Body"].read().decode("utf-8") == payload
+
+
+def test_candidates_file_write_failure_is_logged_not_raised(tmp_path, capsys):
+    (tmp_path / brief_history.CANDIDATES_FILENAME).write_text("[]", encoding="utf-8")
+
+    class RaisingS3Client:
+        def put_object(self, **kwargs):
+            raise RuntimeError("simulated S3 outage")
+
+    archived = brief_history.archive_candidates_file(
+        RaisingS3Client(), "2026-07-03", working_folder=str(tmp_path)
+    )
+
+    assert archived is False
+    captured = capsys.readouterr()
+    assert "BRIEF_ARCHIVE_FAILED" in captured.out

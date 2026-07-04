@@ -538,3 +538,12 @@ if __name__ == "__main__":
         )
     else:
         print("BRIEF_ARCHIVE_SKIPPED: BRIEF_MARKDOWN_PATH not set or file missing")
+
+    # Archive the skill's "candidates considered" research artifact, if this run's
+    # skill version wrote one (PRD docs/prd/eval-harness.md FR-4, ADR-0013 §D). A
+    # separate, independent best-effort step from the brief archival above: an older
+    # run (or a run before the live Skills-API version push lands, ADR-0008) simply
+    # has no candidates.json to find, which archive_candidates_file() treats as the
+    # expected common case, not a failure -- never gates or affects the send that has
+    # already completed by this point.
+    brief_history.archive_candidates_file(s3, _today_local_date(), working_folder=WORKING_FOLDER)
