@@ -59,11 +59,36 @@ def test_trigger_role_has_scoped_grants_only():
     statements = _policy_statements_for_role_logical_id(template, "TriggerFunctionRole")
 
     sids = {s.get("Sid") for s in statements}
-    assert sids == {"EvalTablePut", "ReadAnthropicApiKeySecret", "ReadReviewSecret"}
+    assert sids == {"EvalTablePut", "ReadAnthropicApiKeySecret", "ReadReviewSecret", "ReadProductionPromptParam"}
 
     table_stmt = next(s for s in statements if s.get("Sid") == "EvalTablePut")
     action = table_stmt["Action"]
     assert (action if isinstance(action, list) else [action]) == ["dynamodb:PutItem"]
+
+    prompt_param_stmt = next(s for s in statements if s.get("Sid") == "ReadProductionPromptParam")
+    action = prompt_param_stmt["Action"]
+    assert (action if isinstance(action, list) else [action]) == ["ssm:GetParameter"]
+
+
+def test_trigger_role_ssm_grant_scoped_to_one_parameter_not_wildcard():
+    """Least privilege (FR-21): the production-prompt read must be pinned to the one
+    parameter this stack creates (via a Ref to that exact resource), never a
+    wildcard across the account's parameters."""
+    template = _synth_template()
+    statements = _policy_statements_for_role_logical_id(template, "TriggerFunctionRole")
+
+    parameters = template.find_resources("AWS::SSM::Parameter")
+    assert len(parameters) == 1
+    (param_logical_id, param) = next(iter(parameters.items()))
+    assert param["Properties"]["Name"] == "/daily-ai-brief/eval/production-initial-prompt"
+    assert param["Properties"]["Type"] == "String"
+
+    prompt_param_stmt = next(s for s in statements if s.get("Sid") == "ReadProductionPromptParam")
+    resource_json = json.dumps(prompt_param_stmt["Resource"])
+    assert resource_json != '"*"'
+    # The IAM statement's Resource ARN is built from a Ref to the exact parameter
+    # resource above (a CFN intrinsic, not a literal string in the template).
+    assert f'{{"Ref": "{param_logical_id}"}}' in resource_json
 
 
 def test_trigger_role_has_no_get_or_scan_on_eval_table():

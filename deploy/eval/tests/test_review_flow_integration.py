@@ -61,6 +61,11 @@ class _FakeDeploymentsClient:
         return _FakeResponse({"status": "complete"})
 
 
+class _FakeSsmClient:
+    def get_parameter(self, Name):
+        return {"Parameter": {"Value": "Fake production task text for the integration test."}}
+
+
 class _FakeMessagesResource:
     def create(self, **kwargs):
         class _Block:
@@ -144,7 +149,9 @@ def test_trigger_then_poll_then_submit_review_then_read_round_trip(eval_table, p
     # 1) Trigger: creates a pending row (a real trigger call, exercising the real
     #    handler, per the task's "reusing your Fix 1 test helper" instruction).
     deployments_client = _FakeDeploymentsClient()
-    trigger_result = trigger_module._handle(_bearer_event({"candidateConfigId": "production"}), eval_table, deployments_client)
+    trigger_result = trigger_module._handle(
+        _bearer_event({"candidateConfigId": "production"}), eval_table, deployments_client, _FakeSsmClient()
+    )
     run_id = json.loads(trigger_result["body"])["runId"]
 
     # 2) Poll: simulates the session completing and processes the run into a

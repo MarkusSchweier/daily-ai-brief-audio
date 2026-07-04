@@ -17,6 +17,7 @@ What this stack does NOT do (deliberately, per the PRD/ADR):
     manual follow-up, exactly like `briefing.mschweier.com`/`feedback.mschweier.com`.
 """
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -44,10 +45,29 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_s3_deployment as s3_deployment,
     aws_secretsmanager as secretsmanager,
+    aws_ssm as ssm,
 )
 from constructs import Construct
 
 FUNCTIONS_DIR = Path(__file__).resolve().parent.parent / "functions"
+# deploy/eval/brief_eval/stack.py -> deploy/eval/brief_eval -> deploy/eval -> deploy
+DEPLOY_ROOT = Path(__file__).resolve().parent.parent.parent
+PRODUCTION_DEPLOYMENT_JSON = DEPLOY_ROOT / "managed-agent" / "deployment.json"
+
+
+def _load_production_initial_prompt() -> str:
+    """Read `deploy/managed-agent/deployment.json`'s real `agent.initial_prompt` at
+    CDK synth time -- a plain file read (this stack shares no AWS resource or IAM
+    role with `deploy/managed-agent/`; this is a build-time source-tree read, not a
+    runtime coupling). Used to snapshot the ACTUAL production task into an SSM
+    Parameter (see `_build_production_prompt_parameter()`) so the eval trigger
+    Lambda can build a faithful replica of it instead of an independently-drifting
+    hand-written prompt (PRD FR-1; fixed 2026-07-04 after a fork-session finding
+    traced a real eval run's imperfectly-improvised task via its session transcript).
+    A missing/malformed file fails the CDK synth loudly, which is correct -- this
+    file is committed and expected to always be present and well-formed."""
+    with open(PRODUCTION_DEPLOYMENT_JSON, encoding="utf-8") as f:
+        return json.load(f)["agent"]["initial_prompt"]
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
 
 # --- Lambda asset bundling for functions with third-party deps (httpx/anthropic) ----
@@ -215,10 +235,14 @@ class BriefEvalStack(Stack):
         # succeeds before these are known; a real deploy should pass the real values.
         self.production_agent_id = self.node.try_get_context("productionAgentId") or "agent_PLACEHOLDER"
         self.production_environment_id = self.node.try_get_context("productionEnvironmentId") or "env_PLACEHOLDER"
+        # The real production task text (PRD FR-1 fidelity fix, 2026-07-04) -- see
+        # _load_production_initial_prompt()'s docstring.
+        self.production_initial_prompt = _load_production_initial_prompt()
 
         self.eval_table = self._build_eval_table()
         self.review_secret = self._build_review_secret()
         self.anthropic_api_key_secret = self._build_anthropic_api_key_secret()
+        self.production_prompt_param = self._build_production_prompt_parameter()
 
         self.trigger_fn = self._build_trigger_function()
         self.poll_fn = self._build_poll_function()
@@ -310,6 +334,29 @@ class BriefEvalStack(Stack):
             removal_policy=RemovalPolicy.RETAIN,
         )
 
+    def _build_production_prompt_parameter(self) -> ssm.StringParameter:
+        """A snapshot of `deploy/managed-agent/deployment.json`'s real
+        `agent.initial_prompt`, taken at CDK synth time (PRD FR-1 fidelity fix,
+        2026-07-04). SSM Parameter Store, NOT Secrets Manager -- this is static task
+        text, not a credential -- and NOT a Lambda environment variable: the prompt
+        is ~3KB, and Lambda's environment variables share one 4KB TOTAL limit across
+        every var on the function, too tight alongside this function's other env
+        vars. The trigger Lambda fetches this at runtime and uses it as the default
+        eval-run task (instead of a short, hand-written, independently-drifting
+        prompt), so an eval run faithfully replicates what production actually does.
+
+        Staleness note (same category as `productionAgentId`/`productionEnvironmentId`
+        context, already accepted): this value updates only on the next `deploy/eval`
+        redeploy after `deployment.json` changes -- it is a snapshot, not a live
+        read of the current production deployment on every eval trigger."""
+        return ssm.StringParameter(
+            self,
+            "ProductionInitialPromptParam",
+            parameter_name="/daily-ai-brief/eval/production-initial-prompt",
+            string_value=self.production_initial_prompt,
+            description="Snapshot of deploy/managed-agent/deployment.json's agent.initial_prompt, refreshed on each deploy/eval redeploy.",
+        )
+
     # ------------------------------------------------------------------
     # Compute — one function-scoped least-privilege role per Lambda
     # ------------------------------------------------------------------
@@ -349,8 +396,9 @@ class BriefEvalStack(Stack):
     def _build_trigger_function(self) -> _lambda.Function:
         """POST /trigger: creates a temporary Deployments-API deployment + starts a
         session (PRD FR-1/FR-2). Role grants: PutItem on the eval table (records the
-        pending row), GetSecretValue on both this stack's own secrets. No SES, no
-        write to any other table/bucket."""
+        pending row), GetSecretValue on both this stack's own secrets, GetParameter
+        on the production-prompt SSM parameter (read-only, scoped to that one
+        parameter). No SES, no write to any other table/bucket."""
         role = iam.Role(
             self,
             "TriggerFunctionRole",
@@ -382,6 +430,14 @@ class BriefEvalStack(Stack):
                 resources=[self.review_secret.secret_arn],
             )
         )
+        role.add_to_policy(
+            iam.PolicyStatement(
+                sid="ReadProductionPromptParam",
+                effect=iam.Effect.ALLOW,
+                actions=["ssm:GetParameter"],
+                resources=[self.production_prompt_param.parameter_arn],
+            )
+        )
         fn = _lambda.Function(
             self,
             "TriggerFunction",
@@ -394,6 +450,7 @@ class BriefEvalStack(Stack):
                 "REVIEW_SECRET_ARN": self.review_secret.secret_arn,
                 "PRODUCTION_AGENT_ID": self.production_agent_id,
                 "PRODUCTION_ENVIRONMENT_ID": self.production_environment_id,
+                "PRODUCTION_PROMPT_PARAM_NAME": self.production_prompt_param.parameter_name,
             },
         )
         return fn
