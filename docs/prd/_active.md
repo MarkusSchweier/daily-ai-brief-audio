@@ -6,23 +6,22 @@ The current active PRD for this project:
 
 ---
 
-Status: **Deployed and live-validated (2026-07-04); ready for PR.** New epic, built and shipped
-fully autonomously overnight per the owner's explicit instruction: a public feedback web form,
-reachable via a personalized per-recipient/per-edition link embedded in the daily brief email
-(fan-out + instant-welcome-brief), with an anonymous opt-out. Standalone new `deploy/feedback/`
-CDK app (own CloudFront, DynamoDB, IAM, signed HMAC token per ADR-0011/0012); collection + storage
-only, no analysis/action on the data in scope. Reviewer + security-engineer both passed (one
-shared finding — an overscoped, unused DynamoDB grant — fixed before deploy). Real infrastructure
-is live: `FeedbackStack` deployed, secret populated, `managed-agent`/`subscribers` stacks
-redeployed with the secret wired in, microVM image rebuilt (v7.0), and the live scheduled
-deployment updated (deployments turned out to be immutable — documented the actual
-create-new/archive-old mechanism in `deploy/managed-agent/README.md`). Live-validated against the
-real deployed secret/API/table, including the exact production link-generation function, not a
-reimplementation. The **only** remaining step is DNS for `feedback.mschweier.com` (2 CNAME
-records, documented in `deploy/feedback/README.md` §3) — gated to the human, since this sandbox
-has no DNS API access (same `briefing.mschweier.com` precedent). The feedback link is fully
-functional today via the CloudFront default domain in the meantime; no scheduled send occurs
-before the DNS window closes (next one: Monday 06:07 Europe/Berlin).
+Status: **Fully shipped, DNS cut over, ready for PR review (2026-07-04).** New epic, built and
+shipped fully autonomously overnight per the owner's explicit instruction: a public feedback web
+form, reachable via a personalized per-recipient/per-edition link embedded in the daily brief
+email (fan-out + instant-welcome-brief), with an anonymous opt-out. Standalone new
+`deploy/feedback/` CDK app (own CloudFront, DynamoDB, IAM, signed HMAC token per ADR-0011/0012);
+collection + storage only, no analysis/action on the data in scope. Reviewer + security-engineer
+both passed (one shared finding — an overscoped, unused DynamoDB grant — fixed before deploy).
+Real infrastructure is live: `FeedbackStack` deployed, secret populated, `managed-agent`/
+`subscribers` stacks redeployed with the secret wired in, microVM image rebuilt (v7.0), and the
+live scheduled deployment updated (deployments turned out to be immutable — documented the actual
+create-new/archive-old mechanism in `deploy/managed-agent/README.md`). Live-validated twice: once
+on the temporary CloudFront default domain, then again end-to-end on `https://feedback.mschweier.com`
+after the human added both DNS records and the ACM certificate issued — the real production
+`_feedback_link()` function and a real API submission both confirmed working on the final domain.
+`FEEDBACK_BASE_URL` is flipped everywhere; the CloudFront-default fallback is retired. No open
+follow-ups.
 
 Previous PRD — `send-confirmation-summary.md` (**Shipped, merged PR #21**). Small, additive
 change: after each daily Managed Agents run completes, a short confirmation email to

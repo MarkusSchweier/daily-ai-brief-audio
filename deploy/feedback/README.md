@@ -117,59 +117,42 @@ settings. If that's a concern, generate the value in a way your shell doesn't lo
 (e.g. a `HISTCONTROL=ignorespace`-prefixed command, or write it to a temp file outside
 shell history and pass `--secret-string file://...`), then delete the temp file.
 
-### 3. DNS for `feedback.mschweier.com` (requires DNS access this sandbox does not have)
+### 3. DNS for `feedback.mschweier.com` — **done (2026-07-04)**
 
-**Status as of 2026-07-04: the ACM certificate has already been requested — only the
-two DNS records below are left, and they require the human** (this sandbox has no DNS
-API access for `mschweier.com`, exactly as documented in `deploy/subscribers/README.md`;
-`mschweier.com`'s registrar is external, not Route53).
+Both records were added by the human and have propagated; the ACM certificate issued
+(`arn:aws:acm:us-east-1:740353583786:certificate/1ef8d7cb-179f-439a-aa5e-3003957f59ea`,
+status `ISSUED`), the feedback stack was re-deployed with `-c certificateArn=...` so
+CloudFront carries the alias, and `https://feedback.mschweier.com` is now the live site
+— confirmed serving (`200`), correct `<title>`, correct `config.js`, and a full
+submit→DynamoDB round trip via the real API Gateway URL the site's `app.js` posts to
+(the CloudFront domain itself has no `/submit` route — the form calls the API
+cross-origin, which is why CORS is locked to `https://feedback.mschweier.com`; verified
+live via a preflight `OPTIONS` request returning the correct
+`access-control-allow-origin`).
 
-1. **Add this CNAME now** (ACM DNS validation — the cert will auto-issue once this
-   propagates and AWS re-checks it, no further action needed after adding it):
-   ```
-   Name:  _a40be967512ef90673d6db6f9eba5c65.feedback.mschweier.com.
-   Type:  CNAME
-   Value: _75e784d25a4d25f60950899b31b74f5a.jkddzztszm.acm-validations.aws.
-   ```
-   Cert ARN: `arn:aws:acm:us-east-1:740353583786:certificate/1ef8d7cb-179f-439a-aa5e-3003957f59ea`
-   (region **us-east-1**, required for CloudFront). Check status with:
-   ```bash
-   aws acm describe-certificate --certificate-arn arn:aws:acm:us-east-1:740353583786:certificate/1ef8d7cb-179f-439a-aa5e-3003957f59ea --query "Certificate.Status"
-   ```
-   Wait for `"ISSUED"` (minutes–hours, same caveat as the SES DKIM setup).
-2. Once issued, re-deploy this stack with the cert ARN so CloudFront gets the alias:
-   ```bash
-   cd deploy/feedback && cdk deploy -c certificateArn=arn:aws:acm:us-east-1:740353583786:certificate/1ef8d7cb-179f-439a-aa5e-3003957f59ea
-   ```
-3. **Add this second CNAME** — the site's own alias, pointing at the CloudFront
-   distribution already live at the default domain:
-   ```
-   Name:  feedback.mschweier.com.
-   Type:  CNAME (or ALIAS/ANAME if the host supports apex-like aliasing)
-   Value: d3b4f3ie7z7uiz.cloudfront.net.
-   ```
-4. Wait for propagation, then confirm `https://feedback.mschweier.com` serves the form.
-5. **Flip `FEEDBACK_BASE_URL` from the CloudFront default domain to the real subdomain**
-   in both send paths (see §4 below, step 5) — until this last step, the feedback links
-   in real emails keep working, just via the uglier `https://d3b4f3ie7z7uiz.cloudfront.net`
-   URL, which is a functional (if unpolished) link, not a broken one.
+For reference, the two records that were added:
+```
+Name:  _a40be967512ef90673d6db6f9eba5c65.feedback.mschweier.com.
+Type:  CNAME
+Value: _75e784d25a4d25f60950899b31b74f5a.jkddzztszm.acm-validations.aws.
 
-Until DNS is live, the site is reachable at the CloudFront default domain
-(`https://d3b4f3ie7z7uiz.cloudfront.net`) — this is what the live send paths point at
-today (see §4), so the feature is fully working end-to-end right now, just not yet on
-its pretty final URL.
+Name:  feedback.mschweier.com.
+Type:  CNAME
+Value: d3b4f3ie7z7uiz.cloudfront.net.
+```
 
-### 4. Wiring the signing secret into the other two stacks
+### 4. Wiring the signing secret into the other two stacks — **done (2026-07-04)**
 
-**Status as of 2026-07-04: steps 1–4 below are done and live.** The feedback stack is
-deployed, the secret is populated, both `deploy/managed-agent` and `deploy/subscribers`
-are redeployed with the ARN, the live scheduled deployment's `initial_prompt` carries
-`FEEDBACK_TOKEN_SECRET_ARN`/`FEEDBACK_BASE_URL` (pointing at the CloudFront default
-domain), and the microVM image was rebuilt/pushed (version `7.0`) with the
-`feedback_token` helper + updated `audio_email.py`. Live-validated end-to-end against
-the real deployed secret/API/table (see the PR description for the validation
-evidence). **Only step 5 (the DNS-dependent URL flip) remains, and it requires the
-human** — see §3 above for the concrete DNS records.
+The feedback stack is deployed, the secret is populated, both `deploy/managed-agent`
+and `deploy/subscribers` are redeployed with the ARN, the live scheduled deployment's
+`initial_prompt` carries `FEEDBACK_TOKEN_SECRET_ARN`/`FEEDBACK_BASE_URL` (now pointing
+at `https://feedback.mschweier.com`, flipped from the CloudFront default domain once
+DNS went live — same create-new/archive-old deployment mechanism as before), and the
+microVM image was rebuilt/pushed (version `7.0`) with the `feedback_token` helper +
+updated `audio_email.py`. Live-validated end-to-end on the real final domain: the
+actual production `_feedback_link()` function generated a link pointing at
+`https://feedback.mschweier.com`, and submitting it through the real API produced a
+correctly attributed DynamoDB record. Test rows deleted afterward.
 
 The feedback link is **generated** in two other, independent deploy units
 (`deploy/managed-agent/pipeline/audio_email.py` and
@@ -206,15 +189,15 @@ step, done once (and again on secret rotation):
               -c feedbackTokenSecretArn=<FeedbackTokenSecretArn-from-step-1> \
               -c feedbackBaseUrl=<this stack's DistributionDomainName, https://...>
    ```
-5. **After DNS cutover (§3 above) — the one step still pending:** flip `feedbackBaseUrl` /
-   `FEEDBACK_BASE_URL` from the CloudFront default domain to
-   `https://feedback.mschweier.com` in both places above and re-deploy each — mirrors
-   the PRD's phase-4 "point at the validated domain first, flip to the live subdomain
-   only after DNS is confirmed" sequencing (`docs/prd/reader-feedback.md` §8).
+5. **After DNS cutover (§3 above) — done:** flipped `feedbackBaseUrl` / `FEEDBACK_BASE_URL`
+   from the CloudFront default domain to `https://feedback.mschweier.com` in both places
+   above and re-deployed each — completing the PRD's phase-4 "point at the validated
+   domain first, flip to the live subdomain only after DNS is confirmed" sequencing
+   (`docs/prd/reader-feedback.md` §8).
 
 (Before steps 3–4 are done, both send paths simply **omit** the feedback link — their
-own fail-safe: missing config never blocks the brief/welcome send. That window has
-already passed for the current secret/ARN; noted here for future rotations.)
+own fail-safe: missing config never blocks the brief/welcome send. Noted here for
+future secret rotations or a rebuild from scratch.)
 
 ## Testing the submit endpoint via curl (temporary `execute-api` URL)
 

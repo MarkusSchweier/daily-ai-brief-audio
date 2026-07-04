@@ -1,25 +1,24 @@
 # PRD: Reader feedback form for the daily AI brief
 
-- Status: **Deployed and live-validated (2026-07-04); DNS cutover is the one remaining
-  step, gated to the human.** Implemented per ADR-0011 (signed token scheme) and
-  ADR-0012 (standalone `deploy/feedback/` stack + token-helper packaging). Independently
-  reviewed and security-cleared — one reviewer/security-agreed finding (an overscoped
-  `GetItem`/`UpdateItem` DynamoDB grant with no code using it) was fixed before deploy.
-  All infrastructure is live: `FeedbackStack` deployed, the signing secret populated,
-  `deploy/managed-agent` and `deploy/subscribers` redeployed with the secret ARN wired
-  in, the microVM image rebuilt (version `7.0`), and the live scheduled deployment
-  updated to export the feedback config. Live-validated against the real deployed
-  secret/API/table: all five anonymity/attribution scenarios (attributed, anonymous via
-  checkbox, walk-up with no token, tampered token, owner identity) behaved exactly per
-  FR-8/FR-9/FR-10/FR-11/AC-8..AC-11, and the actual production `_feedback_link()`
-  function (not a reimplementation) was proven to generate links the live API accepts.
-  The ACM certificate for `feedback.mschweier.com` has been requested; the feedback link
-  in real emails currently points at the CloudFront default domain
-  (`https://d3b4f3ie7z7uiz.cloudfront.net`) — fully functional, just not yet on the
-  pretty subdomain. Two DNS records (documented in `deploy/feedback/README.md` §3) are
-  the only remaining step, and they require the human (the registrar for
-  `mschweier.com` is external, not Route53). No scheduled send occurs before the DNS
-  window closes (next one: Monday 06:07 Europe/Berlin). Ready for PR.
+- Status: **Fully shipped and live on the production domain (2026-07-04).** Implemented
+  per ADR-0011 (signed token scheme) and ADR-0012 (standalone `deploy/feedback/` stack +
+  token-helper packaging). Independently reviewed and security-cleared — one
+  reviewer/security-agreed finding (an overscoped `GetItem`/`UpdateItem` DynamoDB grant
+  with no code using it) was fixed before deploy. All infrastructure is live:
+  `FeedbackStack` deployed, the signing secret populated, `deploy/managed-agent` and
+  `deploy/subscribers` redeployed with the secret ARN wired in, the microVM image
+  rebuilt (version `7.0`), and the live scheduled deployment updated to export the
+  feedback config. Live-validated twice against the real deployed secret/API/table:
+  first on the temporary CloudFront default domain (all five anonymity/attribution
+  scenarios — attributed, anonymous via checkbox, walk-up with no token, tampered
+  token, owner identity — behaved exactly per FR-8/FR-9/FR-10/FR-11/AC-8..AC-11), then
+  again end-to-end on the final production domain after DNS cutover, confirming the
+  actual production `_feedback_link()` function generates links that resolve, and that
+  a real submission through the live site's own API call path lands correctly
+  attributed in DynamoDB. **DNS is fully cut over**: the human added both records, the
+  ACM certificate issued, and `https://feedback.mschweier.com` is the live site —
+  `FEEDBACK_BASE_URL` has been flipped in both send paths and the CloudFront-default
+  fallback is no longer in use. Ready for PR.
 - Author: product-manager (Claude)  ·  Date: 2026-07-03
 - Linked ADRs:
   [0011 Signed feedback-link token scheme](../adr/0011-feedback-link-signed-token-scheme.md)
