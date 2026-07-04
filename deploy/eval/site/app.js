@@ -139,9 +139,16 @@
         runs.forEach(function (run) {
           var row = document.createElement("div");
           row.className = "run-row";
-          row.innerHTML =
-            "<span>" + (run.candidateConfigId || "unknown") + " — " + run.runId + "</span>" +
-            '<span class="status-badge ' + (run.status || "") + '">' + (run.status || "unknown") + "</span>";
+
+          var label = document.createElement("span");
+          label.textContent = (run.candidateConfigId || "unknown") + " — " + run.runId;
+
+          var badge = document.createElement("span");
+          badge.className = "status-badge " + (run.status || "");
+          badge.textContent = run.status || "unknown";
+
+          row.appendChild(label);
+          row.appendChild(badge);
           row.addEventListener("click", function () {
             openDetail(run.runId);
           });
@@ -155,6 +162,12 @@
 
   // --- Detail view -----------------------------------------------------------------------
 
+  // Judge rationale/evidence and reviewer comments are free-form text that can
+  // ultimately be influenced by attacker-controlled content the research agent
+  // fetches from the web (a crafted article quoted as "evidence" by the judge) --
+  // every function in this file that renders such text into the DOM MUST use
+  // textContent/createElement, never interpolate it into innerHTML (security fix,
+  // stored-XSS finding).
   function renderCriterionCard(criterion, scoreData, override) {
     var label = CRITERIA_LABELS[criterion] || criterion;
     var card = document.createElement("div");
@@ -162,15 +175,35 @@
 
     var scoreDisplay = scoreData.insufficient_data ? "insufficient data" : (scoreData.score === null || scoreData.score === undefined ? "—" : scoreData.score + " / 5");
 
-    card.innerHTML =
-      "<h3>" + label + "</h3>" +
-      '<div class="criterion-score">' + scoreDisplay + "</div>" +
-      "<p>" + (scoreData.rationale || "") + "</p>" +
-      '<p class="criterion-evidence">' + (scoreData.evidence || "") + "</p>";
+    var heading = document.createElement("h3");
+    heading.textContent = label;
+
+    var scoreDiv = document.createElement("div");
+    scoreDiv.className = "criterion-score";
+    scoreDiv.textContent = scoreDisplay;
+
+    var rationalePara = document.createElement("p");
+    rationalePara.textContent = scoreData.rationale || "";
+
+    var evidencePara = document.createElement("p");
+    evidencePara.className = "criterion-evidence";
+    evidencePara.textContent = scoreData.evidence || "";
+
+    card.appendChild(heading);
+    card.appendChild(scoreDiv);
+    card.appendChild(rationalePara);
+    card.appendChild(evidencePara);
 
     if (override) {
       var overrideNote = document.createElement("p");
-      overrideNote.innerHTML = "<strong>Reviewer:</strong> " + (override.agreed ? "agreed" : "overridden to " + override.overridden_score) + (override.comment ? " — " + override.comment : "");
+      var strong = document.createElement("strong");
+      strong.textContent = "Reviewer:";
+      overrideNote.appendChild(strong);
+      overrideNote.appendChild(
+        document.createTextNode(
+          " " + (override.agreed ? "agreed" : "overridden to " + override.overridden_score) + (override.comment ? " — " + override.comment : "")
+        )
+      );
       card.appendChild(overrideNote);
     }
 
@@ -252,9 +285,46 @@
 
         if (record.cost) {
           var costPara = document.createElement("p");
-          costPara.innerHTML = "<strong>Cost:</strong> $" + record.cost.total_cost_usd.toFixed(4) +
-            " (phases: " + JSON.stringify(record.cost.phase_costs_usd) + ")";
+          var costStrong = document.createElement("strong");
+          costStrong.textContent = "Cost:";
+          costPara.appendChild(costStrong);
+          costPara.appendChild(
+            document.createTextNode(" $" + record.cost.total_cost_usd.toFixed(4) + " (phases: " + JSON.stringify(record.cost.phase_costs_usd) + ")")
+          );
           detailContent.appendChild(costPara);
+        }
+
+        // AC-18: the brief content and its listening script, side by side with the
+        // judge scores below (plain text is fine -- no rich rendering required).
+        // Uses the existing `.brief-columns`/`.brief-columns pre` layout in
+        // styles.css (a two-column grid on wide viewports, stacked on narrow ones).
+        if (record.brief_markdown || record.listening_script) {
+          var briefColumns = document.createElement("div");
+          briefColumns.className = "brief-columns";
+
+          if (record.brief_markdown) {
+            var briefColumn = document.createElement("div");
+            var briefHeading = document.createElement("h3");
+            briefHeading.textContent = "Brief content";
+            var briefPre = document.createElement("pre");
+            briefPre.textContent = record.brief_markdown;
+            briefColumn.appendChild(briefHeading);
+            briefColumn.appendChild(briefPre);
+            briefColumns.appendChild(briefColumn);
+          }
+
+          if (record.listening_script) {
+            var scriptColumn = document.createElement("div");
+            var scriptHeading = document.createElement("h3");
+            scriptHeading.textContent = "Listening script";
+            var scriptPre = document.createElement("pre");
+            scriptPre.textContent = record.listening_script;
+            scriptColumn.appendChild(scriptHeading);
+            scriptColumn.appendChild(scriptPre);
+            briefColumns.appendChild(scriptColumn);
+          }
+
+          detailContent.appendChild(briefColumns);
         }
 
         Object.keys(record.criterion_scores || {}).forEach(function (criterion) {
@@ -269,9 +339,40 @@
           var calibHeading = document.createElement("h3");
           calibHeading.textContent = "Reader-feedback calibration";
           detailContent.appendChild(calibHeading);
-          var calibPre = document.createElement("pre");
-          calibPre.textContent = JSON.stringify(record.calibration, null, 2);
-          detailContent.appendChild(calibPre);
+
+          var correlationEntries = Object.keys(record.calibration).filter(function (k) {
+            return k !== "free_text_feedback";
+          });
+          if (correlationEntries.length > 0) {
+            var calibPre = document.createElement("pre");
+            var correlationOnly = {};
+            correlationEntries.forEach(function (k) {
+              correlationOnly[k] = record.calibration[k];
+            });
+            calibPre.textContent = JSON.stringify(correlationOnly, null, 2);
+            detailContent.appendChild(calibPre);
+          }
+
+          // FR-15: reader free-text suggestions, surfaced for the reviewer alongside
+          // the correlation numbers above. Free text is reader-submitted (not judge
+          // output), but is rendered the same safe way regardless.
+          var freeText = record.calibration.free_text_feedback || [];
+          if (freeText.length > 0) {
+            var freeTextHeading = document.createElement("h4");
+            freeTextHeading.textContent = "Reader free-text feedback";
+            detailContent.appendChild(freeTextHeading);
+            var freeTextList = document.createElement("ul");
+            freeText.forEach(function (entry) {
+              var item = document.createElement("li");
+              var parts = [];
+              if (entry.briefDate) parts.push(entry.briefDate + ":");
+              if (entry.additionalSources) parts.push("Additional sources: " + entry.additionalSources);
+              if (entry.otherFeedback) parts.push("Other: " + entry.otherFeedback);
+              item.textContent = parts.join(" ");
+              freeTextList.appendChild(item);
+            });
+            detailContent.appendChild(freeTextList);
+          }
         }
       })
       .catch(function (err) {
