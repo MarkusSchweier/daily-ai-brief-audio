@@ -304,24 +304,29 @@ def fetch_session_cost(anthropic_api_key: str, session_id: str, *, base_url: str
     API and mine the cost breakdown.
 
     Deliberately thin -- all the actual logic is in the pure functions above, which
-    the test suite exercises directly against a fixture with no network access. This
-    function is the one piece that is NOT unit-tested against a real API call (per
-    this task's instructions); it is a straightforward HTTP client wrapper, isolated
-    here so it's easy to swap/mock at the Lambda-handler level.
+    the test suite exercises directly against a fixture with no network access.
+
+    CONFIRMED LIVE (2026-07-04, second real eval run -- the first real run silently
+    reported $0.00 total cost, caught by comparing against the session's own real
+    `usage` field): `GET /v1/sessions/{id}/threads/{tid}` returns THREAD METADATA
+    (`agent`/`status`/`usage`/`stats`/...), not an event list -- there is no `events`
+    key on it at all, so the original `.get("events", [])` silently degraded to an
+    empty list per thread instead of erroring, and every downstream cost came out
+    zero. The actual event log lives at the SESSION level: `GET
+    /v1/sessions/{id}/events`, paginated via a `next_page` cursor in the response
+    echoed back as a `page` query param on the next request (`limit`/`page`, not
+    offset-based). `span.model_request_end` events do NOT carry a `session_thread_id`
+    field (only some other event types, e.g. `session.thread_created`, do), so for
+    today's single-agent (single-thread) pipeline the full session event stream is
+    attributed to that one thread -- true per-event thread attribution for a future
+    multi-agent coordinator session isn't derivable from this event shape alone and
+    is deferred until that epic actually needs it (see module docstring).
 
     Endpoint shapes used (beta, `managed-agents-2026-04-01` header, matching the rest
     of this repo's Managed Agents API usage -- see deploy/managed-agent/README.md):
-      - GET /v1/sessions/{session_id}/threads       -> enumerate thread ids
-      - GET /v1/sessions/{session_id}/threads/{tid} -> that thread's event stream
-
-    NOTE for a future maintainer: this beta surface was not independently re-verified
-    against a live API call while building this miner (no live session existed to
-    mine against at build time) -- see this task's final report for the explicit flag
-    on this. If the actual response shape differs (e.g. events nested under a
-    different key, or threads enumerated differently), only this function and
-    `_usage_from_event`/`_is_web_search_tool_use`'s tolerance need to change; the
-    phase-splitting and cost-arithmetic logic above is independent of the exact HTTP
-    shape.
+      - GET /v1/sessions/{session_id}/threads               -> enumerate thread ids
+      - GET /v1/sessions/{session_id}/events?limit&page      -> the session's full,
+        paginated event stream (attributed to the session's one thread today)
     """
     import httpx
 
@@ -337,11 +342,20 @@ def fetch_session_cost(anthropic_api_key: str, session_id: str, *, base_url: str
         threads_response.raise_for_status()
         thread_ids = [t["id"] for t in threads_response.json().get("data", [])]
 
-        threads: dict[str, list[dict]] = {}
-        for thread_id in thread_ids:
-            events_response = client.get(f"/v1/sessions/{session_id}/threads/{thread_id}")
+        all_events: list[dict] = []
+        page: str | None = None
+        while True:
+            params = {"limit": 1000, **({"page": page} if page else {})}
+            events_response = client.get(f"/v1/sessions/{session_id}/events", params=params)
             events_response.raise_for_status()
-            threads[thread_id] = events_response.json().get("events", [])
+            body = events_response.json()
+            all_events.extend(body.get("data", []))
+            page = body.get("next_page")
+            if not page:
+                break
+
+    primary_thread_id = thread_ids[0] if thread_ids else session_id
+    threads: dict[str, list[dict]] = {primary_thread_id: all_events}
 
     return mine_session_cost(session_id, threads)
 

@@ -195,3 +195,72 @@ def test_session_phase_totals_aggregate_across_threads():
     phase_totals_by_name = {p.phase: p for p in breakdown.phase_totals}
     assert phase_totals_by_name[cost_miner.PHASE_RESEARCH].usage.input_tokens == 110
     assert phase_totals_by_name[cost_miner.PHASE_WRITING].usage.output_tokens == 110
+
+
+# --- fetch_session_cost (the live-HTTP entry point) ---------------------------------
+#
+# CONFIRMED LIVE (2026-07-04): GET /v1/sessions/{id}/threads/{tid} returns thread
+# METADATA, not an event list -- this fixture matches that shape (no "events" key) to
+# lock in the fix (fetch_session_cost must NOT rely on that endpoint for events). The
+# real event log is GET /v1/sessions/{id}/events, paginated via next_page/page.
+
+
+class _FakeResponse:
+    def __init__(self, json_body):
+        self._json_body = json_body
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._json_body
+
+
+class _FakeHttpxClient:
+    """Matches the real, confirmed-live shapes: /threads/{tid} has no "events" key
+    at all, and /events is paginated (two pages here, to exercise the page cursor)."""
+
+    def __init__(self):
+        self.get_calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get(self, path, params=None, **kwargs):
+        self.get_calls.append((path, params))
+        if path == "/v1/sessions/sesn_live/threads":
+            return _FakeResponse({"data": [{"id": "sthr_only"}]})
+        if path == "/v1/sessions/sesn_live/threads/sthr_only":
+            # Real shape: thread metadata, deliberately no "events" key.
+            return _FakeResponse({"id": "sthr_only", "status": "idle", "usage": {}})
+        if path == "/v1/sessions/sesn_live/events":
+            if not params or not params.get("page"):
+                return _FakeResponse(
+                    {"data": [_model_request_end(input_tokens=100)], "next_page": "page_cursor_2"}
+                )
+            assert params["page"] == "page_cursor_2"
+            return _FakeResponse({"data": [_model_request_end(output_tokens=50)], "next_page": None})
+        raise AssertionError(f"unexpected GET {path}")
+
+
+def test_fetch_session_cost_uses_the_events_endpoint_not_threads_endpoint(monkeypatch):
+    import httpx
+
+    fake_client = _FakeHttpxClient()
+    monkeypatch.setattr(httpx, "Client", lambda **kwargs: fake_client)
+
+    breakdown = cost_miner.fetch_session_cost("fake-api-key", "sesn_live")
+
+    # The old bug: reading "events" off the /threads/{tid} response (which doesn't
+    # have one) silently produced an empty list and a $0.00 total. This asserts the
+    # real, paginated /events endpoint was actually used and both pages were mined.
+    assert breakdown.total_usage.input_tokens == 100
+    assert breakdown.total_usage.output_tokens == 50
+    assert breakdown.total_cost_usd > 0
+
+    paths_called = [p for p, _ in fake_client.get_calls]
+    assert "/v1/sessions/sesn_live/events" in paths_called
+    assert "/v1/sessions/sesn_live/threads/sthr_only" not in paths_called
