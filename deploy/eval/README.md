@@ -147,29 +147,41 @@ second, parallel agent/environment for evaluation.
   response to the live production pipeline's own auth. Please double-check this
   reasoning before deploying, and confirm whether the Anthropic account actually
   supports/prefers a single general API key vs. per-purpose keys.
-- **The on-demand (non-cron) Deployments-API shape used by the trigger Lambda**
-  (`POST /v1/deployments` with no `schedule` field) was **not** independently
-  re-verified against a live API call while building this — `deploy/managed-agent/README.md`
-  §6 confirms the create-new-then-archive mechanism for a **scheduled** (cron)
-  deployment; omitting `schedule` for a one-off eval trigger is inferred, not
-  confirmed live. Please verify this against a real API call (or Anthropic's current
-  docs) before relying on the trigger Lambda in production, and adjust
-  `functions/trigger/handler.py`'s `_create_temporary_deployment()` if the real shape
-  differs.
-- **The Sessions/Threads API endpoint shapes** used by `eval_core/cost_miner.py`'s
-  `fetch_session_cost()` (`GET /v1/sessions/{id}/threads`,
-  `GET /v1/sessions/{id}/threads/{tid}`) and by `functions/poll/handler.py`'s session
-  status check (`GET /v1/sessions/{id}`, tolerant of a few plausible terminal-status
-  spellings) were similarly **not** independently re-verified against a live session —
-  no live session existed to test against at build time. The cost-mining *logic*
-  (phase splitting, pricing arithmetic) is fully unit-tested against a constructed
-  fixture and is independent of the exact HTTP shape; only the thin HTTP-call wrapper
-  functions would need adjusting if the real API differs.
+- **RESOLVED, confirmed live 2026-07-04 (first real trigger attempts).** The on-demand
+  (non-cron) Deployments-API shape omitting `schedule` was correct as originally written
+  (`schedule: null`, `status: "active"`, no error). Two real gaps were found and fixed by
+  actually calling the live API: (a) `POST /v1/deployments` requires a top-level `name` field
+  ("name: Field required" otherwise); (b) starting a session against a deployment is
+  `POST /v1/deployments/{id}/run` (returning a `deployment_run` object whose session id is under
+  `session_id`, not `id`) — **not** `POST /v1/deployments/{id}/sessions`, which 404s. Both are
+  fixed in `functions/trigger/handler.py` and covered by tests.
+- **RESOLVED, confirmed live 2026-07-04 (first fully-completed real eval run reported $0.00
+  total cost).** `eval_core/cost_miner.py`'s `fetch_session_cost()` had two real bugs, found by
+  comparing the harness's own output against the session's own `usage` field: (a)
+  `GET /v1/sessions/{id}/threads/{tid}` returns thread **metadata** (no `events` key at all), not
+  an event list — the real event log is session-level, `GET /v1/sessions/{id}/events`, paginated
+  via a `next_page` cursor echoed back as `page`; (b) the phase-boundary heuristic's
+  `_is_web_search_tool_use()` checked `tool_name`/`tool_use.name`, but the real tool-use event
+  shape is `{"type": "agent.tool_use", "name": "web_search", ...}` — the name is a top-level
+  `name` field. Both are fixed, confirmed against a real reprocessed session (`$2.4188784` total,
+  correctly split `research: $0.9669235` / `writing: $1.4519549`), and covered by tests built
+  from the confirmed real shapes.
+- **RESOLVED, confirmed live 2026-07-04.** `functions/poll/handler.py`'s session-status check
+  (`GET /v1/sessions/{id}`) correctly recognizes the real terminal status `"idle"` (already in
+  its tolerant vocabulary before this was ever tested live).
 - **The EventBridge poll rule runs unconditionally every 2 minutes**, not only while a
   run is pending — a small, constant, non-zero cost against PRD §2's "effectively $0
   when idle" framing (each invocation does one cheap DynamoDB Scan when there's
   nothing pending). Flagged as a minor, deliberate simplification over a
   self-disabling rule.
+- **RESOLVED, confirmed live 2026-07-04.** The `PollFunction`'s Lambda asset never bundled the
+  sibling `eval_core/` package (only `functions/poll/`'s own contents were ever copied), so the
+  first real eval run's poll cycle raised `ModuleNotFoundError: No module named 'eval_core'` and
+  the run silently landed as `failed`. Every local unit test imports `eval_core` via `sys.path`
+  against the repo directly, never against the actual bundled artifact, which is why this was
+  never caught before a real deploy. Fixed in `brief_eval/stack.py`'s `_bundled_function_code()`
+  (`include_eval_core=True` for `poll/` only); confirmed by inspecting the real synthesized asset
+  directory for `eval_core/` and its submodules.
 - **The FR-7 factual-accuracy judge checks plausibility/internal consistency, not
   literal fetched-source-traceability.** `eval_core/judges/accuracy.py`'s judge
   reads the brief's claims and judges whether they read like the kind of thing a
@@ -230,27 +242,43 @@ curl -s -i "$API/runs"
 
 ## End-to-end validation loop (do this before treating results as real)
 
-1. Deploy this stack, populate both secrets, confirm `cdk synth`/`cdk deploy` succeed.
+**Steps 1-3 below have been run for real (2026-07-04) and are confirmed working**, including
+finding and fixing three real bugs no unit test could catch (see "Judgment calls" above and the
+commit history): the DynamoDB reserved-keyword bug, the two Deployments-API shape gaps, the
+cost-miner's wrong endpoint + wrong tool-name field, and the microVM-image lockstep gap
+(`deploy/managed-agent/README.md` §3a's correction — a Skills API version push alone does **not**
+reach a running session on this self-hosted deployment; the microVM image must also be rebuilt).
+
+1. Deploy this stack, populate both secrets, confirm `cdk synth`/`cdk deploy` succeed. **Also**
+   rebuild+push the microVM image (`deploy/managed-agent/README.md` §5) if a skill-content change
+   (e.g. the FR-4 candidates.json instruction) is part of what you're validating — the Skills API
+   push alone is not sufficient (§3a's correction).
 2. Trigger an evaluation of the **current production configuration** as the baseline
-   (PRD §8 Phase 7) — confirm the live scheduled deployment's own schedule/output/send
-   is completely unaffected (AC-1/AC-22), and that no email reaches a real subscriber
-   (the `SKIP_SUBSCRIBER_FANOUT=1` export).
-3. Wait for the poll Lambda to pick up the completed session (~2-10 minutes after the
-   run finishes) and confirm a structured record appears via `GET /runs/{runId}`, with
-   scores+rationale+evidence for all four v1 criteria, a cost breakdown, the brief
-   markdown + listening script (AC-18), and (if `feedbackTableArn` is wired) a
-   calibration section including any reader free-text feedback (FR-15).
-4. Force a no-audio/no-candidates-artifact run (an older run, or before the live skill
-   version push lands) and confirm content-selection degrades to "insufficient data"
-   rather than erroring.
+   (PRD §8 Phase 7) — confirmed the live scheduled deployment's own schedule/output/send is
+   completely unaffected (AC-1/AC-22), and no email reaches a real subscriber (confirmed via the
+   fail-closed `ENABLE_SUBSCRIBER_FANOUT` gate, `deploy/managed-agent/pipeline/audio_email.py`).
+3. Confirmed: the poll Lambda picks up the completed session and a structured record appears via
+   `GET /runs/{runId}`, with real scores+rationale+evidence for all four v1 criteria (including a
+   genuine, non-`insufficient_data` content-selection score once the candidates.json artifact is
+   present), a real cost breakdown with a correct research/writing phase split (validated against
+   a real session's own `usage` field), the brief markdown + listening script (AC-18), and a
+   calibration section (FR-15).
+4. **Not yet re-validated against real data**: force a no-candidates-artifact run (an older run
+   predating the skill/image update) and confirm content-selection degrades to "insufficient data"
+   rather than erroring — this path is unit-tested (`eval_core/judges/content_selection.py`) but
+   not yet exercised against a real DynamoDB record end to end.
 5. Submit a reviewer override via `/reviews` and confirm it persists into that run's
    `record.human_overrides` (the single source of truth both the read handler and the
    site's detail view read from -- there is no separate sibling attribute) and is
-   reflected in the site's detail view.
-6. Trigger 3 replicates of the same candidate and confirm the comparison view's
-   aggregate reflects mean/variance across them (once `aggregate_replicates` output is
-   surfaced — v1 ships the per-run records and comparison table; replicate
-   aggregation is available as a library function, see `eval_core/record.py`).
+   reflected in the site's detail view. Unit-tested end to end (`test_review_flow_integration.py`);
+   not yet exercised through the real deployed API + browser.
+6. **Not yet done with real data** (only one real candidate config exists so far — "production"):
+   trigger 3 replicates of the same candidate, and/or a second, genuinely different candidate
+   config, and confirm the comparison view's aggregate reflects mean/variance and shows both
+   candidates side by side (AC-24). Naturally happens once the follow-up cost-optimization epic
+   produces a second real candidate to compare; the UI logic itself was verified with realistic
+   fixture data (including correctly reflecting a human override in the aggregate, not just the
+   judge's original score).
 
 ## Teardown
 
