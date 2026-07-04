@@ -1,5 +1,5 @@
 # Latest checkpoint
 
-See: [/Users/markus/Claude Projects/daily-ai-brief-audio/docs/notes/checkpoint-2026-07-03-225711.md](/Users/markus/Claude Projects/daily-ai-brief-audio/docs/notes/checkpoint-2026-07-03-225711.md)
+See: [/Users/markus/Claude Projects/daily-ai-brief-audio/docs/notes/checkpoint-2026-07-04-0730.md](/Users/markus/Claude Projects/daily-ai-brief-audio/docs/notes/checkpoint-2026-07-04-0730.md)
 
-_Updated 2026-07-03-225711 by precompact-checkpoint hook._
+_Updated 2026-07-04-0730 manually after shipping the reader-feedback epic._
