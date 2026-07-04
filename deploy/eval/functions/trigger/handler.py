@@ -92,22 +92,22 @@ def _build_initial_prompt(base_prompt: str) -> str:
     )
 
 
-def _create_temporary_deployment(client, *, agent_id: str, environment_id: str, initial_prompt: str) -> str:
+def _create_temporary_deployment(client, *, agent_id: str, environment_id: str, initial_prompt: str, name: str) -> str:
     """POST /v1/deployments -- create a new, one-off (non-cron -- no `schedule` field,
     per the Deployments API's support for on-demand deployments used by README §7's
     manual-trigger flow) temporary deployment. Returns the new deployment's id.
 
-    NOTE: this repo's confirmed Deployments-API knowledge (README §6) covers the
-    create-new-then-archive mechanism for a SCHEDULED (cron) deployment; an on-demand
-    deployment omitting `schedule` was not independently re-verified against a live
-    API call while building this trigger Lambda (no live session existed to test
-    against at build time) -- flagged explicitly in this task's final report as
-    something the orchestrating session should confirm against the real API before
-    relying on this in production.
+    CONFIRMED LIVE (2026-07-04) against the real Deployments API: a top-level `name`
+    field is REQUIRED (`"name: Field required"` otherwise) -- omitting `schedule`
+    entirely is correct and produces `"schedule": null` with `"status": "active"`, no
+    error. This was the one gap in this repo's prior confirmed knowledge (README §6
+    only covered the SCHEDULED/cron create-new-then-archive shape); verified directly
+    via a real probe deployment (created, confirmed active, immediately archived).
     """
     response = client.post(
         "/v1/deployments",
         json={
+            "name": name,
             "agent": agent_id,
             "environment_id": environment_id,
             "initial_events": [{"type": "user.message", "content": [{"type": "text", "text": initial_prompt}]}],
@@ -177,12 +177,15 @@ def _handle(event: dict[str, Any], table, client) -> dict[str, Any]:
             "body": json.dumps({"ok": False, "error": "prompt must not reference ENABLE_SUBSCRIBER_FANOUT"}),
         }
 
+    run_id = uuid.uuid4().hex
+
     try:
         deployment_id = _create_temporary_deployment(
             client,
             agent_id=PRODUCTION_AGENT_ID,
             environment_id=PRODUCTION_ENVIRONMENT_ID,
             initial_prompt=initial_prompt,
+            name=f"eval-{candidate_config_id}-{run_id[:8]}",
         )
         session_id = _start_session(client, deployment_id)
     except Exception as e:  # noqa: BLE001 - surface a clean 502, never leak internals
@@ -193,7 +196,6 @@ def _handle(event: dict[str, Any], table, client) -> dict[str, Any]:
             "body": json.dumps({"ok": False, "error": "trigger_failed"}),
         }
 
-    run_id = uuid.uuid4().hex
     table.put_item(
         Item={
             "runId": run_id,
