@@ -4,6 +4,14 @@ agree/override step per PRD §4.B -- reported for visibility).
 Judges whether the brief's claims are traceable to something a reasonable web search
 would surface; flags claims that read as unsupported or fabricated (numbers, dates,
 benchmark scores, or quotes with no plausible sourcing).
+
+Disclosed gap vs. PRD FR-7's literal wording: this v1 judge checks PLAUSIBILITY and
+INTERNAL CONSISTENCY (does this claim read like something a web search would
+actually confirm, is it hedged appropriately, is it self-contradictory) -- it does
+NOT itself re-fetch each cited source and verify literal source-traceability. The
+PRD explicitly designates this criterion "LLM-judge only" (§4.B/FR-7), which allows
+this treatment; flagged here so a future reader doesn't assume a stronger guarantee
+than what is actually implemented.
 """
 
 from __future__ import annotations

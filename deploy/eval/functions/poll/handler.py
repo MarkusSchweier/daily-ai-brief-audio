@@ -118,6 +118,16 @@ def _process_completed_run(row: dict[str, Any], *, s3_client, dynamodb_client, j
     # briefs/<date>/ prefix, which is the run this poll cycle is processing (an eval
     # run is not concurrent with the live daily send in practice, so "most recent" is
     # an unambiguous match for the run just completed).
+    #
+    # KNOWN ASSUMPTION (flagged, not fixed -- a real fix is non-trivial): this
+    # resolution logic assumes an evaluation run never coincides SAME-DAY with the
+    # live weekday production send, since both archive under the identical shared
+    # pipeline bucket's briefs/<date>/ prefix and this Lambda has no per-run marker
+    # to disambiguate between them. Today this holds by convention (evaluations are
+    # deliberately triggered on demand, never scheduled to overlap the live send),
+    # but it is not structurally enforced -- a genuinely robust fix would have the
+    # trigger Lambda hand off an expected date (or a per-run S3 prefix) for the poll
+    # Lambda to resolve against directly, rather than inferring "most recent" here.
     import re
 
     paginator = s3_client.get_paginator("list_objects_v2")

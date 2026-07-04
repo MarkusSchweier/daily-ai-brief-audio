@@ -170,6 +170,34 @@ second, parallel agent/environment for evaluation.
   when idle" framing (each invocation does one cheap DynamoDB Scan when there's
   nothing pending). Flagged as a minor, deliberate simplification over a
   self-disabling rule.
+- **The FR-7 factual-accuracy judge checks plausibility/internal consistency, not
+  literal fetched-source-traceability.** `eval_core/judges/accuracy.py`'s judge
+  reads the brief's claims and judges whether they read like the kind of thing a
+  web search would actually confirm (specific, plausible, appropriately hedged,
+  internally consistent) — it does **not** itself re-fetch each cited source and
+  verify the claim against it. This is a real, disclosed gap against FR-7's literal
+  wording ("claims are traceable to a fetched source"), but the PRD explicitly
+  allows **LLM-judge-only** treatment for this criterion (§4.B), so it is an
+  accepted v1 scope decision, not an oversight.
+- **`poll/handler.py` resolves "which run this poll cycle is processing" via "most
+  recently created `briefs/<date>/` prefix"**, not an explicit date the trigger
+  Lambda hands off. This assumes an evaluation run never coincides same-day with
+  the live weekday production send (both archive under the same `briefs/<date>/`
+  prefix in the shared pipeline bucket) — true today by convention (evaluations are
+  deliberately triggered, not scheduled), but not structurally enforced. A more
+  robust fix (the trigger Lambda recording an expected date, or a per-run S3 prefix)
+  is straightforward but was judged non-trivial enough to defer; the code has an
+  explicit comment flagging this assumption at the exact resolution point in
+  `_process_completed_run()`.
+- **Subscriber fan-out is now a fail-closed, opt-in gate** (security fix,
+  2026-07-04): `deploy/managed-agent/pipeline/audio_email.py` requires an explicit
+  `ENABLE_SUBSCRIBER_FANOUT=1` (only the live scheduled deployment's prompt sets
+  this); everything else, including every evaluation run this stack triggers,
+  defaults to skipping fan-out with zero cooperation required. `functions/trigger/
+  handler.py` additionally rejects (400) any trigger request whose assembled prompt
+  — including a caller-supplied `basePrompt` — contains the literal string
+  `ENABLE_SUBSCRIBER_FANOUT` at all. See that pipeline file's module docstring and
+  `_resolve_skip_subscriber_fanout()` for the full rationale.
 
 ## Testing the API via curl (temporary `execute-api` URL, with the reviewer bearer token)
 
@@ -209,13 +237,16 @@ curl -s -i "$API/runs"
    (the `SKIP_SUBSCRIBER_FANOUT=1` export).
 3. Wait for the poll Lambda to pick up the completed session (~2-10 minutes after the
    run finishes) and confirm a structured record appears via `GET /runs/{runId}`, with
-   scores+rationale+evidence for all four v1 criteria, a cost breakdown, and (if
-   `feedbackTableArn` is wired) a calibration section.
+   scores+rationale+evidence for all four v1 criteria, a cost breakdown, the brief
+   markdown + listening script (AC-18), and (if `feedbackTableArn` is wired) a
+   calibration section including any reader free-text feedback (FR-15).
 4. Force a no-audio/no-candidates-artifact run (an older run, or before the live skill
    version push lands) and confirm content-selection degrades to "insufficient data"
    rather than erroring.
 5. Submit a reviewer override via `/reviews` and confirm it persists into that run's
-   record and is reflected in the site's detail view.
+   `record.human_overrides` (the single source of truth both the read handler and the
+   site's detail view read from -- there is no separate sibling attribute) and is
+   reflected in the site's detail view.
 6. Trigger 3 replicates of the same candidate and confirm the comparison view's
    aggregate reflects mean/variance across them (once `aggregate_replicates` output is
    surfaced — v1 ships the per-run records and comparison table; replicate
