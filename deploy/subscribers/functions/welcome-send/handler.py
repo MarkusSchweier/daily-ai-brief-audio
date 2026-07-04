@@ -129,14 +129,29 @@ def _disclaimer_html() -> str:
     )
 
 
-def _welcome_header_html() -> str:
+def _feedback_line_html(feedback_link: str | None) -> str:
+    """The feedback prompt line, mirroring audio_email.py's _html_with_header (moved
+    from a small gray footer line to the most prominent line in the top banner, first
+    thing the recipient sees) -- a no-op string when no link is available (PRD FR-5,
+    fail-safe: never fails or degrades the send)."""
+    if not feedback_link:
+        return ""
+    return (
+        f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
+        f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
+    )
+
+
+def _welcome_header_html(feedback_link: str | None = None) -> str:
     """FR-4's exact drafted copy, rendered from the centralized send-time source
     (subscriber_common.weekday_send_time_label(), FR-10/FR-11) -- not a hardcoded time
-    string. Mirrors the visual shape of audio_email.py's _html_with_header banner."""
+    string. Mirrors the visual shape of audio_email.py's _html_with_header banner,
+    including the feedback line as the first line in the box when available."""
     time_label = weekday_send_time_label()
     return (
         '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
         'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        f"{_feedback_line_html(feedback_link)}"
         '<p style="margin:0 0 6px 0;"><strong>Welcome to the Daily AI Brief!</strong> '
         "This is the most recent edition — the same one that went out to subscribers "
         f"today. Going forward, you'll receive a fresh edition every weekday at "
@@ -146,14 +161,17 @@ def _welcome_header_html() -> str:
     )
 
 
-def _cold_start_header_html() -> str:
+def _cold_start_header_html(feedback_link: str | None = None) -> str:
     """FR-8's cold-start welcome-only copy: confirms the subscription and states the
     schedule, with no brief content implied (the caller sends no brief body alongside
-    this header in the cold-start case)."""
+    this header in the cold-start case). `feedback_link` is always None in practice
+    here (no brief_date to attribute to, see `_feedback_link`'s cold-start guard) but
+    the parameter is accepted for symmetry with `_welcome_header_html`."""
     time_label = weekday_send_time_label()
     return (
         '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
         'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        f"{_feedback_line_html(feedback_link)}"
         '<p style="margin:0 0 6px 0;"><strong>Welcome to the Daily AI Brief!</strong> '
         "You're subscribed. We haven't published an edition yet, but you'll receive a "
         f"fresh one every weekday at <strong>{time_label}</strong>.</p>"
@@ -173,32 +191,19 @@ def _html_with_unsubscribe_footer(html_body: str, unsubscribe_link: str) -> str:
     return html_body + footer
 
 
-def _html_with_feedback_link(html_body: str, feedback_link: str | None) -> str:
-    """Mirrors audio_email.py's _html_with_feedback_link exactly (same placement near
-    the unsubscribe footer, same tone) -- a no-op when no link is available (PRD FR-5,
-    fail-safe: never fails or degrades the send)."""
-    if not feedback_link:
-        return html_body
-    footer = (
-        '<p style="font-size:12px;color:#666;">'
-        f'Have thoughts on today\'s brief? <a href="{feedback_link}">Share feedback</a>.</p>'
-    )
-    return html_body + footer
-
-
 def _cold_start_body(unsubscribe_link: str, feedback_link: str | None = None) -> str:
     body = (
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>"
         "<p>Thanks for confirming your subscription!</p>"
         "</body></html>"
     )
-    body = _html_with_unsubscribe_footer(_cold_start_header_html() + body, unsubscribe_link)
-    return _html_with_feedback_link(body, feedback_link)
+    return _html_with_unsubscribe_footer(_cold_start_header_html(feedback_link) + body, unsubscribe_link)
 
 
 def _welcome_body(brief_html: str, unsubscribe_link: str, feedback_link: str | None = None) -> str:
-    body = _html_with_unsubscribe_footer(_welcome_header_html() + brief_html, unsubscribe_link)
-    return _html_with_feedback_link(body, feedback_link)
+    return _html_with_unsubscribe_footer(
+        _welcome_header_html(feedback_link) + brief_html, unsubscribe_link
+    )
 
 
 def _fetch_audio_bytes(s3_client, audio_key: str | None) -> bytes | None:
