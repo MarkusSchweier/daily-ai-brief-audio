@@ -1,11 +1,31 @@
 # PRD: Reader feedback form for the daily AI brief
 
-- Status: Draft
+- Status: **Deployed and live-validated (2026-07-04); DNS cutover is the one remaining
+  step, gated to the human.** Implemented per ADR-0011 (signed token scheme) and
+  ADR-0012 (standalone `deploy/feedback/` stack + token-helper packaging). Independently
+  reviewed and security-cleared — one reviewer/security-agreed finding (an overscoped
+  `GetItem`/`UpdateItem` DynamoDB grant with no code using it) was fixed before deploy.
+  All infrastructure is live: `FeedbackStack` deployed, the signing secret populated,
+  `deploy/managed-agent` and `deploy/subscribers` redeployed with the secret ARN wired
+  in, the microVM image rebuilt (version `7.0`), and the live scheduled deployment
+  updated to export the feedback config. Live-validated against the real deployed
+  secret/API/table: all five anonymity/attribution scenarios (attributed, anonymous via
+  checkbox, walk-up with no token, tampered token, owner identity) behaved exactly per
+  FR-8/FR-9/FR-10/FR-11/AC-8..AC-11, and the actual production `_feedback_link()`
+  function (not a reimplementation) was proven to generate links the live API accepts.
+  The ACM certificate for `feedback.mschweier.com` has been requested; the feedback link
+  in real emails currently points at the CloudFront default domain
+  (`https://d3b4f3ie7z7uiz.cloudfront.net`) — fully functional, just not yet on the
+  pretty subdomain. Two DNS records (documented in `deploy/feedback/README.md` §3) are
+  the only remaining step, and they require the human (the registrar for
+  `mschweier.com` is external, not Route53). No scheduled send occurs before the DNS
+  window closes (next one: Monday 06:07 Europe/Berlin). Ready for PR.
 - Author: product-manager (Claude)  ·  Date: 2026-07-03
-- Linked ADRs: none yet — the Architect must write one for the feedback-link token
-  design (signed, per-edition, identity-carrying) and one (or the same one) for the new
-  standalone `deploy/feedback/` CDK app, mirroring how `public-subscriptions.md` spun up
-  ADRs 0001–0003. Flagged in §7.
+- Linked ADRs:
+  [0011 Signed feedback-link token scheme](../adr/0011-feedback-link-signed-token-scheme.md)
+  (**Accepted**),
+  [0012 Standalone stack + token-helper packaging](../adr/0012-feedback-standalone-stack-and-token-helper-packaging.md)
+  (**Accepted**).
 
 ## 1. Problem
 

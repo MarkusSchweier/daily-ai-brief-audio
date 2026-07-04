@@ -6,16 +6,23 @@ The current active PRD for this project:
 
 ---
 
-Status: **Draft, in progress overnight (2026-07-03→04).** New epic: a public feedback web form at
-`feedback.mschweier.com`, reachable via a personalized per-recipient/per-edition link embedded in
-the daily brief email (fan-out + instant-welcome-brief), with an anonymous opt-out. Standalone
-new `deploy/feedback/` CDK app (own CloudFront, DynamoDB, IAM); collection + storage only, no
-analysis/action on the data in scope. Architect is now designing the signed-token scheme and
-stack shape; the full pipeline (PM → Architect → Dev → Review → Security → Deploy) is running
-autonomously overnight per the owner's explicit instruction, with full AWS deploy authority
-already in hand (root profile). DNS for the new subdomain is a human-only step deferred to after
-the owner wakes (mirrors the `briefing.mschweier.com` precedent) — not a build blocker, and no
-live weekday send occurs before then (next one: Monday 06:07 Europe/Berlin).
+Status: **Deployed and live-validated (2026-07-04); ready for PR.** New epic, built and shipped
+fully autonomously overnight per the owner's explicit instruction: a public feedback web form,
+reachable via a personalized per-recipient/per-edition link embedded in the daily brief email
+(fan-out + instant-welcome-brief), with an anonymous opt-out. Standalone new `deploy/feedback/`
+CDK app (own CloudFront, DynamoDB, IAM, signed HMAC token per ADR-0011/0012); collection + storage
+only, no analysis/action on the data in scope. Reviewer + security-engineer both passed (one
+shared finding — an overscoped, unused DynamoDB grant — fixed before deploy). Real infrastructure
+is live: `FeedbackStack` deployed, secret populated, `managed-agent`/`subscribers` stacks
+redeployed with the secret wired in, microVM image rebuilt (v7.0), and the live scheduled
+deployment updated (deployments turned out to be immutable — documented the actual
+create-new/archive-old mechanism in `deploy/managed-agent/README.md`). Live-validated against the
+real deployed secret/API/table, including the exact production link-generation function, not a
+reimplementation. The **only** remaining step is DNS for `feedback.mschweier.com` (2 CNAME
+records, documented in `deploy/feedback/README.md` §3) — gated to the human, since this sandbox
+has no DNS API access (same `briefing.mschweier.com` precedent). The feedback link is fully
+functional today via the CloudFront default domain in the meantime; no scheduled send occurs
+before the DNS window closes (next one: Monday 06:07 Europe/Berlin).
 
 Previous PRD — `send-confirmation-summary.md` (**Shipped, merged PR #21**). Small, additive
 change: after each daily Managed Agents run completes, a short confirmation email to
