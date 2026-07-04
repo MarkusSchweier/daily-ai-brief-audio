@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dig:*)",
+      "Bash(rm -f:*)",
+      "Bash(aws:*)",
+      "Bash(curl:*)",
+      "Bash(cdk deploy:*)"
+    ]
+  }
+}
