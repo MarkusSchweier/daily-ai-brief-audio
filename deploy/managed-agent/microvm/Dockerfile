@@ -74,11 +74,22 @@ COPY skills/daily-ai-brief /opt/skills/daily-ai-brief
 # IS code the SKILL.md's STEP 6/STEP 3 shell out to via
 # `python3.13 /opt/pipeline/audio_email.py` (send + archive) and
 # `python3.13 /opt/pipeline/audio_email.py read-recent-briefs` (S3 recent-priors read).
-# brief_history.py is copied alongside it (same directory) because audio_email.py
-# imports it via a same-directory sys.path insert — see that file's own docstring.
-COPY pipeline/audio_email.py /opt/pipeline/audio_email.py
-COPY pipeline/brief_history.py /opt/pipeline/brief_history.py
-COPY pipeline/__init__.py /opt/pipeline/__init__.py
+# audio_email.py imports brief_history.py and feedback_token.py via a same-directory
+# sys.path insert (see that file's own docstring), so everything it needs must land
+# in this one directory.
+#
+# A whole-directory copy, not one explicit COPY line per file: the previous
+# per-file list (COPY pipeline/audio_email.py ..., COPY pipeline/brief_history.py
+# ..., etc.) silently drifted from the real directory contents the moment
+# feedback_token.py was added alongside them without a matching COPY line --
+# confirmed live 2026-07-04 when an agent run found it absent from /opt/pipeline/
+# and had to stub it out at runtime to keep the fail-safe intact rather than
+# fabricate a signing scheme (the run still succeeded; only the feedback link was
+# silently missing from the email). The staging step (README.md) already excludes
+# __pycache__/.DS_Store/node_modules before this COPY runs, so a directory copy is
+# safe and removes this whole class of "forgot to add a COPY line" bug for any
+# future file added to pipeline/.
+COPY pipeline/ /opt/pipeline/
 # boto3 is the only third-party dependency the pipeline code needs; no
 # requirements.txt beyond it, matching deploy/audio_email.py's own dependency
 # footprint (stdlib email/urllib/time + boto3 only).
