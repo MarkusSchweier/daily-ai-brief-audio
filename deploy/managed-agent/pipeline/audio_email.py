@@ -292,27 +292,31 @@ def _feedback_link(email, brief_date):
     return f"{base}/?t={urllib.parse.quote(token)}"
 
 
-def _html_with_feedback_link(html_body, feedback_link):
-    """Append a short feedback-link line, placed near the existing sign-up/unsubscribe
-    footer language for a consistent placement/tone across the email (PRD FR-5)."""
-    if not feedback_link:
-        return html_body
-    footer = (
-        '<p style="font-size:12px;color:#666;">'
-        f'Have thoughts on today\'s brief? <a href="{feedback_link}">Share feedback</a>.</p>'
-    )
-    return html_body + footer
+def _html_with_header(html_body, feedback_link=None):
+    """Prepend the top banner: feedback prompt (when available) + forward-friendly
+    sign-up prompt + AI-curation disclaimer, all in one box.
 
-
-def _html_with_header(html_body):
-    """Prepend the forward-friendly sign-up prompt + AI-curation disclaimer.
+    The feedback link is per-recipient (each person's own token), so this is now
+    called once per recipient rather than once shared across the whole send --
+    moved from a small gray footer line to the most prominent line in the top
+    banner, first thing every recipient sees (previously `_html_with_feedback_link`
+    appended it after the entire brief body; PRD FR-5 doesn't mandate a position,
+    this is a UX call). Omitted gracefully when unavailable (PRD fail-safe: never
+    blocks or degrades the send) -- the banner still renders with just the
+    subscribe prompt + disclaimer, exactly as before this change.
 
     Added to every recipient's copy (owner included) since the owner is the most
     likely person to forward their own copy along to someone else.
     """
+    feedback_line = (
+        f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
+        f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
+        if feedback_link else ""
+    )
     header = (
         '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
         'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        f"{feedback_line}"
         '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
         f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
         '<p style="margin:0;">This brief is curated and written by an AI agent, '
@@ -365,19 +369,17 @@ def send_all(
     subscriber_failed_count = 0
     subscriber_query_failed = False
 
-    # Sign-up prompt + AI-curation disclaimer, prepended once and shared by every
-    # recipient (owner included — they're the most likely person to forward their copy).
-    brief_html = _html_with_header(brief_html)
-
     brief_date = _today_local_date()
 
     # 1) Owner's copy — sent from aibriefing@mschweier.com to mail@mschweier.com (recipient
     # unchanged), always attempted first and never gated on subscriber sends succeeding
     # (PRD AC-8/FR-11). The feedback link (if available) uses the owner's RECIP address
     # as identity (PRD FR-5/AC-7 — the owner's own copy is attributable even though the
-    # owner has no subscribers-table row).
+    # owner has no subscribers-table row). The header (sign-up prompt + AI-curation
+    # disclaimer + feedback prompt) is per-recipient now that the feedback link is
+    # embedded in it, rather than shared once across the whole send.
     owner_feedback_link = _feedback_link(RECIP, brief_date)
-    owner_html = _html_with_feedback_link(brief_html, owner_feedback_link)
+    owner_html = _html_with_header(brief_html, owner_feedback_link)
     owner_msg = _build_message(SENDER, RECIP, subject, owner_html, mp3_bytes, mp3_filename)
     try:
         r = ses_client.send_raw_email(
@@ -406,9 +408,9 @@ def send_all(
                 continue
             try:
                 unsubscribe_link = _unsubscribe_link(email, subscriber.get("unsubscribeToken", ""))
-                subscriber_html = _html_with_unsubscribe_footer(brief_html, unsubscribe_link)
                 subscriber_feedback_link = _feedback_link(email, brief_date)
-                subscriber_html = _html_with_feedback_link(subscriber_html, subscriber_feedback_link)
+                subscriber_html = _html_with_header(brief_html, subscriber_feedback_link)
+                subscriber_html = _html_with_unsubscribe_footer(subscriber_html, unsubscribe_link)
                 subscriber_msg = _build_message(
                     SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename
                 )
