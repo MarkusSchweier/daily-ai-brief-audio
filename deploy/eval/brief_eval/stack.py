@@ -80,8 +80,9 @@ class _LocalPipBundling:
     function directories (`trigger/`, `poll/`) each with their own requirements.txt,
     so this class is parameterized by directory rather than hard-coded to one."""
 
-    def __init__(self, handler_dir: Path) -> None:
+    def __init__(self, handler_dir: Path, *, include_eval_core: bool = False) -> None:
         self._handler_dir = handler_dir
+        self._include_eval_core = include_eval_core
 
     def try_bundle(self, output_dir: str, *, image=None, **_: object) -> bool:
         pip = shutil.which("pip3") or shutil.which("pip")
@@ -116,10 +117,25 @@ class _LocalPipBundling:
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("requirements.txt", "__pycache__", "*.pyc"),
         )
+        if self._include_eval_core:
+            # CONFIRMED LIVE (2026-07-04, first real eval run): poll/handler.py's
+            # `from eval_core import ...` raised ModuleNotFoundError in the deployed
+            # Lambda -- eval_core/ is a sibling of functions/poll/, not inside it, so
+            # the bundling above (which only ever copied handler_dir's own contents)
+            # never included it. Unit tests never caught this because they import
+            # eval_core via sys.path against the repo directly, not against the
+            # actual bundled Lambda artifact. Copy it in explicitly.
+            eval_core_dir = self._handler_dir.parent.parent / "eval_core"
+            shutil.copytree(
+                eval_core_dir,
+                Path(output_dir) / "eval_core",
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
         return True
 
 
-def _bundled_function_code(handler_dir: Path) -> _lambda.Code:
+def _bundled_function_code(handler_dir: Path, *, include_eval_core: bool = False) -> _lambda.Code:
     """`Code.from_asset()` for a function directory that has its own
     `requirements.txt` -- Docker bundling preferred (matches the exact Lambda
     execution environment), falling back to local bundling
@@ -127,17 +143,37 @@ def _bundled_function_code(handler_dir: Path) -> _lambda.Code:
     `deploy/managed-agent/cdk/managed_agent/stack.py`'s `_LAUNCHER_BUNDLING`
     exactly. `asset_hash_type=OUTPUT` so a bundling-*logic*-only change (not a
     source-file change) still gets redeployed -- see that stack's own comment on
-    why `SOURCE` hashing silently missed a real wrong-platform-wheel bug."""
+    why `SOURCE` hashing silently missed a real wrong-platform-wheel bug.
+
+    `include_eval_core=True` (poll/ only) additionally bundles the sibling
+    `eval_core/` package -- Docker bundling's mount is expanded to the whole
+    `deploy/eval` tree (not just `handler_dir`) so the container can see it too;
+    `exclude` trims that mount down to source only (no venvs/build output/tests)."""
+    eval_root = handler_dir.parent.parent
+    docker_copy_extra = " && cp -au eval_core /asset-output/" if include_eval_core else ""
+    docker_source_dir = eval_root if include_eval_core else handler_dir
+    docker_handler_prefix = f"{handler_dir.name}/" if include_eval_core else ""
     bundling = BundlingOptions(
         image=DockerImage.from_registry("public.ecr.aws/sam/build-python3.13:latest"),
         command=[
             "bash",
             "-c",
-            "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
+            f"pip install -r {docker_handler_prefix}requirements.txt -t /asset-output && "
+            f"cp -au {docker_handler_prefix}. /asset-output{docker_copy_extra}",
         ],
-        local=_LocalPipBundling(handler_dir),
+        local=_LocalPipBundling(handler_dir, include_eval_core=include_eval_core),
     )
-    return _lambda.Code.from_asset(str(handler_dir), bundling=bundling, asset_hash_type=AssetHashType.OUTPUT)
+    return _lambda.Code.from_asset(
+        str(docker_source_dir),
+        bundling=bundling,
+        asset_hash_type=AssetHashType.OUTPUT,
+        exclude=(
+            ["**/__pycache__", "**/*.pyc", ".venv", "*.egg-info", "cdk.out", "tests", "site",
+             "node_modules", "functions/trigger", "functions/submit-review", "functions/read"]
+            if include_eval_core
+            else None
+        ),
+    )
 
 # Fallback CORS/site origin used only when no `evalDomainName` context is supplied (e.g.
 # a bare `cdk synth` before DNS is decided) -- same convention as the sibling stacks'
@@ -278,16 +314,28 @@ class BriefEvalStack(Stack):
     # Compute — one function-scoped least-privilege role per Lambda
     # ------------------------------------------------------------------
     def _base_function_kwargs(
-        self, handler_dir: str, *, timeout: Duration = Duration.seconds(10), memory_size: int = 128, bundled: bool = False
+        self,
+        handler_dir: str,
+        *,
+        timeout: Duration = Duration.seconds(10),
+        memory_size: int = 128,
+        bundled: bool = False,
+        include_eval_core: bool = False,
     ) -> dict:
         """`bundled=True` for a function directory with its own `requirements.txt`
         (currently `trigger/` and `poll/`, which import `httpx`/`anthropic` --
         neither is in the Lambda runtime) -- see `_bundled_function_code()` above.
         `bundled=False` (default) for a function with no third-party deps beyond
         `boto3`/`botocore` (already in the runtime), e.g. `read`/`submit-review`,
-        which keep the plain, unbundled `Code.from_asset()` they always used."""
+        which keep the plain, unbundled `Code.from_asset()` they always used.
+        `include_eval_core=True` for `poll/` only -- the only function that imports
+        the sibling `eval_core` package (judges/cost-miner/record/calibration)."""
         handler_path = FUNCTIONS_DIR / handler_dir
-        code = _bundled_function_code(handler_path) if bundled else _lambda.Code.from_asset(str(handler_path))
+        code = (
+            _bundled_function_code(handler_path, include_eval_core=include_eval_core)
+            if bundled
+            else _lambda.Code.from_asset(str(handler_path))
+        )
         kwargs = dict(
             runtime=_lambda.Runtime.PYTHON_3_13,
             architecture=_lambda.Architecture.ARM_64,
@@ -427,7 +475,9 @@ class BriefEvalStack(Stack):
             "PollFunction",
             function_name="brief-eval-poll",
             role=role,
-            **self._base_function_kwargs("poll", timeout=Duration.minutes(5), memory_size=512, bundled=True),
+            **self._base_function_kwargs(
+                "poll", timeout=Duration.minutes(5), memory_size=512, bundled=True, include_eval_core=True
+            ),
             environment={
                 "EVAL_TABLE_NAME": self.eval_table.table_name,
                 "PIPELINE_BUCKET_NAME": PIPELINE_BUCKET_NAME,
