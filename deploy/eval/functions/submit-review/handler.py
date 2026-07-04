@@ -5,6 +5,16 @@ Runs with the least-privilege role in `brief_eval/stack.py`'s
 `SubmitReviewFunctionRole` (GetItem/UpdateItem on the eval-records table only). Gated
 by the shared reviewer bearer secret (ADR-0013 §E) -- this is the review-write path
 FR-20 requires NOT be an open, unauthenticated public write surface.
+
+Writes the override into the item's `record` JSON string's `human_overrides` dict --
+the SAME attribute `poll/handler.py`'s completion write populates and
+`eval_core/record.py`'s `EvalRecord`/`aggregate_replicates()`/`effective_score()`
+already expect overrides to live inside (a nested key of the structured record, not a
+sibling top-level attribute). A prior version of this handler wrote to a separate,
+sibling `humanOverrides` (camelCase) attribute that neither the read handler,
+`site/app.js`, nor `record.py`'s own aggregation logic ever looked at, so a submitted
+override was silently invisible forever. There is now exactly one write path for a
+human override -- this one.
 """
 
 from __future__ import annotations
@@ -77,6 +87,16 @@ def _handle(event: dict[str, Any], table) -> dict[str, Any]:
             "body": json.dumps({"ok": False, "error": "no such run"}),
         }
 
+    if not existing.get("record"):
+        # A review can only be submitted against a run that has actually completed
+        # and produced a structured record (poll/handler.py's completion write) --
+        # there is nothing to attach a per-criterion override to otherwise.
+        return {
+            "statusCode": 409,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"ok": False, "error": "run has not completed yet"}),
+        }
+
     override = {
         "criterion": criterion,
         "agreed": agreed,
@@ -87,19 +107,22 @@ def _handle(event: dict[str, Any], table) -> dict[str, Any]:
     }
 
     try:
-        table.update_item(
-            Key={"runId": run_id},
-            UpdateExpression="SET humanOverrides.#c = :override",
-            ExpressionAttributeNames={"#c": criterion},
-            ExpressionAttributeValues={":override": override},
-        )
-    except Exception:
-        # humanOverrides map may not exist yet on an older row -- initialize it, then retry.
-        table.update_item(
-            Key={"runId": run_id},
-            UpdateExpression="SET humanOverrides = :m",
-            ExpressionAttributeValues={":m": {criterion: override}},
-        )
+        record_dict = json.loads(existing["record"])
+    except json.JSONDecodeError:
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"ok": False, "error": "stored record is not valid JSON"}),
+        }
+
+    record_dict.setdefault("human_overrides", {})[criterion] = override
+
+    table.update_item(
+        Key={"runId": run_id},
+        UpdateExpression="SET #r = :record",
+        ExpressionAttributeNames={"#r": "record"},
+        ExpressionAttributeValues={":record": json.dumps(record_dict)},
+    )
 
     logger.info("REVIEW_SUBMITTED run_id=%s criterion=%s agreed=%s", run_id, criterion, agreed)
     return {
