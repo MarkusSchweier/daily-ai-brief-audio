@@ -17,11 +17,18 @@ What this stack does NOT do (deliberately, per the PRD/ADR):
     manual follow-up, exactly like `briefing.mschweier.com`/`feedback.mschweier.com`.
 """
 
+import shutil
+import subprocess
 from pathlib import Path
 
+import jsii
 import aws_cdk as cdk
 from aws_cdk import (
+    AssetHashType,
+    BundlingOptions,
+    DockerImage,
     Duration,
+    ILocalBundling,
     RemovalPolicy,
     Stack,
     aws_apigatewayv2 as apigwv2,
@@ -42,6 +49,95 @@ from constructs import Construct
 
 FUNCTIONS_DIR = Path(__file__).resolve().parent.parent / "functions"
 SITE_DIR = Path(__file__).resolve().parent.parent / "site"
+
+# --- Lambda asset bundling for functions with third-party deps (httpx/anthropic) ----
+#
+# `trigger/handler.py` imports `httpx`; `poll/handler.py` imports `httpx` AND
+# `anthropic` (the judge LLM's Messages API client) -- neither is in the Python 3.13
+# Lambda runtime, so a plain `Code.from_asset(<dir>)` on the raw handler directory
+# (no bundling) leaves both `ImportError`ing at cold start. This reuses the exact,
+# proven bundling pattern from `deploy/managed-agent/cdk/managed_agent/stack.py`'s
+# `_LocalPipBundling` (confirmed live 2026-07-03 to be the fix for a real
+# wrong-platform-wheel bug): install into the output dir with
+# `--platform manylinux2014_aarch64 --implementation cp --python-version 3.13
+# --abi cp313 --only-binary=:all:` so pip resolves prebuilt Linux/aarch64 CPython
+# 3.13 wheels regardless of the build host's actual platform, no Docker required.
+#
+# Unlike the launcher's `standardwebhooks` situation (a pure-Python, sdist-only
+# dependency that can't survive `--only-binary=:all:`), every dependency `httpx` and
+# `anthropic` pull in here (httpcore, certifi, idna, sniffio, anyio, h11, pydantic,
+# pydantic-core, jiter, distro, annotated-types, docstring-parser,
+# typing-extensions) publishes a real manylinux aarch64 wheel -- confirmed by
+# resolving each function's requirements.txt under this exact platform lock before
+# wiring this in. So there is no two-pass unlocked/locked split needed here: one
+# single locked `pip install` per function is sufficient.
+@jsii.implements(ILocalBundling)
+class _LocalPipBundling:
+    """Bundle by running a cross-platform `pip install -r requirements.txt -t <out>`
+    on the host, forcing Linux/aarch64/cp313 wheels regardless of host platform, for
+    ONE function directory (`handler_dir`) at a time -- unlike the managed-agent
+    stack's launcher (a single fixed directory), this stack has two distinct
+    function directories (`trigger/`, `poll/`) each with their own requirements.txt,
+    so this class is parameterized by directory rather than hard-coded to one."""
+
+    def __init__(self, handler_dir: Path) -> None:
+        self._handler_dir = handler_dir
+
+    def try_bundle(self, output_dir: str, *, image=None, **_: object) -> bool:
+        pip = shutil.which("pip3") or shutil.which("pip")
+        if pip is None:
+            return False
+        requirements_path = self._handler_dir / "requirements.txt"
+        requirements = [
+            line.strip()
+            for line in requirements_path.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        try:
+            if requirements:
+                subprocess.run(
+                    [
+                        pip, "install", "-q",
+                        *requirements,
+                        "-t", output_dir,
+                        "--platform", "manylinux2014_aarch64",
+                        "--implementation", "cp",
+                        "--python-version", "3.13",
+                        "--abi", "cp313",
+                        "--only-binary=:all:",
+                    ],
+                    check=True,
+                )
+        except subprocess.CalledProcessError:
+            return False
+        shutil.copytree(
+            self._handler_dir,
+            output_dir,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("requirements.txt", "__pycache__", "*.pyc"),
+        )
+        return True
+
+
+def _bundled_function_code(handler_dir: Path) -> _lambda.Code:
+    """`Code.from_asset()` for a function directory that has its own
+    `requirements.txt` -- Docker bundling preferred (matches the exact Lambda
+    execution environment), falling back to local bundling
+    (`_LocalPipBundling`) when Docker is unavailable, mirroring
+    `deploy/managed-agent/cdk/managed_agent/stack.py`'s `_LAUNCHER_BUNDLING`
+    exactly. `asset_hash_type=OUTPUT` so a bundling-*logic*-only change (not a
+    source-file change) still gets redeployed -- see that stack's own comment on
+    why `SOURCE` hashing silently missed a real wrong-platform-wheel bug."""
+    bundling = BundlingOptions(
+        image=DockerImage.from_registry("public.ecr.aws/sam/build-python3.13:latest"),
+        command=[
+            "bash",
+            "-c",
+            "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output",
+        ],
+        local=_LocalPipBundling(handler_dir),
+    )
+    return _lambda.Code.from_asset(str(handler_dir), bundling=bundling, asset_hash_type=AssetHashType.OUTPUT)
 
 # Fallback CORS/site origin used only when no `evalDomainName` context is supplied (e.g.
 # a bare `cdk synth` before DNS is decided) -- same convention as the sibling stacks'
@@ -181,15 +277,26 @@ class BriefEvalStack(Stack):
     # ------------------------------------------------------------------
     # Compute — one function-scoped least-privilege role per Lambda
     # ------------------------------------------------------------------
-    def _base_function_kwargs(self, handler_dir: str, *, timeout: Duration = Duration.seconds(10), memory_size: int = 128) -> dict:
-        return dict(
+    def _base_function_kwargs(
+        self, handler_dir: str, *, timeout: Duration = Duration.seconds(10), memory_size: int = 128, bundled: bool = False
+    ) -> dict:
+        """`bundled=True` for a function directory with its own `requirements.txt`
+        (currently `trigger/` and `poll/`, which import `httpx`/`anthropic` --
+        neither is in the Lambda runtime) -- see `_bundled_function_code()` above.
+        `bundled=False` (default) for a function with no third-party deps beyond
+        `boto3`/`botocore` (already in the runtime), e.g. `read`/`submit-review`,
+        which keep the plain, unbundled `Code.from_asset()` they always used."""
+        handler_path = FUNCTIONS_DIR / handler_dir
+        code = _bundled_function_code(handler_path) if bundled else _lambda.Code.from_asset(str(handler_path))
+        kwargs = dict(
             runtime=_lambda.Runtime.PYTHON_3_13,
             architecture=_lambda.Architecture.ARM_64,
             handler="handler.handler",
-            code=_lambda.Code.from_asset(str(FUNCTIONS_DIR / handler_dir)),
+            code=code,
             timeout=timeout,
             memory_size=memory_size,
         )
+        return kwargs
 
     def _build_trigger_function(self) -> _lambda.Function:
         """POST /trigger: creates a temporary Deployments-API deployment + starts a
@@ -232,7 +339,7 @@ class BriefEvalStack(Stack):
             "TriggerFunction",
             function_name="brief-eval-trigger",
             role=role,
-            **self._base_function_kwargs("trigger", timeout=Duration.seconds(30)),
+            **self._base_function_kwargs("trigger", timeout=Duration.seconds(30), bundled=True),
             environment={
                 "EVAL_TABLE_NAME": self.eval_table.table_name,
                 "ANTHROPIC_API_KEY_SECRET_ARN": self.anthropic_api_key_secret.secret_arn,
@@ -320,7 +427,7 @@ class BriefEvalStack(Stack):
             "PollFunction",
             function_name="brief-eval-poll",
             role=role,
-            **self._base_function_kwargs("poll", timeout=Duration.minutes(5), memory_size=512),
+            **self._base_function_kwargs("poll", timeout=Duration.minutes(5), memory_size=512, bundled=True),
             environment={
                 "EVAL_TABLE_NAME": self.eval_table.table_name,
                 "PIPELINE_BUCKET_NAME": PIPELINE_BUCKET_NAME,
