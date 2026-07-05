@@ -106,6 +106,44 @@ def test_no_credential_file_loading_anywhere_in_the_module(audio_email_module):
     assert os.environ.get("AWS_SHARED_CREDENTIALS_FILE") is None
 
 
+# ---------------------------------------------------------------------------
+# _resolve_skip_subscriber_fanout() -- the fail-CLOSED opt-in gate (security fix,
+# 2026-07-04, following the eval harness's security review). Previously this was an
+# opt-OUT SKIP_SUBSCRIBER_FANOUT that defaulted to fan-out ON when unset (fail-OPEN);
+# flipped so unset now means "skip" with zero cooperation required from any caller.
+# ---------------------------------------------------------------------------
+
+
+def test_fanout_skipped_when_env_completely_unset(audio_email_module):
+    """The changed/critical behavior this fix exists for: with NEITHER env var set,
+    fan-out must now be SKIPPED. Before this fix, the equivalent
+    (SKIP_SUBSCRIBER_FANOUT-only) gate defaulted to fan-out ENABLED when unset -- this
+    test would have failed (asserted True, got False) against the pre-fix logic."""
+    assert audio_email_module._resolve_skip_subscriber_fanout({}) is True
+
+
+def test_fanout_proceeds_when_explicitly_enabled(audio_email_module):
+    assert audio_email_module._resolve_skip_subscriber_fanout({"ENABLE_SUBSCRIBER_FANOUT": "1"}) is False
+    assert audio_email_module._resolve_skip_subscriber_fanout({"ENABLE_SUBSCRIBER_FANOUT": "true"}) is False
+    assert audio_email_module._resolve_skip_subscriber_fanout({"ENABLE_SUBSCRIBER_FANOUT": "yes"}) is False
+
+
+def test_fanout_skipped_when_enable_var_present_but_not_truthy(audio_email_module):
+    """An unrecognized/falsy value must still fail toward skip, not toward enabled."""
+    assert audio_email_module._resolve_skip_subscriber_fanout({"ENABLE_SUBSCRIBER_FANOUT": "0"}) is True
+    assert audio_email_module._resolve_skip_subscriber_fanout({"ENABLE_SUBSCRIBER_FANOUT": "nope"}) is True
+
+
+def test_skip_kill_switch_always_wins_even_when_enable_is_also_set(audio_email_module):
+    """Belt-and-suspenders: if both are somehow set, SKIP_SUBSCRIBER_FANOUT wins."""
+    assert (
+        audio_email_module._resolve_skip_subscriber_fanout(
+            {"ENABLE_SUBSCRIBER_FANOUT": "1", "SKIP_SUBSCRIBER_FANOUT": "1"}
+        )
+        is True
+    )
+
+
 def test_owner_always_sent_with_zero_subscribers(audio_email_module):
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[])

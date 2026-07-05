@@ -20,3 +20,4 @@ the template and when an ADR is required.
 | [0010](0010-restore-webhook-idempotency.md) | Restore durable webhook idempotency in the launcher Lambda | Accepted |
 | [0011](0011-feedback-link-signed-token-scheme.md) | Signed, self-attesting feedback-link token scheme | Accepted |
 | [0012](0012-feedback-standalone-stack-and-token-helper-packaging.md) | Standalone `deploy/feedback/` CDK app and token-helper packaging | Accepted |
+| [0013](0013-eval-harness-backbone-build-vs-adopt.md) | Evaluation-harness backbone: custom AWS-native build vs. adopting a self-hostable eval tool | Accepted |

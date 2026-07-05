@@ -3,6 +3,17 @@
 - Status: Accepted
 - Date: 2026-07-03
 - Deciders: architect (Claude)
+- **Amended 2026-07-04 (eval-harness epic):** step 4's Skills-API version push, while worth doing
+  for the record and for any future non-self-hosted environment type, is **NOT sufficient by
+  itself** to make a skill-content change reach a running session on this self-hosted microVM
+  deployment — `microvm/Dockerfile` bakes `skills/daily-ai-brief/` into the container **image** at
+  build time, and the agent reads it from that baked-in path (`/opt/skills/daily-ai-brief/`) via a
+  plain bash `cat`, not via any runtime Skills-API fetch. Confirmed live: a pushed version's
+  `latest_version` updated and a new session's resolved `skills[].version` showed the new id, yet
+  that session's own tool-call transcript showed it reading the **old** file content. The step 4
+  push must be paired with `deploy/managed-agent/README.md` §5 (rebuild + push the microVM image)
+  for the change to actually take effect — see that README section's own correction for the full
+  incident and reasoning. Steps 1–3 and 6 below are unaffected.
 
 ## Context
 

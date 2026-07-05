@@ -206,6 +206,24 @@ exists, it does not watch the repo. This was previously undocumented (commit `60
 the skill via API but committed no runbook); confirmed live (2026-07-03) against the beta Skills
 API.
 
+**CORRECTION, confirmed live 2026-07-04 — the Skills API push alone is NOT sufficient for this
+self-hosted microVM deployment; a step 5 image rebuild is ALSO required.** The eval-harness epic
+pushed a new skill version (the `candidates.json` instruction, `0fc475b`), confirmed
+`latest_version` updated, and even confirmed a real triggered session's resolved `skills[].version`
+showed the new version id — and the session still read the **old** `SKILL.md` content. Root cause,
+traced directly from that session's own tool-call transcript (`GET /v1/sessions/{id}/events`): the
+agent discovers and reads the skill via a plain `cat /opt/skills/daily-ai-brief/SKILL.md` bash
+call, and `microvm/Dockerfile:71` (`COPY skills/daily-ai-brief /opt/skills/daily-ai-brief`) bakes
+that path into the container **image at build time**. `worker.mjs` has no runtime skill-fetch
+logic at all. So for THIS self-hosted topology, the Skills API's `skill_id`/`version` metadata is
+not actually consulted for content delivery — only the image matters, exactly like a code change to
+`pipeline/`. **Steps 1–4 below update the Skills API resource (worth doing for the record/audit
+trail and for any future non-self-hosted environment type), but step 5 ("Build and pushing the
+microVM container image") must ALSO be done — with no code change needed, since the in-repo
+`skills/daily-ai-brief/` is already what step 5 copies into the image — for a skill-content change
+to actually reach a running session.** Treat "push skill version" and "rebuild+push the image" as
+one combined, required step for this deployment, not two independent options.
+
 1. **Edit the in-repo copy first**, then mirror the same content change to the local Desktop
    fallback's skill invocation path (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`,
    outside this repo — only the skill-content sections it echoes, not its own STEP 5-8 delivery

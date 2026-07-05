@@ -1,0 +1,6 @@
+# trigger/handler.py imports httpx directly (the Deployments/Sessions API client).
+# All of httpx's own dependencies (httpcore, certifi, idna, sniffio, anyio, h11)
+# publish proper manylinux wheels -- no sdist-only pure-Python carve-out needed here
+# (contrast deploy/managed-agent/microvm/launcher/requirements.txt's
+# `standardwebhooks` situation, which this does NOT have).
+httpx>=0.27.0

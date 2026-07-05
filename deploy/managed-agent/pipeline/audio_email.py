@@ -40,10 +40,24 @@ matching the skill's own Configuration section) — where `read-recent-briefs` m
 writes each fetched prior brief. PIPELINE_TIMEZONE (default "Europe/Berlin", matching the
 deployment's schedule timezone — ADR-0006) — the local-date basis for both the S3
 archive key and for resolving "today" when reading the most recent prior briefs.
-SKIP_SUBSCRIBER_FANOUT ("1"/"true"/"yes" to enable, unset/anything else to disable) —
-manual-validation-only; the scheduled deployment never sets this. When enabled, only
-the owner's copy is sent; the DynamoDB subscriber query and fan-out loop are skipped
-entirely (see send_all()'s docstring).
+ENABLE_SUBSCRIBER_FANOUT ("1"/"true"/"yes" to enable, unset/anything else disables) —
+opt-IN gate for the subscriber fan-out, flipped from an earlier opt-out design
+(docs/adr's eval-harness security fix, 2026-07-04). The live scheduled production
+deployment's initial_prompt explicitly exports this before running this script (see
+deploy/managed-agent/deployment.json); every OTHER caller -- most importantly a
+triggered evaluation run (deploy/eval/functions/trigger/handler.py), but also any
+future error path, prompt-reordering bug, or forgotten export -- safely defaults to
+NO fan-out with zero cooperation required, because unset (or anything other than
+1/true/yes) means "skip". This is a deliberate fail-CLOSED flip: previously this was
+SKIP_SUBSCRIBER_FANOUT, an opt-OUT var that defaulted to fanout-ON if unset -- i.e.
+fail-OPEN, so a forgotten `export SKIP_SUBSCRIBER_FANOUT=1` (or any code path that
+skipped it) would silently fan out to every real confirmed subscriber. See
+SKIP_SUBSCRIBER_FANOUT below for the redundant, always-wins kill-switch this keeps.
+SKIP_SUBSCRIBER_FANOUT ("1"/"true"/"yes") — an explicit, redundant kill-switch that
+ALWAYS wins over ENABLE_SUBSCRIBER_FANOUT even if both are somehow set (belt-and-
+suspenders). When either resolves to "skip fan-out", only the owner's copy is sent;
+the DynamoDB subscriber query and fan-out loop are skipped entirely (see
+send_all()'s docstring).
 
 Post-send owner confirmation (docs/prd/send-confirmation-summary.md, FR-1..FR-8): after
 send_all() returns in the send-mode __main__ path, a short, separate confirmation email
@@ -336,6 +350,36 @@ def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
     return html_body + footer
 
 
+def _resolve_skip_subscriber_fanout(env: dict) -> bool:
+    """Resolve whether subscriber fan-out should be skipped, from `env` (normally
+    `os.environ`, injected here so this is unit-testable without process-level env
+    mutation). Fail-CLOSED opt-in gate (security fix, 2026-07-04, following the eval
+    harness's security review): fan-out requires an explicit, positive
+    `ENABLE_SUBSCRIBER_FANOUT=1/true/yes` -- unset, or any other value, means SKIP.
+    `SKIP_SUBSCRIBER_FANOUT=1/true/yes`, if set, is a redundant kill-switch that
+    ALWAYS wins even if `ENABLE_SUBSCRIBER_FANOUT` is also set (belt-and-suspenders).
+
+    Previously this was the reverse: an opt-OUT `SKIP_SUBSCRIBER_FANOUT` that
+    defaulted to fan-out ON when unset -- i.e. fail-OPEN. A forgotten export, a
+    prompt-reordering bug, or any unanticipated error path before that export ran
+    would silently fan out to every real confirmed subscriber using the shared
+    production environment's live SES/DynamoDB grants (this pipeline and the eval
+    harness's triggered runs share one `MicroVmExecutionRole`/environment). The live
+    scheduled deployment's initial_prompt now explicitly exports
+    ENABLE_SUBSCRIBER_FANOUT=1 (see deploy/managed-agent/deployment.json) so
+    production behavior is unchanged; every other caller (a triggered evaluation
+    run, a forgotten export, a future error path) now safely defaults to skipping
+    fan-out with zero cooperation required.
+    """
+
+    def _truthy(name: str) -> bool:
+        return env.get(name, "").strip().lower() in ("1", "true", "yes")
+
+    if _truthy("SKIP_SUBSCRIBER_FANOUT"):
+        return True
+    return not _truthy("ENABLE_SUBSCRIBER_FANOUT")
+
+
 def send_all(
     ses_client, dynamodb_client, subject, brief_html, mp3_bytes, mp3_filename, table_name,
     *, skip_subscriber_fanout=False,
@@ -358,10 +402,16 @@ def send_all(
     0/0/False -- no fan-out was attempted, so there is nothing to report and no query
     to have failed.
 
-    `skip_subscriber_fanout` is for manual validation runs only (e.g. reviewing a
-    build before it reaches real subscribers) -- it is never set by the scheduled
-    deployment, which always fans out (PRD FR-12/AC-10/AC-11). Defaults to False so
-    the normal production path is unchanged.
+    `skip_subscriber_fanout` (this function parameter -- the CALLER resolves it from
+    the ENABLE_SUBSCRIBER_FANOUT / SKIP_SUBSCRIBER_FANOUT env vars, see __main__
+    below) is True for any run that has not explicitly opted in to fan-out --
+    manual validation runs, triggered evaluation runs (deploy/eval/), and any
+    unanticipated error path all default here. It is False only when the caller has
+    resolved ENABLE_SUBSCRIBER_FANOUT=1 (and SKIP_SUBSCRIBER_FANOUT is not also set,
+    which always wins). The scheduled production deployment's initial_prompt
+    explicitly exports ENABLE_SUBSCRIBER_FANOUT=1, so the normal production path is
+    unchanged; every other caller fails toward "no fan-out" by default (fail-closed,
+    not fail-open) with zero cooperation required.
     """
     sent_count = 0
     failed_count = 0
@@ -501,9 +551,10 @@ if __name__ == "__main__":
     #                                                   the module-level script above),
     #                                                   then archive it to S3 if
     #                                                   BRIEF_MARKDOWN_PATH is set
-    # Manual-validation-only escape hatch (see send_all()'s docstring) -- the
-    # scheduled deployment never sets this, so production fan-out is unaffected.
-    skip_fanout = os.environ.get("SKIP_SUBSCRIBER_FANOUT", "").strip().lower() in ("1", "true", "yes")
+    # Fail-CLOSED opt-in gate -- see _resolve_skip_subscriber_fanout()'s docstring
+    # for the full security rationale (this repo's eval-harness security review,
+    # 2026-07-04).
+    skip_fanout = _resolve_skip_subscriber_fanout(os.environ)
 
     dynamodb = boto3.client("dynamodb", region_name=REGION)
     _sent, _failed, subscriber_sent_count, subscriber_failed_count, subscriber_query_failed = send_all(
@@ -538,3 +589,12 @@ if __name__ == "__main__":
         )
     else:
         print("BRIEF_ARCHIVE_SKIPPED: BRIEF_MARKDOWN_PATH not set or file missing")
+
+    # Archive the skill's "candidates considered" research artifact, if this run's
+    # skill version wrote one (PRD docs/prd/eval-harness.md FR-4, ADR-0013 §D). A
+    # separate, independent best-effort step from the brief archival above: an older
+    # run (or a run before the live Skills-API version push lands, ADR-0008) simply
+    # has no candidates.json to find, which archive_candidates_file() treats as the
+    # expected common case, not a failure -- never gates or affects the send that has
+    # already completed by this point.
+    brief_history.archive_candidates_file(s3, _today_local_date(), working_folder=WORKING_FOLDER)
