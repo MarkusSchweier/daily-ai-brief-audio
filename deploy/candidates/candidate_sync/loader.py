@@ -54,7 +54,16 @@ class AgentDeclaration:
             "mcp_servers": self.mcp_servers,
         }
         if self.skills:
-            body["skills"] = self.skills
+            # Strip `content_hash` (a purely LOCAL, skills.json-only bookkeeping
+            # field the sync script uses to detect a candidate-owned skill's
+            # content changing between syncs -- see sync.py's
+            # `_compute_skill_content_hash()`) before sending to the Agents API,
+            # which expects exactly {type, skill_id, version} per entry (the
+            # confirmed production shape, deploy/managed-agent/agent.json:25-31).
+            # Leaking this extra field into the request body would also make
+            # `_live_declaration_differs()` see a spurious diff on EVERY sync
+            # (the live agent, echoed back via GET, never carries content_hash).
+            body["skills"] = [{k: v for k, v in entry.items() if k != "content_hash"} for entry in self.skills]
         if self.parameters:
             body["parameters"] = self.parameters
         return body

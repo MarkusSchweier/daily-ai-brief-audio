@@ -146,12 +146,64 @@ def list_agent_versions(client: httpx.Client, agent_id: str) -> list[dict[str, A
     return payload.get("data", payload) if isinstance(payload, dict) else payload
 
 
+def create_skill(client: httpx.Client, zip_path: str) -> dict[str, Any]:
+    """POST /v1/skills -- create a BRAND-NEW skill resource (its id AND its first
+    version) from a zip file at `zip_path`. Used the FIRST time a candidate-owned
+    skill (one with no `skill_id` recorded yet at all) is synced -- distinct from
+    `create_skill_version()`, which pushes a new version to an ALREADY-EXISTING skill
+    id.
+
+    CONFIRMED LIVE (2026-07-06, agent-system-redesign epic Phase 3, a careful minimal
+    probe -- not assumed from docs): this is the SAME multipart shape as
+    `create_skill_version()` (`-F "files[]=@<zip>"`) AND, corrected by a second live
+    probe (see `create_skill_version()`'s own docstring for the full story), enforces
+    the SAME two constraints that endpoint also turned out to require:
+      1. The zip's entries MUST sit inside a single top-level folder (not a bare
+         `SKILL.md` at the archive root) -- confirmed via a real 400:
+         `"Zip must contain a top-level folder with all files inside it, including
+         SKILL.md"`.
+      2. That top-level folder's name MUST match the `name:` field in the zipped
+         `SKILL.md`'s YAML front matter exactly -- confirmed via a real 400:
+         `"The folder name '<x>' must match the skill name '<y>' in SKILL.md."`
+    `sync.py`'s `_zip_skill_source()` builds the zip with this shape for BOTH this
+    function and `create_skill_version()` -- one zip-building function serves both,
+    since the two endpoints' requirements turned out to be identical (an earlier,
+    now-corrected assumption in this module's history held they differed; see
+    `_zip_skill_source()`'s own docstring in `sync.py` for the full correction). The
+    response carries both the new `id` and the version of this first upload -- both
+    get recorded into `skills.json`."""
+    with open(zip_path, "rb") as fh:
+        response = client.post(
+            "/v1/skills",
+            files={"files[]": (os.path.basename(zip_path), fh, "application/zip")},
+        )
+    response.raise_for_status()
+    return response.json()
+
+
 def create_skill_version(client: httpx.Client, skill_id: str, zip_path: str) -> dict[str, Any]:
     """POST /v1/skills/{id}/versions -- push a new skill version from a zip file at
     `zip_path`, exactly the multipart shape documented in
     `deploy/managed-agent/README.md` (`-F "files[]=@<zip>"`). Skill versions are
     auto-assigned an epoch-timestamp version id -- the caller cannot choose one; the
-    returned resource's version field is what gets recorded into `skills.json`."""
+    returned resource's version field is what gets recorded into `skills.json`.
+
+    CORRECTED (2026-07-06, agent-system-redesign epic Phase 3, live-confirmed): this
+    module previously assumed (never tested against the real API -- see
+    `deploy/candidates/README.md`'s Phase 2 "Judgment calls" note) that this endpoint
+    accepted a FLATTENED zip (no wrapping folder), unlike `create_skill()`'s
+    creation endpoint. A real Phase 3 skill-version push using that flattened shape
+    failed with a genuine 400: `"Zip must contain a top-level folder with all files
+    inside it, including SKILL.md"` -- and a follow-up probe with a deliberately
+    mismatched folder name confirmed the SAME `"folder name must match the skill
+    name in SKILL.md"` check ALSO applies here. So this endpoint's zip-shape
+    requirement is IDENTICAL to `create_skill()`'s -- `deploy/managed-agent/README.md`'s
+    own documented version-push command (`cd deploy/managed-agent/skills; zip -r -q
+    ... daily-ai-brief -x "*.DS_Store"`, run from one directory ABOVE the
+    `daily-ai-brief/` folder) already produced this exact wrapping-folder shape by
+    construction, which is why that real, earlier push never hit this bug -- this
+    module's own `_zip_skill_source()` (in `sync.py`) originally flattened instead,
+    and simply was never exercised against the real API until now."""
     with open(zip_path, "rb") as fh:
         response = client.post(
             f"/v1/skills/{skill_id}/versions",

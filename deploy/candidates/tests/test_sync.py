@@ -29,10 +29,19 @@ import shutil
 import httpx
 import pytest
 
-from candidate_sync.sync import sync_candidate
+from candidate_sync.sync import _compute_skill_content_hash, sync_candidate
 
 from conftest import FIXTURES_DIR
 from fake_httpx_client import FakeHttpxClient, FakeResponse
+
+# Computed directly from the ACTUAL (unmodified) multi-agent fixture's skill/
+# directory -- used by tests that need to represent "this candidate's skill was
+# already pushed and is UNCHANGED," so they exercise the agent-update logic they're
+# actually testing without ALSO (accidentally) exercising the skill-push path.
+_FIXTURE_SKILL_CONTENT_HASH = _compute_skill_content_hash(FIXTURES_DIR / "example-multi-agent" / "skill")
+
+# Same idea, for the dedicated "brand-new candidate-owned skill" fixture below.
+_FIXTURE_NEW_SKILL_CONTENT_HASH = _compute_skill_content_hash(FIXTURES_DIR / "example-single-agent-new-skill" / "skill")
 
 
 def _agent_response(agent_id: str, *, version: int = 1, **overrides) -> FakeResponse:
@@ -44,6 +53,17 @@ def _agent_response(agent_id: str, *, version: int = 1, **overrides) -> FakeResp
 def single_agent_dir(tmp_path):
     candidate_dir = tmp_path / "example-single-agent"
     shutil.copytree(FIXTURES_DIR / "example-single-agent", candidate_dir)
+    return candidate_dir
+
+
+@pytest.fixture
+def single_agent_new_skill_dir(tmp_path):
+    """A single-agent candidate whose skills.json starts EMPTY (no skill_id at all
+    yet) -- exercises api_client.create_skill() (POST /v1/skills), the genuinely
+    NEW brand-new-skill-creation path this phase added (distinct from
+    create_skill_version(), an existing skill's version push)."""
+    candidate_dir = tmp_path / "example-single-agent-new-skill"
+    shutil.copytree(FIXTURES_DIR / "example-single-agent-new-skill", candidate_dir)
     return candidate_dir
 
 
@@ -133,9 +153,218 @@ def test_first_sync_multi_agent_creates_sub_agent_then_coordinator_and_writes_bo
     skill_push_calls = [c for c in skills_client.calls if c.path.startswith("/v1/skills/")]
     assert len(skill_push_calls) == 1
 
-    # skills.json now carries the concrete pinned version, not a bare skill_id.
+    # skills.json now carries the concrete pinned version (not a bare skill_id) AND
+    # a content_hash of the pushed skill/ directory, so a LATER update-sync can
+    # detect a further skill-content change with no network call.
     updated_skills_json = json.loads((multi_agent_dir / "skills.json").read_text())
-    assert updated_skills_json == [{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829}]
+    assert updated_skills_json == [
+        {"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829, "content_hash": _FIXTURE_SKILL_CONTENT_HASH}
+    ]
+
+
+# --- First sync (create): a BRAND-NEW candidate-owned skill (no skill_id at all yet) --
+# Phase 3 addition: distinct from the multi-agent test above, which references an
+# ALREADY-EXISTING skill_id (skill_EXAMPLE_NOT_REAL) and only pushes a VERSION to it.
+# This covers api_client.create_skill() (POST /v1/skills) -- a genuinely new resource.
+
+
+def test_first_sync_creates_a_brand_new_skill_resource_via_post_v1_skills(single_agent_new_skill_dir):
+    agents_client = FakeHttpxClient()
+    agents_client.when("POST", "/v1/agents", _agent_response("agent_NEW_SKILL_EXAMPLE"))
+    skills_client = FakeHttpxClient()
+    skills_client.when("POST", "/v1/skills", FakeResponse(200, {"id": "skill_BRAND_NEW", "version": 1783337264004829}))
+
+    result = sync_candidate(single_agent_new_skill_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.skill_versions_pushed == ["skill_BRAND_NEW (new) -> version 1783337264004829"]
+    assert result.created == ["agent example-single-agent-new-skill-EXAMPLE"]
+
+    # The skill push hit the TOP-LEVEL /v1/skills collection, NOT a /versions
+    # sub-resource -- confirming create_skill(), not create_skill_version(), was used.
+    assert skills_client.call_signature() == [("POST", "/v1/skills")]
+
+    # skills.json now carries the newly-minted skill_id, its version, AND a
+    # content_hash -- the "type": "custom" field matches the confirmed production
+    # agent.json skills[] entry shape.
+    updated_skills_json = json.loads((single_agent_new_skill_dir / "skills.json").read_text())
+    assert updated_skills_json == [
+        {
+            "type": "custom",
+            "skill_id": "skill_BRAND_NEW",
+            "version": 1783337264004829,
+            "content_hash": _FIXTURE_NEW_SKILL_CONTENT_HASH,
+        }
+    ]
+
+    # The agent-create body references the freshly-pinned skill (re-loaded AFTER the
+    # skill push, per _first_sync()'s re-load discipline) -- confirming the create
+    # call actually used the NEW skill_id/version, not a stale in-memory value.
+    agent_create_body = agents_client.calls[0].kwargs["json"]
+    assert agent_create_body["skills"] == [{"type": "custom", "skill_id": "skill_BRAND_NEW", "version": 1783337264004829}]
+    # content_hash must NEVER be sent to the Agents API -- it's a local-only
+    # bookkeeping field (to_agent_body() strips it).
+    assert "content_hash" not in agent_create_body["skills"][0]
+
+
+def test_first_sync_new_skill_failure_does_not_repush_on_retry(single_agent_new_skill_dir):
+    """Partial-failure resumption for the BRAND-NEW-skill path: the skill push
+    succeeds and skills.json is updated, but agent creation then fails. Re-running
+    must NOT re-create a second, duplicate skill resource (skills.json already
+    carries the pinned skill_id/version by then)."""
+    agents_client_first_attempt = FakeHttpxClient()
+    agents_client_first_attempt.when("POST", "/v1/agents", FakeResponse(500, {"error": "simulated failure"}))
+    skills_client = FakeHttpxClient()
+    skills_client.when("POST", "/v1/skills", FakeResponse(200, {"id": "skill_BRAND_NEW", "version": 1783337264004829}))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        sync_candidate(single_agent_new_skill_dir, agents_client=agents_client_first_attempt, skills_client=skills_client)
+
+    assert skills_client.call_signature() == [("POST", "/v1/skills")]
+    updated_skills_json = json.loads((single_agent_new_skill_dir / "skills.json").read_text())
+    assert updated_skills_json[0]["skill_id"] == "skill_BRAND_NEW"
+
+    # --- Re-run, simulating a fixed/retried invocation ---
+    agents_client_retry = FakeHttpxClient()
+    agents_client_retry.when("POST", "/v1/agents", _agent_response("agent_NEW_SKILL_EXAMPLE"))
+    skills_client_retry = FakeHttpxClient()  # deliberately given NO scripted skill-creation response
+
+    result = sync_candidate(single_agent_new_skill_dir, agents_client=agents_client_retry, skills_client=skills_client_retry)
+
+    assert result.created == ["agent example-single-agent-new-skill-EXAMPLE"]
+    # The retry made ZERO calls against the skills client -- confirming a second
+    # skill resource was NOT created (skills_client_retry has no registered handler
+    # at all; if the sync script had tried to create again, FakeHttpxClient.post()
+    # would have raised "no scripted response registered", which it did not).
+    assert skills_client_retry.calls == []
+
+
+# --- Update-in-place: a candidate-owned skill's CONTENT changes (Phase 3, AC-5) ------
+# The direct, sharp proof mechanism for AC-5 ("a Skills-API push alone must reach a
+# running candidate, no image rebuild"): a LOCAL skill/ content edit is detected via
+# content_hash (no network call), a new Skills-API version is pushed, and the
+# REFERENCING AGENT is then updated in place to point at the new version -- all
+# without recreating the agent_id.
+
+
+def test_update_pushes_new_skill_version_when_content_hash_differs_and_updates_agent(single_agent_new_skill_dir):
+    # Simulate: this candidate was ALREADY synced once (agent_id + a pinned skill
+    # version + the ORIGINAL content_hash all present)...
+    _mark_synced(single_agent_new_skill_dir, agent_id="agent_ALREADY_SYNCED")
+    original_skills_json = [
+        {"type": "custom", "skill_id": "skill_EXISTING", "version": 1783096569199829, "content_hash": "STALE_HASH_FROM_BEFORE_THE_EDIT"}
+    ]
+    (single_agent_new_skill_dir / "skills.json").write_text(json.dumps(original_skills_json))
+
+    # ...then the skill/ directory's ACTUAL content changed (a real edit) -- the
+    # fixture's real content_hash will now differ from "STALE_HASH_FROM_BEFORE_THE_EDIT".
+    agents_client = FakeHttpxClient()
+    skills_client = FakeHttpxClient()
+    skills_client.when(
+        "POST",
+        "/v1/skills/skill_EXISTING/versions",
+        FakeResponse(200, {"id": "skill_EXISTING", "version": 1783337264004829}),
+    )
+    # The agent's live state still references the OLD skill version -- differs from
+    # the (freshly re-loaded, post-push) local declaration, which now references the
+    # NEW version -- so an update call is expected.
+    agent_json = json.loads((single_agent_new_skill_dir / "agent.json").read_text())
+    model = (single_agent_new_skill_dir / "model.txt").read_text().strip()
+    system_prompt = (single_agent_new_skill_dir / "system-prompt.md").read_text()
+    parameters = json.loads((single_agent_new_skill_dir / "parameters.json").read_text())
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _agent_response(
+            "agent_ALREADY_SYNCED",
+            version=1,
+            name=agent_json["name"],
+            description=agent_json["description"],
+            model=model,
+            system=system_prompt,
+            tools=agent_json["tools"],
+            mcp_servers=agent_json["mcp_servers"],
+            skills=[{"type": "custom", "skill_id": "skill_EXISTING", "version": 1783096569199829}],  # the OLD version
+            parameters=parameters,
+        ),
+    )
+    agents_client.when("POST", "/v1/agents/agent_ALREADY_SYNCED", _agent_response("agent_ALREADY_SYNCED", version=2))
+
+    result = sync_candidate(single_agent_new_skill_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.skill_versions_pushed == ["skill_EXISTING -> version 1783337264004829"]
+    assert result.updated == ["agent example-single-agent-new-skill-EXAMPLE"]
+    assert not result.no_op
+
+    # skills.json now carries the NEW version and the FRESH content_hash.
+    updated_skills_json = json.loads((single_agent_new_skill_dir / "skills.json").read_text())
+    assert updated_skills_json == [
+        {
+            "type": "custom",
+            "skill_id": "skill_EXISTING",
+            "version": 1783337264004829,
+            "content_hash": _FIXTURE_NEW_SKILL_CONTENT_HASH,
+        }
+    ]
+
+    # The agent-update body references the NEW skill version -- confirming the
+    # agent was actually re-pinned, closing the ADR-0008 failure mode (a skill push
+    # alone reaching the running candidate only once the referencing agent is ALSO
+    # updated).
+    update_body = agents_client.calls[1].kwargs["json"]
+    assert update_body["skills"] == [{"type": "custom", "skill_id": "skill_EXISTING", "version": 1783337264004829}]
+    # The agent_id itself is UNCHANGED -- no recreation, matching AC-5's "no image
+    # rebuild, no agent recreation" requirement.
+    assert json.loads((single_agent_new_skill_dir / "candidate.json").read_text())["agent_id"] == "agent_ALREADY_SYNCED"
+
+
+def test_update_is_a_no_op_when_skill_content_hash_is_unchanged(single_agent_new_skill_dir):
+    """The counterpart to the test above: if the skill/ directory's content_hash
+    matches what's already pinned, NO skill push and NO agent update happen at
+    all -- confirming the sync script doesn't push a spurious new version on every
+    single sync just because a skill/ directory exists."""
+    _mark_synced(single_agent_new_skill_dir, agent_id="agent_ALREADY_SYNCED")
+    skills_json = [
+        {
+            "type": "custom",
+            "skill_id": "skill_EXISTING",
+            "version": 1783096569199829,
+            "content_hash": _FIXTURE_NEW_SKILL_CONTENT_HASH,  # matches the fixture's ACTUAL, unchanged content
+        }
+    ]
+    (single_agent_new_skill_dir / "skills.json").write_text(json.dumps(skills_json))
+
+    agent_json = json.loads((single_agent_new_skill_dir / "agent.json").read_text())
+    model = (single_agent_new_skill_dir / "model.txt").read_text().strip()
+    system_prompt = (single_agent_new_skill_dir / "system-prompt.md").read_text()
+    parameters = json.loads((single_agent_new_skill_dir / "parameters.json").read_text())
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _agent_response(
+            "agent_ALREADY_SYNCED",
+            version=1,
+            name=agent_json["name"],
+            description=agent_json["description"],
+            model=model,
+            system=system_prompt,
+            tools=agent_json["tools"],
+            mcp_servers=agent_json["mcp_servers"],
+            skills=[{"type": "custom", "skill_id": "skill_EXISTING", "version": 1783096569199829}],
+            parameters=parameters,
+        ),
+    )
+    skills_client = FakeHttpxClient()  # deliberately given NO scripted response -- must not be called at all
+
+    result = sync_candidate(single_agent_new_skill_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.no_op is True
+    assert not result.skill_versions_pushed
+    assert not result.updated
+    assert skills_client.calls == []
+    # Only the one read-only GET (to detect "unchanged") was made against the agent.
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
 
 
 # --- Update-in-place: single-agent -------------------------------------------------
@@ -309,10 +538,14 @@ def test_multi_agent_update_orders_sub_agent_before_coordinator(multi_agent_dir)
         ),
     )
     agents_client.when("POST", "/v1/agents/agent_COORD_SYNCED", _agent_response("agent_COORD_SYNCED", version=2))
-    # skills.json in this fixture has no version pinned yet at copy time -- pin one so
-    # this test isn't ALSO exercising the skill-push path (that's covered elsewhere).
+    # skills.json in this fixture has no version pinned yet at copy time -- pin one,
+    # WITH the content_hash matching the fixture's actual (unchanged) skill/
+    # directory, so this test isn't ALSO exercising the skill-push path (that's
+    # covered elsewhere, in the dedicated skill-content-change tests below).
     skills_json_path = multi_agent_dir / "skills.json"
-    skills_json_path.write_text(json.dumps([{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1}]))
+    skills_json_path.write_text(
+        json.dumps([{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1, "content_hash": _FIXTURE_SKILL_CONTENT_HASH}])
+    )
 
     result = sync_candidate(multi_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
 
@@ -340,7 +573,12 @@ def test_multi_agent_update_orders_sub_agent_before_coordinator(multi_agent_dir)
 def test_multi_agent_update_is_a_full_no_op_when_nothing_changed(multi_agent_dir):
     _mark_synced(multi_agent_dir, agent_id="agent_COORD_SYNCED", sub_agent_ids=["agent_SUB_SYNCED"])
     skills_json_path = multi_agent_dir / "skills.json"
-    skills_json_path.write_text(json.dumps([{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1}]))
+    # content_hash matches the fixture's ACTUAL (unchanged) skill/ directory -- see
+    # _FIXTURE_SKILL_CONTENT_HASH -- so this genuinely exercises the "nothing
+    # changed, including the skill" no-op path, not an accidental skill-push.
+    skills_json_path.write_text(
+        json.dumps([{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1, "content_hash": _FIXTURE_SKILL_CONTENT_HASH}])
+    )
 
     sub_agent_json = json.loads((multi_agent_dir / "multiagent.json").read_text())["agents"][0]
     coordinator_json = json.loads((multi_agent_dir / "agent.json").read_text())
@@ -415,7 +653,9 @@ def test_partial_failure_resumption_does_not_repush_skill(multi_agent_dir):
     # The skill push DID happen and DID get recorded, even though the overall sync failed.
     assert len(skills_client.calls) == 1
     updated_skills_json = json.loads((multi_agent_dir / "skills.json").read_text())
-    assert updated_skills_json == [{"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829}]
+    assert updated_skills_json == [
+        {"skill_id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829, "content_hash": _FIXTURE_SKILL_CONTENT_HASH}
+    ]
     # Neither agent_id was written (creation never succeeded).
     assert "agent_id" not in json.loads((multi_agent_dir / "candidate.json").read_text())
 

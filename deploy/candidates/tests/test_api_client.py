@@ -67,3 +67,41 @@ def test_require_field_raises_a_clear_error_when_missing():
 
     with pytest.raises(api_client.MalformedApiResponseError, match="version"):
         api_client.require_field(resource, "version", context="reading agent agent_EXAMPLE before an update")
+
+
+def test_create_skill_posts_to_top_level_skills_collection(tmp_path):
+    """agent-system-redesign epic Phase 3: create_skill() (POST /v1/skills) is a
+    genuinely NEW function -- Phase 2 only ever pushed a VERSION to an
+    ALREADY-EXISTING skill_id (create_skill_version()); this confirms the request
+    goes to the top-level collection, not a /versions sub-resource, and that a
+    zip file is attached as multipart files[] (the same shape create_skill_version()
+    already uses)."""
+    zip_path = tmp_path / "skill.zip"
+    zip_path.write_bytes(b"fake zip bytes")
+
+    client = FakeHttpxClient()
+    client.when("POST", "/v1/skills", FakeResponse(200, {"id": "skill_NEW", "version": 1783337264004829}))
+
+    result = api_client.create_skill(client, str(zip_path))
+
+    assert result == {"id": "skill_NEW", "version": 1783337264004829}
+    assert client.call_signature() == [("POST", "/v1/skills")]
+    sent_files = client.calls[0].kwargs["files"]
+    assert "files[]" in sent_files
+    assert sent_files["files[]"][0] == "skill.zip"
+
+
+def test_create_skill_version_still_posts_to_the_versions_sub_resource(tmp_path):
+    """Regression check: create_skill() (new, top-level) must NOT be confused with
+    create_skill_version() (existing, /versions sub-resource) -- both are exercised
+    together here to confirm they hit DIFFERENT paths."""
+    zip_path = tmp_path / "skill.zip"
+    zip_path.write_bytes(b"fake zip bytes")
+
+    client = FakeHttpxClient()
+    client.when("POST", "/v1/skills/skill_EXISTING/versions", FakeResponse(200, {"id": "skill_EXISTING", "version": 1783337264004829}))
+
+    result = api_client.create_skill_version(client, "skill_EXISTING", str(zip_path))
+
+    assert result == {"id": "skill_EXISTING", "version": 1783337264004829}
+    assert client.call_signature() == [("POST", "/v1/skills/skill_EXISTING/versions")]

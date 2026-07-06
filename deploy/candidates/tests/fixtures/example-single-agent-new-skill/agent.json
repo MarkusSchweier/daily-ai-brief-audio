@@ -1,0 +1,10 @@
+{
+  "name": "example-single-agent-new-skill-EXAMPLE",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic single-agent test fixture with a brand-new candidate-owned skill.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401"
+    }
+  ],
+  "mcp_servers": []
+}

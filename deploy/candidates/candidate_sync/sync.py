@@ -79,45 +79,210 @@ class SyncResult:
         return f"candidate '{self.slug}': " + "; ".join(parts) if parts else f"candidate '{self.slug}': no-op"
 
 
+class _SkillSourceError(ValueError):
+    """Raised when a candidate-owned `skill/` directory's SKILL.md is missing or
+    lacks a parseable `name:` front-matter field -- needed by `_zip_skill_source()`
+    for BOTH a brand-new skill creation AND a version push to an existing skill,
+    since the top-level folder name inside the zip must match it exactly in BOTH
+    cases (a live-confirmed constraint on both `POST /v1/skills` and
+    `POST /v1/skills/{id}/versions`, see `_zip_skill_source()`'s docstring)."""
+
+
+def _read_skill_name_from_front_matter(skill_source_dir: Path) -> str:
+    """Extract the `name:` field from `skill/SKILL.md`'s YAML front matter (the
+    `---`-delimited block at the top of the file) -- a plain, dependency-free parse
+    (no `pyyaml` import) since only this one scalar field is needed."""
+    skill_md_path = skill_source_dir / "SKILL.md"
+    if not skill_md_path.is_file():
+        raise _SkillSourceError(f"{skill_md_path} is missing -- required to read the skill's declared name")
+    text = skill_md_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise _SkillSourceError(f"{skill_md_path} does not start with a '---' YAML front-matter block")
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip()
+    raise _SkillSourceError(f"{skill_md_path}'s front matter has no 'name:' field")
+
+
+def _compute_skill_content_hash(skill_source_dir: Path) -> str:
+    """A stable SHA-256 hash over a candidate-owned `skill/` directory's file
+    contents (path + bytes, sorted for determinism) -- lets the sync script detect
+    "has this candidate's skill source changed since I last pushed it" purely from
+    LOCAL files, with NO network call. Recorded as a `content_hash` field alongside
+    the pinned `skill_id`/`version` in the candidate's own `skills.json` -- an extra
+    field on an ALREADY-tracked file (not a new, separate bespoke side-file/index),
+    consistent with Decision 2c's "no duplicate-of-git index" principle: this hash
+    is itself derived from, and travels with, the git-tracked `skill/` content, it
+    doesn't duplicate anything git doesn't already version."""
+    import hashlib
+
+    hasher = hashlib.sha256()
+    for path in sorted(skill_source_dir.rglob("*")):
+        if path.is_file() and path.name != ".DS_Store":
+            hasher.update(str(path.relative_to(skill_source_dir)).encode("utf-8"))
+            hasher.update(path.read_bytes())
+    return hasher.hexdigest()
+
+
 def _zip_skill_source(skill_source_dir: Path, dest_zip_path: Path) -> Path:
-    """Zip a candidate-owned `skill/` directory into a single archive, mirroring the
-    exact packaging shape `deploy/managed-agent/README.md` documents for a skill-
-    version push (`zip -r -q ... daily-ai-brief -x "*.DS_Store"`) -- the zip's entries
-    are the skill directory's own contents (e.g. `SKILL.md`, `sources.md`), not the
-    directory name itself, matching the existing production skill's package shape."""
+    """Zip a candidate-owned `skill/` directory into the single archive shape BOTH
+    the Skills API's creation endpoint (`POST /v1/skills`) AND its version-push
+    endpoint (`POST /v1/skills/{id}/versions`) require: every entry sitting inside
+    ONE top-level folder, whose name matches `SKILL.md`'s own `name:` front-matter
+    field EXACTLY.
+
+    CONFIRMED LIVE (2026-07-06, agent-system-redesign epic Phase 3 -- two real,
+    deliberate probes, NOT assumed): a first attempt at a version push using a
+    flattened zip (no wrapping folder -- the shape this function used to produce,
+    before this fix) failed with a REAL 400:
+    `"Zip must contain a top-level folder with all files inside it, including
+    SKILL.md"` -- proving the version-push endpoint enforces the identical
+    constraint the CREATION endpoint does, contrary to this module's original
+    (wrong) assumption that they differed. A follow-up probe with a
+    deliberately-MISMATCHED folder name against the version-push endpoint then
+    confirmed the SAME folder-name-must-match-SKILL.md's-name check applies there
+    too: `"The folder name '<x>' must match the skill name '<y>' in SKILL.md."`
+    (`deploy/managed-agent/README.md`'s own documented version-push zip command,
+    `zip -r -q ... daily-ai-brief -x "*.DS_Store"`, run from ONE DIRECTORY ABOVE
+    the `daily-ai-brief/` folder, already produced exactly this wrapping-folder
+    shape by construction -- this function's ORIGINAL flattening behavior was
+    simply never exercised against the real API before now, per Phase 2's own
+    README note that no real Skill resource was created during that phase's
+    development.) This one function is therefore now used for BOTH
+    `create_skill()` and `create_skill_version()` -- there is no genuine
+    difference between the two endpoints' zip-shape requirements after all."""
     import zipfile
 
+    skill_name = _read_skill_name_from_front_matter(skill_source_dir)
     with zipfile.ZipFile(dest_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(skill_source_dir.rglob("*")):
             if path.is_file() and path.name != ".DS_Store":
-                zf.write(path, arcname=path.relative_to(skill_source_dir))
+                arcname = Path(skill_name) / path.relative_to(skill_source_dir)
+                zf.write(path, arcname=str(arcname))
     return dest_zip_path
 
 
 def _push_candidate_skill_if_needed(candidate: CandidateDeclaration, skills_client: httpx.Client, result: SyncResult) -> None:
     """First-sync-only: if the candidate owns its own skill source (a `skill/`
-    subdirectory) and `skills.json` carries a `{skill_id}` entry with no `version`
-    pinned yet, push a new skill version and record the result into `skills.json`
-    IMMEDIATELY -- BEFORE agent creation is attempted. This ordering is exactly what
-    makes a partial failure (skill pushed, then agent creation fails) resumable: on
-    retry, `skills.json` already has the pinned version, so this function finds
-    nothing left to push and does nothing (no duplicate skill version)."""
+    subdirectory), push it and record the result into `skills.json` IMMEDIATELY --
+    BEFORE agent creation is attempted. This ordering is exactly what makes a partial
+    failure (skill pushed, then agent creation fails) resumable: on retry,
+    `skills.json` already has the pinned id/version, so this function finds nothing
+    left to push and does nothing (no duplicate skill resource or version).
+
+    Two distinct cases, both first-sync-only:
+      1. NO `skill_id` recorded anywhere in `skills.json` yet (an empty list, or an
+         entry naming a not-yet-created skill with no `skill_id` field at all) -- a
+         genuinely BRAND-NEW candidate-owned skill. Calls `api_client.create_skill()`
+         (`POST /v1/skills`), which mints BOTH the `skill_id` and its first version in
+         one call, and records both into `skills.json`.
+      2. An entry WITH a `skill_id` but no `version` pinned yet -- the candidate
+         references an ALREADY-EXISTING Skills-API resource and this is its first
+         version push from this candidate. Calls `api_client.create_skill_version()`
+         (`POST /v1/skills/{id}/versions`) as before, unchanged.
+    If neither case applies (skills.json already has every entry fully pinned with
+    both `skill_id` and `version`, or there's no candidate-owned `skill/` directory at
+    all), this is a no-op."""
     if candidate.skill_source_dir is None:
         return
 
     existing_skills = candidate.agent.skills
-    skill_id = None
+
+    existing_skill_id = None
     for entry in existing_skills:
         if entry.get("skill_id") and not entry.get("version"):
-            skill_id = entry["skill_id"]
+            existing_skill_id = entry["skill_id"]
             break
-    if skill_id is None:
-        # No skill-id-without-a-version placeholder found -- either there's no
-        # candidate-owned skill declared in skills.json yet (nothing to push
-        # against), or a version is already pinned (already pushed in a prior,
-        # partially completed run) -- either way, nothing to do here.
+
+    if existing_skill_id is not None:
+        import tempfile
+
+        content_hash = _compute_skill_content_hash(candidate.skill_source_dir)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            zip_path = _zip_skill_source(candidate.skill_source_dir, Path(tmp_dir) / "skill.zip")
+            response = api_client.create_skill_version(skills_client, existing_skill_id, str(zip_path))
+
+        new_version = response.get("version") or response.get("id")
+        updated_skills = [
+            (
+                {**entry, "version": new_version, "content_hash": content_hash}
+                if entry.get("skill_id") == existing_skill_id
+                else entry
+            )
+            for entry in existing_skills
+        ]
+        write_skills_json(candidate.skills_json_path, updated_skills)
+        result.skill_versions_pushed.append(f"{existing_skill_id} -> version {new_version}")
         return
 
+    any_skill_id_already_present = any(entry.get("skill_id") for entry in existing_skills)
+    if any_skill_id_already_present:
+        # Every declared skill already carries both a skill_id AND a version --
+        # nothing left to push (already fully pushed in a prior, completed run).
+        return
+
+    # No skill_id anywhere yet -- a genuinely brand-new candidate-owned skill. Create
+    # the resource (and its first version) in one call.
+    import tempfile
+
+    content_hash = _compute_skill_content_hash(candidate.skill_source_dir)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        zip_path = _zip_skill_source(candidate.skill_source_dir, Path(tmp_dir) / "skill.zip")
+        response = api_client.create_skill(skills_client, str(zip_path))
+
+    new_skill_id = api_client.require_field(response, "id", context="creating a brand-new candidate-owned skill")
+    new_version = response.get("version") or response.get("latest_version")
+    # "type": "custom" matches the confirmed production agent.json skills[] entry
+    # shape (deploy/managed-agent/agent.json:27) -- the value POST /v1/agents expects
+    # in an agent's `skills` field for a Skills-API-backed (non-Anthropic-builtin) skill.
+    # `content_hash` (see _compute_skill_content_hash()'s docstring) lets a LATER
+    # update-in-place sync detect a further skill-source change with no network call.
+    write_skills_json(
+        candidate.skills_json_path,
+        [{"type": "custom", "skill_id": new_skill_id, "version": new_version, "content_hash": content_hash}],
+    )
+    result.skill_versions_pushed.append(f"{new_skill_id} (new) -> version {new_version}")
+
+
+def _push_updated_candidate_skill_if_changed(
+    candidate: CandidateDeclaration, skills_client: httpx.Client, result: SyncResult
+) -> bool:
+    """UPDATE-path counterpart to `_push_candidate_skill_if_needed()` (which only
+    ever runs on a candidate's FIRST sync): if this candidate owns a `skill/`
+    directory whose content has changed since the LAST push (detected via the
+    `content_hash` recorded in `skills.json` by the function above -- a purely
+    LOCAL, no-network-call comparison), push a new Skills-API version
+    (`POST /v1/skills/{id}/versions`) and update `skills.json`'s `version` +
+    `content_hash` fields to match.
+
+    Returns True if a new version was actually pushed (so the caller knows the
+    agent's OWN declaration -- which embeds `skills.json`'s pinned version via
+    `to_agent_body()` -- now differs from what's live, and must be updated in
+    place too, per Decision 2c: a skill-content change reaches a running candidate
+    only once the referencing agent is ALSO updated to point at the new version).
+    False if there was nothing to push (no `skill/` directory, no pinned skill yet
+    -- this only applies post-first-sync, so that shouldn't normally happen -- or
+    the content hash is unchanged, including the degenerate case where no
+    `content_hash` was ever recorded AND the freshly-computed hash also happens to
+    equal `None` -- which cannot occur in practice, since
+    `_compute_skill_content_hash()` always returns a real hex digest; this is just
+    saying the comparison is a plain equality check with no special-casing)."""
+    if candidate.skill_source_dir is None:
+        return False
+
+    existing_skills = candidate.agent.skills
+    pinned_entry = next((entry for entry in existing_skills if entry.get("skill_id") and entry.get("version")), None)
+    if pinned_entry is None:
+        return False
+
+    current_hash = _compute_skill_content_hash(candidate.skill_source_dir)
+    if current_hash == pinned_entry.get("content_hash"):
+        return False
+
+    skill_id = pinned_entry["skill_id"]
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -126,10 +291,12 @@ def _push_candidate_skill_if_needed(candidate: CandidateDeclaration, skills_clie
 
     new_version = response.get("version") or response.get("id")
     updated_skills = [
-        ({**entry, "version": new_version} if entry.get("skill_id") == skill_id else entry) for entry in existing_skills
+        ({**entry, "version": new_version, "content_hash": current_hash} if entry.get("skill_id") == skill_id else entry)
+        for entry in existing_skills
     ]
     write_skills_json(candidate.skills_json_path, updated_skills)
     result.skill_versions_pushed.append(f"{skill_id} -> version {new_version}")
+    return True
 
 
 def _create_agent(agents_client: httpx.Client, declaration: AgentDeclaration, *, multiagent: dict[str, Any] | None) -> str:
@@ -208,9 +375,9 @@ def sync_candidate(candidate_dir: Path, *, agents_client: httpx.Client, skills_c
         return result
 
     if candidate.is_multi_agent:
-        _update_multi_agent(candidate, agents_client, result)
+        _update_multi_agent(candidate_dir, candidate, agents_client, skills_client, result)
     else:
-        _update_single_agent(candidate, agents_client, result)
+        _update_single_agent(candidate_dir, candidate, agents_client, skills_client, result)
     return result
 
 
@@ -260,7 +427,24 @@ def _first_sync(
     write_candidate_agent_id(candidate.candidate_json_path, coordinator_id)
 
 
-def _update_single_agent(candidate: CandidateDeclaration, agents_client: httpx.Client, result: SyncResult) -> None:
+def _update_single_agent(
+    candidate_dir: Path,
+    candidate: CandidateDeclaration,
+    agents_client: httpx.Client,
+    skills_client: httpx.Client,
+    result: SyncResult,
+) -> None:
+    skill_changed = _push_updated_candidate_skill_if_changed(candidate, skills_client, result)
+    if skill_changed:
+        # Re-load: the skill push rewrote skills.json's pinned version, and the
+        # agent-update body below (to_agent_body()) must send the FRESH pinned
+        # version, not the stale in-memory one -- otherwise the agent would be
+        # re-pinned right back to the OLD skill version, defeating the whole point
+        # (this is the direct mechanism that closes the ADR-0008 image-rebuild
+        # failure mode: here, a skill push is followed through to an agent update
+        # that actually references it, not left as a dangling Skills-API-only push).
+        candidate = load_candidate(candidate_dir)
+
     assert candidate.agent.agent_id is not None
     live_agent = api_client.get_agent(agents_client, candidate.agent.agent_id)
     if _live_declaration_differs(live_agent, candidate.agent):
@@ -275,11 +459,24 @@ def _update_single_agent(candidate: CandidateDeclaration, agents_client: httpx.C
             current_version=current_version,
         )
         result.updated.append(f"agent {candidate.agent.name or '(unnamed)'}")
-    else:
+    elif not result.skill_versions_pushed:
         result.no_op = True
 
 
-def _update_multi_agent(candidate: CandidateDeclaration, agents_client: httpx.Client, result: SyncResult) -> None:
+def _update_multi_agent(
+    candidate_dir: Path,
+    candidate: CandidateDeclaration,
+    agents_client: httpx.Client,
+    skills_client: httpx.Client,
+    result: SyncResult,
+) -> None:
+    skill_changed = _push_updated_candidate_skill_if_changed(candidate, skills_client, result)
+    if skill_changed:
+        # Same re-load discipline as the single-agent path above -- the coordinator's
+        # (or a sub-agent's) OWN skills.json pin must reflect the freshly-pushed
+        # version before either is compared/updated below.
+        candidate = load_candidate(candidate_dir)
+
     # Step (i): update whichever sub-agent(s) changed, FIRST -- and ONLY those.
     any_sub_agent_updated = False
     current_sub_agent_ids: list[str | None] = []
