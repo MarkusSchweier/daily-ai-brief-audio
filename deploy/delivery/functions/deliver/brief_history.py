@@ -61,6 +61,14 @@ AUDIO_POINTER_FILENAME = "audio-pointer.json"
 # deploy/eval/'s judges (a different, standalone CDK app) read this same filename from
 # S3 -- kept in sync by hand, same convention as AUDIO_POINTER_FILENAME above.
 CANDIDATES_FILENAME = "candidates.json"
+# Filename for the durable per-brief "source usage" record (PRD
+# docs/prd/agent-system-redesign.md FR-8a, ADR-0014 -- realizes GitHub issue #28).
+# Written by the `daily-ai-brief` skill itself to WORKING_FOLDER as `source-usage.json`
+# -- a direct sibling of CANDIDATES_FILENAME above, same additive/best-effort pattern.
+# This constant is the archived object's key *segment* under `briefs/<date>/`, matching
+# the skill's own output filename so a caller passing the file's contents straight
+# through needs no renaming.
+SOURCE_USAGE_FILENAME = "source-usage.json"
 
 # Matches `briefs/YYYY-MM-DD/` — the per-day folder key prefix ADR-0005 defines.
 _DATED_PREFIX_RE = re.compile(r"^briefs/(\d{4}-\d{2}-\d{2})/$")
@@ -235,6 +243,55 @@ def archive_candidates_file(
         return False
 
     key = f"{BRIEFS_PREFIX}{today}/{candidates_filename}"
+    try:
+        s3_client.put_object(
+            Bucket=bucket, Key=key, Body=raw.encode("utf-8"), ContentType="application/json"
+        )
+        print("BRIEF_ARCHIVED", key)
+        return True
+    except Exception as e:
+        print("BRIEF_ARCHIVE_FAILED:", key, repr(e))
+        return False
+
+
+def archive_source_usage_file(
+    s3_client,
+    today: str,
+    *,
+    working_folder: str,
+    bucket: str = BUCKET,
+    source_usage_filename: str = SOURCE_USAGE_FILENAME,
+) -> bool:
+    """Archive the skill's `source-usage.json` (PRD docs/prd/agent-system-redesign.md
+    FR-8a, ADR-0014 -- realizes GitHub issue #28) to
+    `briefs/<today>/source-usage.json`, if the skill wrote one this run.
+
+    A direct sibling of `archive_candidates_file()` above -- same additive,
+    best-effort philosophy (CLAUDE.md: never lose the brief over a glitch):
+      - A missing file (an older run, a run before this feature shipped, or a run
+        whose skill version hasn't yet had the source-usage instruction pushed live --
+        ADR-0008's lockstep push is a separate, later step from this wrapper change)
+        is the expected common case, not an error -- logged and skipped, never raised.
+      - A read or S3-write failure is logged, never raised -- archiving this artifact
+        must never fail (or even slow) the run that already has the brief in hand.
+
+    Returns True if the artifact was archived, False otherwise (missing file or a
+    failure) -- purely informational for the caller's own logging, never meant to gate
+    anything downstream.
+    """
+    local_path = os.path.join(working_folder, source_usage_filename)
+    if not os.path.exists(local_path):
+        print("SOURCE_USAGE_ARCHIVE_SKIPPED: no source-usage.json found at", local_path)
+        return False
+
+    try:
+        with open(local_path, encoding="utf-8") as f:
+            raw = f.read()
+    except Exception as e:
+        print("SOURCE_USAGE_ARCHIVE_READ_FAILED:", local_path, repr(e))
+        return False
+
+    key = f"{BRIEFS_PREFIX}{today}/{source_usage_filename}"
     try:
         s3_client.put_object(
             Bucket=bucket, Key=key, Body=raw.encode("utf-8"), ContentType="application/json"
