@@ -1,0 +1,6 @@
+{
+  "slug": "example-multi-agent",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic multi-agent (coordinator + sub-agent) fixture used only to exercise the sync script's logic in tests, including the two-step sub-agent-then-coordinator update ordering. Never deployed against the live Anthropic API.",
+  "composition": "multi-agent",
+  "schedule_intent": "none -- test fixture only, never scheduled"
+}

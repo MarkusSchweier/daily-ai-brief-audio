@@ -1,0 +1,25 @@
+{
+  "type": "coordinator",
+  "agents": [
+    {
+      "entry": {
+        "type": "custom"
+      },
+      "name": "example-sub-agent-researcher-EXAMPLE",
+      "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic sub-agent test fixture.",
+      "model": "claude-example-sub-agent-model",
+      "system_prompt": "EXAMPLE SUB-AGENT SYSTEM PROMPT -- NOT A REAL CANDIDATE. You are a fake example researcher sub-agent used only to exercise deploy/candidates/sync.py's multi-agent logic in tests.",
+      "task_prompt": "",
+      "tools": [
+        {
+          "type": "agent_toolset_20260401"
+        }
+      ],
+      "mcp_servers": [],
+      "skills": [],
+      "parameters": {
+        "effort": "example-medium"
+      }
+    }
+  ]
+}
