@@ -365,10 +365,26 @@ validation," below, for exactly how this was found.
 **Cost/archival discipline (mirroring `deploy/eval/`'s own proven pattern):** every
 triggered run creates a **temporary** Deployment, and `run_candidate()` **always**
 archives it (`POST /v1/deployments/{id}/archive`) in a `finally` block — on success,
-on a failed session, and on a poll timeout alike — so no callable temporary
-deployment is ever left behind. Deployments are the one resource type in this whole
-mechanism that genuinely **is** confirmed archivable (unlike agents/environments,
-per README §6 of `deploy/managed-agent/README.md` and the ADR's own note).
+on a failed session, on a poll timeout, **and on `start_session()` itself raising**
+(e.g. a transient 5xx on `POST /v1/deployments/{id}/run`) alike — so no callable
+temporary deployment is ever left behind. Deployments are the one resource type in
+this whole mechanism that genuinely **is** confirmed archivable (unlike
+agents/environments, per README §6 of `deploy/managed-agent/README.md` and the
+ADR's own note).
+
+**Corrected (reviewer + security-engineer, independently converged on the same
+bug):** `create_temporary_deployment()` and `start_session()` originally both ran
+**before** the `try`/`finally` that owns the archive call, so a `start_session()`
+failure — distinct from a FAILED session status or a poll timeout, both raised
+**inside** the try block and already correctly archived — propagated with **zero**
+archive call, a genuinely leaked, permanently-callable temporary deployment. Fixed
+by moving `start_session()` inside the `try`; `deployment_id` is assigned once
+(right after the create call succeeds) and the `finally` unconditionally archives
+it, since by the time that `try`/`finally` is reached the deployment is guaranteed
+to already exist. A regression test
+(`test_run_candidate_archives_even_when_start_session_itself_raises`) reproduces
+the exact scenario and was confirmed, directly, to fail against the pre-fix code
+(zero archive calls) and pass against the fix.
 
 ## Reading historical state
 
@@ -506,7 +522,16 @@ tracked files — the id is just "this candidate's one address").
   re-synced with no actual skill-content edit. In practice this repo has no such
   candidate yet (`smoke-test-example` was first synced with `content_hash` support
   already in place) — this is a forward-looking safety choice, not a currently-hit
-  case.
+  case. **Corrected (reviewer, README/code mismatch):** the ORIGINAL implementation
+  did not actually do this — `if current_hash == pinned_entry.get("content_hash"):
+  return False` compares a real SHA-256 hex digest against `None` (what `.get(...)`
+  returns when the field is absent), which is **always unequal**, so a missing
+  `content_hash` was silently treated as "changed" and pushed a version every time —
+  the exact opposite of the stated intent. Fixed with an explicit
+  `if recorded_hash is None: return False` check ahead of the equality comparison. A
+  regression test (`test_update_skips_skill_push_when_content_hash_was_never_recorded`)
+  was confirmed, directly, to fail against the pre-fix code (an unscripted
+  `POST /v1/skills/{id}/versions` call was attempted) and pass against the fix.
 - **The events-settle retry (`_wait_for_settled_events()`) was added only after a
   REAL race was observed live, not speculatively.** The first real trigger of
   `smoke-test-example` printed "no cat'd file contents found" despite the run having
@@ -516,6 +541,35 @@ tracked files — the id is just "this candidate's one address").
   live runs (see `deploy/eval/README.md`'s own "Judgment calls" section for the same
   pattern) — a mocked test suite alone would never have caught it, since the mock
   would only ever return what it was scripted to return.
+- **`_iter_skill_source_files()` skips symlinks entirely (security-engineer, Low
+  severity hardening).** `_compute_skill_content_hash()` and `_zip_skill_source()`
+  originally walked `skill/` with plain `Path.rglob("*")` + `path.is_file()`, which
+  follows symlinks by default — a symlink inside `skill/` pointing OUTSIDE
+  `skill_source_dir` (e.g. at a sibling directory or an absolute path) would have its
+  TARGET content silently hashed and zipped, letting a symlink change what's
+  hashed/pushed without that content actually living inside the git-tracked `skill/`
+  directory. Not exploitable today (only the repo owner authors these directories),
+  but cheap to close: both functions now share `_iter_skill_source_files()`, which
+  checks `path.is_symlink()` and skips any symlink outright — this repo's skill
+  directories are plain files, so there is no legitimate reason for one to contain a
+  symlink. Three tests confirm a symlinked file is excluded from the file list, the
+  hash, and the built zip.
+- **`smoke-test-example/skills.json`'s skill `version` is a JSON string
+  (`"1783337264004829"`), not a number — this is CORRECT, not a bug, confirmed by
+  checking the real live API.** A nit raised this as an inconsistency with the rest
+  of the codebase's test literals (which use numeric version literals for skill
+  versions). Checking directly against the real API settled it: both
+  `GET /v1/skills/{id}` (`latest_version`) and `GET /v1/agents/{id}` (each `skills[]`
+  entry's `version`) return the skill version as a **string** on the live account —
+  `smoke-test-example/skills.json` faithfully reflects that. Normalizing it to a
+  number would make the file diverge from what the live API actually returns and
+  would introduce, not prevent, a spurious "differs" mismatch on the next real sync
+  (`_live_declaration_differs()` compares the local declaration against a live GET
+  response that is itself a string). The pre-existing NUMERIC literals in this test
+  suite's MOCKED skill-push responses (e.g. `1783096569199829`) are therefore the
+  inconsistent ones, relative to the real API — a pre-existing Phase 2 convention,
+  left as-is here since correcting it is a separate, broader cleanup across many
+  already-passing tests, not something this fix pass changes.
 
 ## Phase 3 live validation (2026-07-06) — the FR-4/FR-5 proof, run for real
 
