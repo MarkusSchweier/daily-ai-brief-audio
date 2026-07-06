@@ -112,11 +112,36 @@ coordinator's `agent_id` in `candidate.json`. A single-agent candidate simply ha
 A candidate can either:
 - **Reference an existing Skills-API resource** — `skills.json` names a `skill_id`
   with a concrete `version` already known, and no `skill/` subdirectory exists.
-- **Own its own skill source** — a `skill/` subdirectory (e.g. `SKILL.md`,
-  `sources.md`) plus a `skills.json` entry with a `skill_id` and **no** `version` yet
-  (a "please create a version for me" placeholder). The sync script zips `skill/`'s
-  contents and pushes a new Skills-API version on the candidate's first sync, then
-  writes the resulting concrete version number back into `skills.json`.
+- **Push a new version to an already-existing Skills-API resource it owns** — a
+  `skill/` subdirectory (e.g. `SKILL.md`, `sources.md`) plus a `skills.json` entry
+  naming that `skill_id` with **no** `version` yet (a "please create a version for
+  me" placeholder). The sync script zips `skill/`'s contents and calls
+  `POST /v1/skills/{skill_id}/versions` on the candidate's first sync, then writes
+  the resulting concrete version number back into `skills.json`.
+- **Own a genuinely BRAND-NEW skill** (Phase 3 addition) — a `skill/` subdirectory,
+  with `skills.json` starting **empty** (`[]`, no `skill_id` at all yet anywhere).
+  The sync script calls `POST /v1/skills` (a **different** endpoint from the one
+  above — creates both the skill's id AND its first version in one call) and writes
+  both the newly-minted `skill_id` and the version back into `skills.json`. This is
+  exactly how `smoke-test-example/` (below) was first synced for real.
+
+**Both skill-push cases require the SAME zip shape, live-confirmed 2026-07-06 (Phase
+3) — this corrects an earlier, untested assumption.** The zip's files must sit
+inside **one top-level folder**, and that folder's name must **exactly match** the
+`name:` field in the zipped `SKILL.md`'s YAML front matter. Phase 2 (which never
+created a real Skill resource — see "Judgment calls," below) assumed the
+version-push endpoint (`POST /v1/skills/{id}/versions`) accepted a *flattened* zip
+with no wrapping folder, unlike the creation endpoint. A real Phase 3 push using
+that flattened shape failed with a genuine 400
+(`"Zip must contain a top-level folder with all files inside it, including
+SKILL.md"`), and a follow-up probe with a deliberately mismatched folder name
+confirmed the folder-name-must-match check applies to *both* endpoints identically.
+`deploy/managed-agent/README.md`'s own documented version-push command
+(`cd deploy/managed-agent/skills; zip -r -q ... daily-ai-brief -x "*.DS_Store"`,
+run from **one directory above** `daily-ai-brief/`) already produced this exact
+shape by construction — which is why that real, earlier push never hit the bug this
+phase found. `sync.py`'s `_zip_skill_source()` now builds this same wrapping-folder
+shape for both skill-push cases.
 
 ## Running the sync script
 
@@ -156,9 +181,17 @@ The script inspects `candidate.json`'s `agent_id` field:
   sub-agent create succeeded but the subsequent coordinator create failed), the script
   reuses it rather than creating a second, duplicate, permanently-orphaned sub-agent —
   the same resumability guarantee as the skill-version push, below.
-- **`agent_id` already present → update in place.** For each agent, the script reads
-  its **current live state** (`GET /v1/agents/{id}`) and compares it against the local
-  declaration. Only a genuinely-**changed** agent gets updated
+- **`agent_id` already present → update in place.** **First**, if the candidate owns
+  a `skill/` directory, the script checks whether its content has changed since the
+  last push — **entirely locally, no network call** — by comparing a SHA-256 hash of
+  `skill/`'s files against a `content_hash` field the sync script itself recorded
+  into `skills.json` at the last push (Phase 3 addition; see "Skill-content changes
+  on an update sync," below, for the full mechanism and why this is *not* a
+  forbidden bespoke index). If the hash differs, it pushes a new Skills-API version
+  and rewrites `skills.json`'s `version`/`content_hash`. **Then**, for each agent
+  (re-loaded fresh if a skill was just pushed, so it sees the new pinned version),
+  the script reads its **current live state** (`GET /v1/agents/{id}`) and compares it
+  against the local declaration. Only a genuinely-**changed** agent gets updated
   (`POST /v1/agents/{id}` with the exact `version` just read — never a cached/assumed
   value). If that update returns `409` (someone/something else updated the agent in
   between), the script re-reads the current version once and retries — it never
@@ -169,6 +202,50 @@ create/update calls are made (the script still issues one read-only `GET` per ag
 to *detect* "unchanged" in the first place — see "Judgment calls," below, for why that
 GET is unavoidable and is not itself a violation of the "no bespoke duplicate-of-git
 index" principle).
+
+### Skill-content changes on an update sync (Phase 3, AC-5) — the direct proof mechanism
+
+A candidate-owned skill's **first** version is pushed only on **first sync**
+(above). A **later** edit to that same `skill/` directory needs its own detection
+mechanism on an **update** sync — Phase 2 never built this (it only ever pushed a
+skill's very first version); Phase 3 added it, since proving AC-5 ("a Skills-API
+push alone reaches a running candidate, no image rebuild") requires actually editing
+an already-synced candidate's skill and re-syncing.
+
+**How it's detected — no bespoke duplicate-of-git index.** The sync script computes
+a SHA-256 hash over `skill/`'s file paths + contents (sorted, for determinism) and
+compares it against a `content_hash` field it itself wrote into `skills.json`'s
+pinned entry the last time it pushed. This is a **local-only comparison — no network
+call needed** to detect "did the skill change." `content_hash` lives as an **extra
+field on an already-git-tracked file** (`skills.json`, which already carries the
+not-derivable-from-git `skill_id`/`version`) — not a new, separate side-file — so it
+doesn't introduce the kind of bespoke duplicate-of-git index Decision 2c/FR-12
+disfavors: it's derived from, and travels with, the git-tracked `skill/` content
+itself. **`content_hash` is stripped before being sent to the Agents API**
+(`AgentDeclaration.to_agent_body()` filters it out of each `skills[]` entry) — it is
+purely local bookkeeping, never part of what the agent's live declaration actually
+is, and leaking it into the request body would also make the "did this change"
+comparison against the live agent spuriously fail on every sync.
+
+**What happens on a real content change:** (1) push a new Skills-API version
+(`POST /v1/skills/{id}/versions`) from the edited `skill/` content; (2) rewrite
+`skills.json`'s `version` and `content_hash`; (3) re-load the candidate so the
+in-memory declaration reflects the fresh pin; (4) compare the re-loaded declaration
+against the agent's live state — it now differs (the live agent still references
+the *old* skill version), so **the referencing agent is updated in place**
+(`POST /v1/agents/{id}`, same `agent_id`, incremented `version`) to reference the
+new skill version. **No agent recreation, no container/image rebuild, at any
+point** — this is the exact chain that closes the ADR-0008 image-rebuild failure
+mode ("a Skills-API push alone did not reach the running session because the skill
+was baked into the image"): here, a skill push is *always* followed through to an
+agent update that actually references it. See "Phase 3 live validation," below, for
+a real run proving this end to end (including the actual output changing between
+the two skill versions).
+
+For a **multi-agent** candidate, this fits into the existing ordered two-step: if a
+sub-agent's or the coordinator's own `skill/` content changed, that agent's skill
+push + re-pin happens as part of its own update, ahead of (or as part of) the
+existing sub-agent-then-coordinator ordering documented below.
 
 **The script never runs `git add`/`git commit` itself.** After a sync that created or
 updated anything, it prints a reminder to review and commit the resulting diff
@@ -202,6 +279,96 @@ sub-agent(s) must be created **before** the coordinator, because the coordinator
 coordinator ALSO needs a sync pass, or your change has no effect.** The script handles
 this automatically — you never need to invoke it twice — but if you ever bypass the
 script and call the Agents API by hand, this is the exact mistake to avoid.
+
+## The shared `cloud` environment (agent-system-redesign epic Phase 3)
+
+Per ADR-0014 Decision 1: **one** `cloud` Managed Agents environment is shared by
+**every** candidate — there is no per-candidate environment, and no 1:1
+agent/environment binding at the platform level (confirmed: a session references an
+`agent` id and an `environment_id` **separately**). This environment is created
+**once**, deliberately, as a **permanent** resource — there is no confirmed
+delete/archive primitive for an environment (mirroring the same gap for agents), so
+recreating it is not something to do lightly.
+
+**How it was created (2026-07-06, confirmed live — not assumed from docs):**
+`POST /v1/environments` (the same base URL/headers as every other Managed Agents
+call: `x-api-key`, `anthropic-version: 2023-06-01`,
+`anthropic-beta: managed-agents-2026-04-01`), body
+`{"name": ..., "description": ..., "config": {"type": "cloud"}}`. Verified via a
+read-only `GET /v1/environments` first (confirmed the resource collection and that
+the existing production `self_hosted` environment was already listed there), then
+the real `POST`. The response confirmed
+`config: {"type": "cloud", "networking": {"type": "unrestricted"}, ...}` — matching
+the ADR's own live finding that `unrestricted` networking is the account's default,
+not something that needs to be explicitly requested.
+
+**Its id is recorded in `deploy/candidates/environment.json`** — a single, small,
+git-tracked JSON file (`{"environment_id": "env_...", "type": "cloud", ...}`), the
+one shared config `trigger.py` reads at run time. It is **not** duplicated into each
+candidate's own files — Decision 2c's "the `environment_id` is not a per-candidate
+fact at all" is followed literally here.
+
+**Do not recreate this environment.** If you ever believe it's become unusable, that
+is a decision for a human, not a script — see the ADR's own note that this whole
+class of resource (agents, environments) has no confirmed way to be torn down once
+created.
+
+## Triggering a candidate run (`trigger.py`)
+
+`trigger.py` (a thin CLI over `candidate_sync/trigger.py`) generalizes
+`deploy/eval/`'s already-proven trigger-and-poll mechanics (create a temporary,
+non-cron Deployment against an agent + environment; `/run` it; poll the Sessions API
+for a terminal status; archive the Deployment when done) to work against **any**
+candidate's `agent_id` — not one hardcoded production pair — plus the ONE shared
+`cloud` environment above. This is what makes FR-6/FR-7 concrete: triggering a
+candidate needs **zero AWS infrastructure**, and (because there is no delivery path
+reachable from a `cloud` sandbox at all in this redesign) a candidate run can
+**never** reach a real subscriber.
+
+```bash
+cd deploy/candidates
+export ANTHROPIC_API_KEY=$(cat ~/.anthropic-managed-agents/ant-api-key.txt)
+.venv/bin/python3 trigger.py <path-to-candidate-directory> ["<optional task prompt override>"]
+
+# e.g., against the real, permanent smoke-test-example candidate (see "Phase 3 live
+# validation" below for what this actually produced):
+.venv/bin/python3 trigger.py smoke-test-example
+```
+
+If no override is given, the candidate's own `task-prompt.md` is used (the same
+file the sync script reads for the agent's declared per-run task). The CLI prints
+the deployment id, session id, final status, and every file successfully recovered
+via `cat` from the session's event stream.
+
+**How a candidate's output is retrieved — the Sessions events API, NOT the Files
+API.** ADR-0014 Decision 1 live-refuted the assumption that an agent-written file
+becomes a downloadable Files-API `file_id` (confirmed: `GET /v1/files` stayed empty
+after a probe agent wrote files; there is no `/v1/sessions/{id}/files`
+sub-resource). The confirmed substitute: a `bash` tool_result from a plain
+`cat <path>` command echoes the exact file body in the session's event stream
+(`GET /v1/sessions/{id}/events`). So every candidate task prompt in this repo should
+explicitly ask the agent to `cat` back whatever it writes, and
+`candidate_sync.trigger.fetch_catted_file_contents()` parses the event stream for
+those tool_result bodies — no AWS, no S3, no Files API involved at any point.
+
+**A real race this phase found and fixed: the session-status endpoint can report
+terminal BEFORE the events endpoint has caught up.** On a real run,
+`GET /v1/sessions/{id}` reported `status: "idle"` on the very first poll, while
+`GET /v1/sessions/{id}/events` at that exact moment returned only 4 partial events —
+none of the agent's actual tool calls. Re-fetching moments later returned the full,
+complete transcript. `trigger.py`'s `_wait_for_settled_events()` closes this gap by
+retrying the events fetch (with a small bounded budget, injectable for tests) until
+the event stream **itself** contains a terminal `session.status_*` event, rather
+than trusting the separate session-status field alone. See "Phase 3 live
+validation," below, for exactly how this was found.
+
+**Cost/archival discipline (mirroring `deploy/eval/`'s own proven pattern):** every
+triggered run creates a **temporary** Deployment, and `run_candidate()` **always**
+archives it (`POST /v1/deployments/{id}/archive`) in a `finally` block — on success,
+on a failed session, and on a poll timeout alike — so no callable temporary
+deployment is ever left behind. Deployments are the one resource type in this whole
+mechanism that genuinely **is** confirmed archivable (unlike agents/environments,
+per README §6 of `deploy/managed-agent/README.md` and the ADR's own note).
 
 ## Reading historical state
 
@@ -316,6 +483,133 @@ tracked files — the id is just "this candidate's one address").
   live in an earlier session (see the ADR's "What I verified live" section) — this
   phase's job is to prove the SCRIPT calls them correctly, which mocked tests do
   without that risk.
+- **(Phase 3) `_zip_skill_source()` (formerly two functions, `_zip_skill_source()`
+  and `_zip_skill_source_for_creation()`) was unified into ONE function after a real
+  live push proved they needed identical treatment.** Phase 2 assumed, without
+  testing against the real API, that a version push to an already-existing skill
+  accepted a *flattened* zip (no wrapping folder) while a brand-new skill's creation
+  required a wrapping folder matching `SKILL.md`'s `name:` field. A real Phase 3
+  push using the flattened shape against an *existing* skill failed with the exact
+  same 400 the creation endpoint gives, and a follow-up probe confirmed the
+  folder-name-must-match rule applies to both. One function now serves both
+  `create_skill()` and `create_skill_version()`.
+- **A candidate-owned skill's `content_hash` is deliberately a field on
+  `skills.json`, not a new side-file, and is deliberately stripped before being sent
+  to the Agents API.** See "Skill-content changes on an update sync," above, for the
+  full reasoning — flagged here too since it's the kind of thing a careless refactor
+  could accidentally regress (leaking `content_hash` into `to_agent_body()`'s output
+  would make the live-vs-local comparison spuriously "always different").
+- **A single-agent candidate with no `content_hash` recorded at all (e.g. one first
+  synced before this Phase-3 field existed) is treated as "cannot determine, skip" on
+  an update sync — NOT as "changed."** This avoids an unwanted, surprise skill-version
+  push the very next time an already-synced candidate (predating this feature) is
+  re-synced with no actual skill-content edit. In practice this repo has no such
+  candidate yet (`smoke-test-example` was first synced with `content_hash` support
+  already in place) — this is a forward-looking safety choice, not a currently-hit
+  case.
+- **The events-settle retry (`_wait_for_settled_events()`) was added only after a
+  REAL race was observed live, not speculatively.** The first real trigger of
+  `smoke-test-example` printed "no cat'd file contents found" despite the run having
+  genuinely succeeded — a direct debugging session traced this to the session-status
+  endpoint reporting `idle` before the events endpoint had the full transcript. This
+  is exactly the kind of bug this repo's other epics have found only by triggering
+  live runs (see `deploy/eval/README.md`'s own "Judgment calls" section for the same
+  pattern) — a mocked test suite alone would never have caught it, since the mock
+  would only ever return what it was scripted to return.
+
+## Phase 3 live validation (2026-07-06) — the FR-4/FR-5 proof, run for real
+
+Unlike Phase 2 (fully mocked — see "Judgment calls" above), Phase 3 is the first to
+make real, live Anthropic API calls: a real environment, a real agent, a real skill,
+and two real triggered sessions. Recorded here in full, matching the tone/style of
+`deploy/eval/README.md`'s own "Judgment calls" section — the point being that several
+of the bugs below were found **only** by actually triggering live runs, exactly the
+discipline this repo's other epics have already established.
+
+**1. The shared `cloud` environment was created once, for real.**
+`POST /v1/environments` with `{"config": {"type": "cloud"}}` returned
+`environment_id: env_01W3Envi4NfK7ypQMfoZccRY` (recorded in `environment.json`).
+Confirmed `config.networking: {"type": "unrestricted"}` came back by default,
+matching the ADR's own live finding.
+
+**2. `smoke-test-example/` was created — a permanent, deliberately synthetic
+reference candidate.** `python3 sync.py smoke-test-example` (first sync, no
+`agent_id` yet) pushed its `skill/` content as a **brand-new** Skills-API resource
+(`POST /v1/skills` — the genuinely new endpoint this phase's `create_skill()` adds)
+and created the agent:
+  - `skill_id: skill_01BSnAuiUxRNqYRBKBhAw2dP`, first version `1783336556116141`.
+  - `agent_id: agent_01ExTVacFoay8yrAdebiRoj7`.
+  Both written back into the candidate's tracked files by the sync script itself.
+
+**3. First real trigger — and the events-settle race, found and fixed.** The first
+`trigger.py smoke-test-example` run completed (session reached `idle`) but printed
+"no cat'd file contents found," despite the run having genuinely written and cat'd
+its output. Direct debugging (re-fetching `GET /v1/sessions/{id}` and
+`GET /v1/sessions/{id}/events` immediately after the CLI exited, then again moments
+later) confirmed a real race: on the very FIRST status poll, the session already
+reported `status: "idle"`, while the events endpoint at that exact instant returned
+only 4 partial events — none of the agent's actual tool_use/tool_result pairs.
+Re-fetching moments later returned the full transcript (24 events), ending in a
+`session.status_idle` event. Fixed by adding `_wait_for_settled_events()` — retrying
+the events fetch until the stream itself contains a terminal `session.status_*`
+event, not trusting the separate status field alone. After the fix, a re-run
+correctly retrieved:
+
+```
+--- /workspace/smoke-test-output.txt ---
+The smoke test skill says hello from version one.
+```
+
+**4. The zip-shape bug — found attempting the skill-version-update proof.**
+Editing `smoke-test-example/skill/SKILL.md` (changing "version one" to "version
+two" throughout, and bumping the in-file version note) and re-running `sync.py`
+initially failed with a real 400:
+`"Zip must contain a top-level folder with all files inside it, including
+SKILL.md"` — from `POST /v1/skills/{id}/versions`, an endpoint Phase 2 had assumed
+(never tested live) accepted a flattened zip. A follow-up manual probe with a
+deliberately mismatched folder name against the same endpoint confirmed a SECOND
+constraint: `"The folder name '<x>' must match the skill name '<y>' in SKILL.md."`
+— proving the version-push endpoint enforces the IDENTICAL two constraints the
+creation endpoint does. Fixed by unifying `_zip_skill_source()` to always build the
+wrapping-folder shape (see "Skill content," above, and the "Judgment calls" bullet
+on this).
+
+**5. The skill-version-update sync, re-run successfully.** With the zip-shape bug
+fixed, `python3 sync.py smoke-test-example` correctly:
+  - Detected the local `content_hash` differed from what was recorded (a real,
+    genuine content change) — no network call needed to detect this.
+  - Pushed a new Skills-API version: `skill_01BSnAuiUxRNqYRBKBhAw2dP` → version
+    `1783337264004829`.
+  - Detected the agent's declaration now differed from its live state (the new
+    skill version wasn't yet referenced) and updated the **same** `agent_id` in
+    place — `agent_01ExTVacFoay8yrAdebiRoj7` went from **version 1 → version 2**
+    (confirmed via `GET /v1/agents/{id}/versions`, which returned both versions,
+    each referencing its own skill version: v1 → skill version
+    `1783336556116141`, v2 → skill version `1783337264004829`).
+  - **No new `agent_id` was created at any point** — `candidate.json`'s `agent_id`
+    field is byte-for-byte unchanged from step 2.
+
+**6. Second real trigger — the sharp AC-5 proof.** `trigger.py smoke-test-example`
+was run again (same candidate, same shared environment, no code change to the
+trigger mechanism itself), and correctly retrieved:
+
+```
+--- /workspace/smoke-test-output.txt ---
+The smoke test skill now says hello from version two.
+```
+
+This is the direct, sharp confirmation the whole redesign exists to establish: a
+Skills-API version push — with **no agent recreation** and **no container/image
+rebuild of any kind** (there is no image in this topology at all) — reached a real,
+running candidate. The exact ADR-0008 failure mode this redesign was built to fix
+("a Skills-API push alone did not reach the running session because the skill was
+baked into the image") **did not occur.**
+
+**7. Archival hygiene confirmed.** After all of the above, `GET /v1/deployments`
+listed exactly ONE active deployment — the real, unrelated, live production
+`daily-ai-brief-scheduled` deployment. Every temporary deployment this phase's
+`trigger.py` runs created (including ones from ad hoc debugging sessions while
+tracking down the events-settle race) was correctly archived — none leaked.
 
 ## Local validation
 
@@ -323,6 +617,13 @@ tracked files — the id is just "this candidate's one address").
 cd deploy/candidates
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python3 -m py_compile sync.py candidate_sync/*.py
+.venv/bin/python3 -m py_compile sync.py trigger.py candidate_sync/*.py
 .venv/bin/python3 -m pytest tests/ -v
 ```
+
+This runs the FULL mocked test suite (Phase 2's sync-logic tests plus Phase 3's
+trigger-tool and skill-creation/skill-update-detection tests) — no real network
+calls, no real Anthropic API credentials needed. The one real, live proof (creating
+the shared environment, `smoke-test-example`, and its two triggered runs — see
+"Phase 3 live validation," above) was run once, by hand, as a genuine validation; it
+is deliberately **not** part of this repeatable, offline `pytest` invocation.
