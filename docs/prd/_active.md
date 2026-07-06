@@ -6,36 +6,43 @@ The current active PRD for this project:
 
 ---
 
-Status: **PRD rev. 2 + revised ADR-0014, both awaiting human sign-off before any build
-(2026-07-06).** The agent-system-redesign PRD is the active planning doc. It fully decouples content
-generation (Claude Platform) from AWS delivery (TTS/email/archival/DynamoDB) so a candidate agent
-system can be deployed via a **pure API call with no container build** and triggered/retrieved with
-**zero AWS infrastructure** and zero risk to the live send — with git-tracked, declarative,
-independently-diffable, multi-agent-capable candidate definitions. **The PRD was revised (rev. 2) on
-2026-07-06** to incorporate six owner-feedback points given after reviewing rev. 1: (1) **eval-harness
-re-integration is de-scoped** to a later, separate epic — this epic keeps only the standalone property
-that a candidate is triggerable and its artifacts retrievable via Claude-Platform-only APIs; (2) the
-**local Desktop fallback is declared dead**; (3) **Markdown→HTML conversion moves to the delivery
-side, deterministically (no LLM)** — content generation's output narrows to brief markdown +
-listening-script text; (4) **git-native versioning replaces a bespoke `registry.json`**; (5) restates
-(1); (6) a **new per-brief source-usage output** seeds GitHub issue #28's later source-consolidation
-effort. **`docs/adr/0014-agent-system-redesign-topology.md` has now been revised to match (also
-2026-07-06)**, status **"Proposed — pending human sign-off."** Its recommendation: full
-**cloud-for-everything** (retire `deploy/managed-agent/cdk/` + `microvm/`, staged behind validation),
-with a conservative hybrid (cloud eval, self-hosted production) offered as an explicit fallback; a new
-standalone `deploy/delivery/` stack (bearer-token auth) that now also derives brief HTML
-deterministically from markdown (flagged as a regression risk needing byte-for-byte verification
-against a real production brief); and candidate versioning via **an annotated git tag per sync event**
-(`candidate/<slug>/sync-<n>`, recording live Platform IDs in the tag message) instead of a
-`registry.json` — directly answering the owner's "retrieve a previous prompt version without rolling
-back the repo" question via `git show <ref>:<path>`. The ADR-0008 lockstep is reconciled to two-way
-(in-repo ↔ live Skills-API), unconditionally, per the dead-Desktop-fallback decision. The one PM-level
-ambiguity — "narrated version" = pre-narration listening-script text, not synthesized audio (§7/FR-8)
-— was **confirmed by the owner (2026-07-06)**: "The listening script is the output. No actual TTS for
-evals." **No implementation starts until the owner reviews both documents and signs off** — open items
-include the full-cloud-vs-hybrid topology call, the delivery/candidate-layout shapes, and the
-ADR-0008/source-usage reconciliations. Next step: owner reviews `docs/prd/agent-system-redesign.md`
-(rev. 2) and `docs/adr/0014-agent-system-redesign-topology.md` (revised) and decides.
+Status: **In build — Phases 1–5 shipped on `feat/agent-system-redesign`; topology ratified HYBRID
+(2026-07-06); one design-driven addition (recent-priors endpoint) + final validation remain. Not yet
+PR'd/merged.** The agent-system-redesign PRD (rev. 2) is the active planning doc; ADR-0014 records the
+decisions. It decouples content generation (Claude Platform) from AWS delivery so a candidate agent
+system deploys via a **pure API call with no container build** and is triggered/retrieved with **zero
+AWS infrastructure**, git-tracked and declarative. **Built, each reviewed + security-cleared, all on
+branch `feat/agent-system-redesign`:**
+- **Phase 1** — `deploy/delivery/`: standalone CDK stack, async bearer-authed `POST /deliver` +
+  `GET /deliver/{id}` (async trigger/poll — API Gateway's 30s cap can't hold a multi-minute send),
+  deterministic no-LLM Markdown→HTML via one fixed template (the "reproduce THE standardized design"
+  premise was disproven — 3 real production briefs had 3 different structures — so it establishes one
+  fixed template instead), IAM = today's delivery grants moved not duplicated.
+- **Phase 2** — `deploy/candidates/`: git-native candidate versioning (per-dimension files, one stable
+  `agent_id` per candidate, `git show <ref>:<path>` for history, `sync.py` create-once/update-in-place
+  via the confirmed native Agents-API versioning). No `registry.json`, no per-sync git tag.
+- **Phase 3** — shared `cloud` environment (`env_01W3Envi4NfK7ypQMfoZccRY`) + `trigger.py`
+  (Deployments-API trigger + Sessions-events-API retrieval, the Files-API auto-`file_id` assumption
+  having been refuted). Proved live: a skill-version push reaches a candidate with **no image rebuild**
+  (the ADR-0008 failure mode this epic exists to fix).
+- **Phase 4** — per-brief **source-usage record** (FR-8a, GitHub #28), skill-emitted + archived, live
+  skill version pushed.
+- **Phase 5** — `production-baseline` candidate (today's real prod config re-expressed), synced to its
+  OWN new `agent_id`, triggered for a real research run, output validated **structurally/qualitatively
+  equivalent** to same-day production. Surfaced (and fixed) real bugs only a long real run exposed.
+**Topology decision (ADR-0014 Decision 1) — RATIFIED HYBRID by the owner 2026-07-06:** `cloud` for
+candidate/eval, `self_hosted` RETAINED for production (`deploy/managed-agent/cdk/` + `microvm/` kept,
+Phase 7 cut-over is a **no-op**). Chosen over full-cloud because live testing confirmed a `cloud`-only
+egress safety-blocklist permanently blocks 4 curated `sources.md` domains (The Verge, Ars Technica,
+Reuters, Reddit) with no config workaround, while self-hosted reaches them — a real but bounded
+production-quality cost the hybrid avoids for free (the epic's full value lands regardless). (A
+parallel `web_search` 429 scare was proven a transient backend blip, not a topology issue.)
+**Remaining:** (a) close "Difference B" — a delivery-side **`GET /recent-briefs`** read endpoint so
+cloud candidates read the same recent priors production does (auth scoped so a candidate can NEVER
+reach `POST /deliver`); (b) Phase 6 end-to-end validation (AC-1…AC-14); then reviewer/security passes
+and a PR. The FR-8 "narrated version = listening-script text, no TTS for evals" reading was owner-
+confirmed. Deferred to a later epic (unchanged): re-integrating the `deploy/eval/` harness against
+this new candidate mechanism.
 
 Previous PRD — `eval-harness.md` (**Shipped, merged 2026-07-05**). `deploy/eval/` deployed and
 live-validated end to end (real evaluation runs, real cost breakdown, real candidates.json-driven
