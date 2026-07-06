@@ -284,29 +284,48 @@ class BriefDeliveryStack(Stack):
         )
 
     def _build_recent_briefs_read_bearer_secret(self) -> secretsmanager.Secret:
-        """The read-only bearer secret gating GET /recent-briefs (ADR-0014
-        Decision 2d) -- CDK auto-generates a random value (a placeholder that may
-        be overwritten out-of-band), same convention as
+        """The recent-briefs HMAC signing key gating GET /recent-briefs (ADR-0014
+        Decision 2d, as amended 2026-07-06 by Decision 2d's "Correction: how the
+        read token actually reaches a `cloud` candidate" -- status ACCEPTED,
+        ratified by the human) -- CDK auto-generates a random value (a
+        placeholder that may be overwritten out-of-band), same convention as
         `_build_delivery_bearer_secret()` above. DELIBERATELY a SEPARATE secret,
         not a reuse of DELIVERY_BEARER_SECRET_NAME: the central auth-separation
-        property Decision 2d requires is that a `cloud` candidate given ONLY this
-        secret's token can read recent priors but is structurally UNABLE to
-        authenticate to POST /deliver (which checks only the OTHER secret) -- see
-        `recent_briefs_auth.py`'s module docstring for the full rationale.
+        property Decision 2d requires is that a `cloud` candidate given ONLY a
+        token signed with THIS secret can read recent priors but is
+        structurally UNABLE to authenticate to POST /deliver (which checks only
+        the OTHER secret) -- see `recent_briefs_auth.py` / `recent_briefs_token.py`'s
+        module docstrings for the full rationale.
 
-        `exclude_punctuation=True` (added 2026-07-06): this token is the one a
-        `cloud` candidate presents via `curl -H "Authorization: Bearer <token>"`,
-        and a live run confirmed a punctuation char in the value breaks the shell
-        quoting -- so the generated value is pinned SHELL-SAFE (alphanumeric only)
-        by construction."""
+        This value is NO LONGER compared directly as a static bearer token --
+        it is now an HMAC SIGNING KEY. The trigger side
+        (`deploy/candidates/candidate_sync/trigger.py`) reads this same secret
+        value (via a local `RECENT_BRIEFS_SIGNING_KEY` env var populated
+        out-of-band, never an AWS call from the candidate tooling itself) and
+        mints a short-lived, `exp`-bearing SIGNED token per triggered run
+        (`recent_briefs_token.generate()`), injected into the candidate's task
+        prompt; `GET /recent-briefs` verifies the signature + expiry
+        (`recent_briefs_token.verify()`) rather than comparing the presented
+        value to this secret byte-for-byte. This removes the need to rotate
+        this secret after every run -- a leaked (transcript-echoed) signed token
+        is dead within minutes on its own.
+
+        `exclude_punctuation=True` (added 2026-07-06): this SECRET (used as an
+        HMAC key, and formerly compared directly) must stay SHELL-SAFE
+        (alphanumeric only) regardless of how it's used, since a live run
+        confirmed a punctuation char breaks a `curl -H "Authorization: Bearer
+        <token>"` invocation's shell quoting -- pinned by construction."""
         return secretsmanager.Secret(
             self,
             "RecentBriefsReadBearerSecret",
             secret_name=RECENT_BRIEFS_READ_BEARER_SECRET_NAME,
             description=(
-                "Read-only bearer token gating GET /recent-briefs ONLY (ADR-0014 Decision 2d) "
-                "-- DISTINCT from the delivery bearer secret; never authenticates POST /deliver "
-                "or GET /deliver/{deliveryId}. Auto-generated (shell-safe); may be rotated out-of-band."
+                "HMAC signing key for the short-lived, signed GET /recent-briefs read token "
+                "(ADR-0014 Decision 2d, 2026-07-06 correction) -- DISTINCT from the delivery "
+                "bearer secret; a token signed with this key never authenticates POST /deliver "
+                "or GET /deliver/{deliveryId}. Auto-generated (shell-safe); may be rotated "
+                "out-of-band (a rotation invalidates only not-yet-expired outstanding tokens, "
+                "since every token is short-lived by design)."
             ),
             generate_secret_string=secretsmanager.SecretStringGenerator(exclude_punctuation=True),
             removal_policy=RemovalPolicy.RETAIN,
