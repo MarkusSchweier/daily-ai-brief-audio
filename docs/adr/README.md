@@ -22,3 +22,4 @@ the template and when an ADR is required.
 | [0012](0012-feedback-standalone-stack-and-token-helper-packaging.md) | Standalone `deploy/feedback/` CDK app and token-helper packaging | Accepted |
 | [0013](0013-eval-harness-backbone-build-vs-adopt.md) | Evaluation-harness backbone: custom AWS-native build vs. adopting a self-hostable eval tool | Accepted |
 | [0014](0014-agent-system-redesign-topology.md) | Agent-system redesign: environment topology (cloud vs. self-hosted), decoupled delivery boundary, and git-native candidate versioning | Accepted — Decision 1 (hybrid) + 2d signed-token ratified by the human 2026-07-06 |
+| [0015](0015-production-delivery-decoupling.md) | Production delivery decoupling: route the self-hosted MicroVM's daily send through the delivery boundary (full decouple, four-artifact contract) | Accepted 2026-07-06 — amends ADR-0014 Decision 1 (Phase-7 no-op reversed for delivery); cut-over owner-gated |
