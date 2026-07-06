@@ -275,6 +275,89 @@ def test_run_candidate_polls_until_terminal_using_injected_sleep():
     assert clock.sleep_calls == [5.0, 5.0]
 
 
+def test_run_candidate_does_not_accept_a_spurious_first_poll_idle_status():
+    """Regression test for a REAL race this phase's production-baseline trigger
+    found live (agent-system-redesign epic, Phase 5) -- the SECOND, distinct race
+    this function has now had fixed (see the "CORRECTED AGAIN" note on
+    run_candidate()'s own docstring for the full story and the live diagnostic
+    that confirmed it).
+
+    CONFIRMED LIVE (2026-07-06): the VERY FIRST `GET /v1/sessions/{id}` call,
+    issued with essentially zero delay right after `POST /v1/deployments/{id}/run`
+    returns, can report `status: "idle"` -- a STALE PLACEHOLDER from before the
+    session has even transitioned to `running` -- while the session's OWN event
+    stream at that exact same instant contains no terminal marker at all (the
+    session hasn't genuinely started, let alone finished). A live diagnostic probe
+    (a fresh trivial session, polled repeatedly starting the instant `/run`
+    returned) reproduced this exactly: poll #1 read `idle`; polls #2 onward
+    correctly read `running`; the session's real event stream later confirmed
+    `session.status_running` fired several seconds before the GENUINE
+    `session.status_idle` event. Before this fix, the poll loop would have
+    accepted that spurious FIRST "idle" as final and broken out of the loop after
+    milliseconds, on a session that then went on to run for real for many
+    minutes -- exactly what happened on the real `production-baseline` trigger
+    (masked by a confusing, misleading `CandidateRunEventsNotSettledError`, since
+    the events-settle retry correctly found no terminal marker yet -- there
+    genuinely wasn't one -- but that retry's own narrower budget was never
+    designed for "the session hasn't started," only for "it just finished and the
+    events endpoint is catching up").
+
+    This test scripts EXACTLY that sequence: poll #1 -> `idle` status but events
+    with NO terminal marker (must NOT be accepted); the loop must keep polling
+    (sleep_fn called); poll #2 -> `running`; poll #3 -> a GENUINE `idle`, this
+    time confirmed by events that DO contain the terminal marker -- only THIS
+    poll may be accepted.
+
+    Confirmed, directly: this test FAILS against the pre-fix code (it would
+    accept poll #1's spurious idle immediately, making zero sleep_fn calls and
+    returns before ever reaching poll #2/#3's scripted responses, so
+    `clock.sleep_calls` would be empty and the events-endpoint queue below would
+    be left with unconsumed entries) and PASSES against the fix."""
+    client = FakeHttpxClient()
+    client.when("POST", "/v1/deployments", FakeResponse(200, {"id": "depl_EXAMPLE"}))
+    client.when("POST", "/v1/deployments/depl_EXAMPLE/run", FakeResponse(200, {"session_id": "sesn_EXAMPLE"}))
+    client.when(
+        "GET",
+        "/v1/sessions/sesn_EXAMPLE",
+        FakeResponse(200, {"status": "idle"}),  # poll #1: the SPURIOUS placeholder
+        FakeResponse(200, {"status": "running"}),  # poll #2: genuinely running now
+        FakeResponse(200, {"status": "idle"}),  # poll #3: the GENUINE terminal status
+    )
+    client.when(
+        "GET",
+        "/v1/sessions/sesn_EXAMPLE/events",
+        # Confirming-fetch after poll #1's spurious "idle": NO terminal marker yet
+        # -- must NOT be accepted as done.
+        FakeResponse(200, {"data": [REAL_SESSION_STATUS_RUNNING_EVENT], "next_page": None}),
+        # Confirming-fetch after poll #3's GENUINE "idle": the terminal marker IS
+        # present now -- this one may be accepted.
+        FakeResponse(200, {"data": [REAL_SESSION_STATUS_RUNNING_EVENT, REAL_SESSION_STATUS_IDLE_EVENT], "next_page": None}),
+        # _wait_for_settled_events()'s own subsequent fetch, once the loop has
+        # broken out -- same, now-genuinely-settled transcript.
+        FakeResponse(200, {"data": [REAL_SESSION_STATUS_RUNNING_EVENT, REAL_SESSION_STATUS_IDLE_EVENT], "next_page": None}),
+    )
+    client.when("POST", "/v1/deployments/depl_EXAMPLE/archive", FakeResponse(200, {}))
+    clock = _FakeClock()
+
+    result = trigger.run_candidate(
+        client,
+        agent_id="agent_EXAMPLE",
+        environment_id="env_EXAMPLE",
+        task_prompt="do the thing",
+        deployment_name="candidate-trigger-example",
+        poll_interval_seconds=5.0,
+        sleep_fn=clock.sleep_fn,
+        now_fn=clock.now_fn,
+    )
+
+    assert result.final_status == "idle"
+    assert result.events == [REAL_SESSION_STATUS_RUNNING_EVENT, REAL_SESSION_STATUS_IDLE_EVENT]
+    # The loop had to sleep TWICE (after poll #1's rejected spurious idle, and
+    # after poll #2's genuine "running") before poll #3's genuinely-confirmed idle
+    # was accepted -- proving the spurious first "idle" was NOT accepted outright.
+    assert clock.sleep_calls == [5.0, 5.0]
+
+
 def test_run_candidate_archives_even_when_start_session_itself_raises():
     """Regression test for the leaked-deployment bug the reviewer + security-
     engineer independently found: create_temporary_deployment() and start_session()

@@ -281,7 +281,43 @@ def run_candidate(
     behind" claim. Fixed by moving `start_session()` inside the `try` -- the
     `finally` archives unconditionally, which is correct because `deployment_id`
     is always bound before the `try`/`finally` is ever entered (see the comment
-    at the `finally` clause below)."""
+    at the `finally` clause below).
+
+    CORRECTED AGAIN (agent-system-redesign epic, Phase 5, a SECOND real race found
+    on the very first genuine, non-trivial candidate run -- `production-baseline`'s
+    real research/writing task): the VERY FIRST `get_session_status()` call, made
+    with ZERO delay immediately after `start_session()` returns, can report `idle`
+    -- a STALE PLACEHOLDER left over from before the session has even transitioned
+    to `running` -- NOT a genuine terminal state. CONFIRMED LIVE via a dedicated
+    diagnostic probe (a fresh trivial session, polled every ~0.3s starting the
+    instant `/run` returned): poll #1 read `idle`; polls #2-10 (all still within
+    ~1 second) correctly read `running`; the session's OWN event stream later
+    confirmed `session.status_running` fired ~11 seconds before the GENUINE
+    `session.status_idle` terminal event. This is the OPPOSITE-direction sibling of
+    `_wait_for_settled_events()`'s already-documented race (that one is "status
+    says terminal before events catch up"; THIS one is "status says terminal
+    (idle) before the session has even started running at all," which the
+    single-status-field poll loop had no way to distinguish from a genuine,
+    instant completion). On `production-baseline`'s real run, this caused the poll
+    loop to immediately (and wrongly) accept the SPURIOUS first-poll `idle` as
+    final, breaking out of the loop after mere milliseconds while the session
+    then went on to run for real, for many real minutes -- and the subsequent
+    `_wait_for_settled_events()` call correctly found no terminal event yet (there
+    genuinely wasn't one), exhausted its retry budget, and raised
+    `CandidateRunEventsNotSettledError` -- a confusing, MISLEADING symptom of this
+    DIFFERENT underlying bug, not a failure of the events-settle mechanism itself.
+
+    THE FIX: a status reported as terminal is no longer trusted on its own -- it
+    must be CONFIRMED by the event stream itself actually containing a genuine
+    terminal `session.status_*` event (the same, already-reliable signal
+    `_wait_for_settled_events()` uses) before the poll loop accepts it and breaks.
+    If the status looks terminal but the events stream does NOT yet contain a
+    terminal marker, this is treated as "not actually done yet" -- the loop
+    continues polling (respecting the same timeout/interval as any other
+    not-yet-terminal iteration) rather than exiting and handing off to
+    `_wait_for_settled_events()`'s SEPARATE, narrower retry budget (which exists
+    for the other race -- a genuinely-just-finished session whose events haven't
+    caught up yet -- not for "the session hasn't even started")."""
     deployment_id = create_temporary_deployment(
         deployments_client,
         agent_id=agent_id,
@@ -302,7 +338,12 @@ def run_candidate(
                     f"candidate run session {session_id} (deployment {deployment_id}) failed with status {final_status!r}"
                 )
             if final_status.lower() in _TERMINAL_STATUSES:
-                break
+                # Don't trust the status field alone (see the "CORRECTED AGAIN"
+                # note above -- a bare "idle" can be a stale pre-`running`
+                # placeholder). Confirm against the event stream's OWN terminal
+                # marker before actually accepting this as done.
+                if _events_are_settled(fetch_session_events(deployments_client, session_id)):
+                    break
             if now_fn() >= deadline:
                 raise CandidateRunTimeoutError(
                     f"candidate run session {session_id} (deployment {deployment_id}) did not reach a "

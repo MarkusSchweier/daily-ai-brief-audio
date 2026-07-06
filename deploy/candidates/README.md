@@ -609,6 +609,51 @@ tracked files — the id is just "this candidate's one address").
   repo's OTHER existing "unchanged" tests (which use the wrong bare-string mock
   shape) still pass unmodified after the fix, since normalizing an
   already-bare-string is a no-op.
+- **(Phase 5) A SECOND, distinct real race — the VERY FIRST session-status poll
+  can report a SPURIOUS terminal `idle`, before the session has even started
+  running, on a genuinely long-running task.** Found on the real
+  `production-baseline` trigger (the first genuine, non-trivial — many-minutes
+  — candidate task this repo has ever triggered; every prior real trigger was
+  the trivial `smoke-test-example` one-sentence task): `trigger.py` failed
+  almost immediately with a confusing `CandidateRunEventsNotSettledError`, even
+  though a read-only check moments later showed the session still genuinely
+  `running`, ~35 real seconds of active work logged. Direct diagnosis (a
+  dedicated diagnostic probe: a FRESH trivial session, polled every ~0.3s
+  starting the instant `POST /v1/deployments/{id}/run` returned) reproduced the
+  exact root cause live: poll #1 read `status: "idle"`; polls #2 onward (all
+  still within about a second) correctly read `"running"`; the session's own
+  event stream later confirmed `session.status_running` fired several seconds
+  BEFORE the genuine `session.status_idle` terminal event. So `idle` can appear
+  as a stale, pre-`running` PLACEHOLDER on literally the very first status poll
+  — indistinguishable, by status string alone, from a real terminal `idle`
+  reached later. `run_candidate()`'s poll loop (`_TERMINAL_STATUSES` check, no
+  delay before the first poll) trusted this raw status field outright and broke
+  out of the loop after milliseconds, on a session that then went on to run for
+  real for many minutes — the subsequent `_wait_for_settled_events()` call
+  correctly found no terminal marker yet (there genuinely wasn't one),
+  exhausted its OWN narrower retry budget (designed for the OPPOSITE race — "a
+  session that just finished, whose events endpoint hasn't caught up yet," not
+  "the session hasn't started at all"), and raised a confusing, misleading
+  error that pointed at the wrong mechanism. **Fixed**: a status reported as
+  terminal is no longer trusted alone — the poll loop now CONFIRMS it against
+  the event stream itself actually containing a genuine terminal
+  `session.status_*` marker (the same `_events_are_settled()` check
+  `_wait_for_settled_events()` already used, reused here as the actual source
+  of truth) before accepting it and breaking out; if the status looks terminal
+  but the events stream doesn't yet agree, the loop just keeps polling like any
+  other not-yet-terminal iteration. A new regression test,
+  `test_run_candidate_does_not_accept_a_spurious_first_poll_idle_status`,
+  scripts exactly this sequence (spurious `idle` + no terminal event → must NOT
+  be accepted; later genuine `idle` + a terminal event present → accepted) and
+  was confirmed, directly, to FAIL against the pre-fix code (it broke out after
+  a single sleep with the wrong interval, instead of the two sleeps the
+  corrected loop actually performs) and PASS against the fix. Both real bugs
+  this Phase found (this one and the `model`-shape no-op bug above) share a
+  root cause worth naming plainly: **every prior real trigger against this
+  mechanism used the trivial `smoke-test-example` task, which finishes in
+  roughly a dozen real seconds — far too fast to ever expose either race.**
+  Both needed a genuinely long-running, multi-minute real task — exactly what
+  `production-baseline`'s real research/writing work is — to surface at all.
 
 ## Phase 3 live validation (2026-07-06) — the FR-4/FR-5 proof, run for real
 
