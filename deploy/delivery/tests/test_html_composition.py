@@ -188,6 +188,47 @@ def test_footer_is_the_last_thing_inside_body_and_after_the_original_content():
     assert original_h1_position < footer_position < body_close_position
 
 
+def test_header_and_footer_are_inside_the_centered_card_aligned_with_the_body():
+    """ALIGNMENT FIX (first rendered eyeball): the banner/footer used to be
+    spliced at the raw `<body>` level -- OUTSIDE `derive_html()`'s centered 640px
+    card -- so they rendered full-width and left-aligned while the brief body sat
+    centered, and the two visibly didn't line up. They must now be composed
+    INSIDE the card cell, sharing its width/padding and lining up with the body.
+
+    Pinned structurally: both the banner and the footer must fall AFTER the card
+    content cell opens (`padding:32px 40px`), i.e. inside the card -- not before
+    the centered outer table (which was the bug: banner at offset < the outer
+    table)."""
+    brief_markdown = _load_fixture_markdown()
+    subscriber_html = _compose_subscriber_html(
+        brief_markdown, feedback_link="https://feedback.mschweier.com/?t=abc123"
+    )
+
+    outer_table_pos = subscriber_html.index('width="100%"')     # centered outer table
+    card_cell_pos = subscriber_html.index("padding:32px 40px")  # the card content cell
+    banner_pos = subscriber_html.index("curated and written by an AI agent")
+    footer_pos = subscriber_html.index(">Unsubscribe<")
+
+    # The card cell is inside the centered table; the chrome is inside the card.
+    assert outer_table_pos < card_cell_pos < banner_pos
+    assert card_cell_pos < footer_pos
+
+
+def test_no_unfilled_insertion_slot_markers_remain_in_a_composed_subscriber_email():
+    """A subscriber gets both header and footer, so BOTH slots must have been
+    consumed -- no raw `<!--BRIEF_*_SLOT-->` comment may leak into the sent
+    email."""
+    brief_markdown = _load_fixture_markdown()
+    subscriber_html = _compose_subscriber_html(
+        brief_markdown, feedback_link="https://feedback.mschweier.com/?t=abc123"
+    )
+
+    assert delivery_core._HEADER_SLOT not in subscriber_html
+    assert delivery_core._FOOTER_SLOT not in subscriber_html
+    assert "BRIEF_HEADER_SLOT" not in subscriber_html
+    assert "BRIEF_FOOTER_SLOT" not in subscriber_html
+
+
 def test_feedback_link_survives_full_composition_when_supplied():
     brief_markdown = _load_fixture_markdown()
 
@@ -217,9 +258,14 @@ def test_original_derive_html_content_is_still_fully_present_after_composition()
     subscriber_html = _compose_subscriber_html(brief_markdown)
 
     # Every line of the ORIGINAL derive_html() output must still be present,
-    # in order, inside the composed document (the banner/footer are pure
-    # insertions, never a replacement of any existing content).
+    # in order, inside the composed document -- EXCEPT the two insertion-slot
+    # markers, which are deliberately consumed (replaced by the banner/footer)
+    # during composition. Everything else is a pure insertion, never a
+    # replacement of real content.
+    consumed_slots = {delivery_core._HEADER_SLOT, delivery_core._FOOTER_SLOT}
     for original_line in derived.splitlines():
+        if original_line.strip() in consumed_slots:
+            continue
         assert original_line in subscriber_html
 
 

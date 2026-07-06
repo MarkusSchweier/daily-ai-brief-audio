@@ -189,6 +189,25 @@ _EMAIL_CONTENT_STYLE_BLOCK = (
 # subscriber, and was redundant with `_html_with_header()`'s top-of-email
 # disclaimer for the owner's copy.
 
+# Named insertion slots the per-recipient chrome (`_html_with_header()` /
+# `_html_with_unsubscribe_footer()`) targets, so the banner/footer land INSIDE
+# the centered content card -- horizontally aligned with the brief body -- rather
+# than at the raw `<body>` level, full-width and left-aligned, OUTSIDE the card.
+# This is an ALIGNMENT FIX the first rendered eyeball caught: composed at the
+# `<body>` level (the prior `_insert_after_body_open_tag()` /
+# `_insert_before_body_close_tag()` behavior), the grey banner ran edge-to-edge
+# and started at the far left while the brief sat in a centered 640px card -- the
+# two visibly didn't line up. `derive_html()` now emits these two comment markers
+# inside the card cell (after the content `<style>` block, and after the body);
+# the chrome functions REPLACE them. If a caller ever passes HTML without these
+# slots -- a bare fragment, or production `audio_email.py`'s agent-improvised
+# document, which has no card and no slots -- both functions FALL BACK to their
+# original `<body>`-boundary insertion, so the shared banner/footer TEXT stays
+# byte-identical across both hand-duplicated copies (module docstring's sync
+# note) and only this template-specific placement fast-path is new here.
+_HEADER_SLOT = "<!--BRIEF_HEADER_SLOT-->"
+_FOOTER_SLOT = "<!--BRIEF_FOOTER_SLOT-->"
+
 
 def _extract_email_title(brief_markdown: str) -> str:
     """Pull the brief's own title from its first Markdown `# ...` heading line
@@ -322,7 +341,9 @@ def derive_html(brief_markdown: str) -> str:
         f'<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
         f'<tr><td style="{_EMAIL_CARD_CELL_STYLE}">\n'
         f"{_EMAIL_CONTENT_STYLE_BLOCK}"
+        f"{_HEADER_SLOT}\n"
         f"{body_html}\n"
+        f"{_FOOTER_SLOT}\n"
         "</td></tr>\n"
         "</table>\n"
         "</td></tr>\n"
@@ -592,10 +613,20 @@ def _html_with_header(html_body, feedback_link=None):
 
     COMPOSITION FIX (reviewer-found bug): previously prepended via
     `header + html_body` (correct only when `html_body` was a bare fragment,
-    not a complete document) -- now inserted via
-    `_insert_after_body_open_tag()`, placing the banner as the first thing
-    inside `<body>`, still visually "at the top" but now actually inside the
-    document root. Banner text/styling are unchanged.
+    not a complete document) -- then inserted via `_insert_after_body_open_tag()`,
+    placing the banner as the first thing inside `<body>`, still visually "at the
+    top" but now actually inside the document root.
+
+    ALIGNMENT FIX (first rendered eyeball): inserting at the `<body>` level put
+    the banner OUTSIDE `derive_html()`'s centered 640px content card -- it ran
+    full-width and left-aligned while the brief body sat centered, so the two
+    didn't line up. The banner is now placed at the `_HEADER_SLOT` marker
+    `derive_html()` emits INSIDE the card cell (after the content `<style>`
+    block, before the brief body), so it shares the card's width and 40px side
+    padding and lines up with the body text. Falls back to the old
+    `_insert_after_body_open_tag()` body-level insertion when no slot is present
+    (a bare fragment, or production `audio_email.py`'s agent-improvised document,
+    which has no card). Banner text/styling are unchanged.
     """
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
@@ -614,6 +645,8 @@ def _html_with_header(html_body, feedback_link=None):
         "original sources and do your own research.</p>"
         "</div>"
     )
+    if _HEADER_SLOT in html_body:
+        return html_body.replace(_HEADER_SLOT, header, 1)
     return _insert_after_body_open_tag(html_body, header)
 
 
@@ -623,17 +656,27 @@ def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
 
     COMPOSITION FIX (reviewer-found bug): previously appended via
     `html_body + footer` (correct only when `html_body` was a bare fragment) --
-    now inserted via `_insert_before_body_close_tag()`, placing the footer as
-    the last thing inside `<body>`, still visually "at the bottom" but now
-    actually inside the document root, so the unsubscribe link it carries is
-    part of the rendered message rather than stranded past `</html>`. Footer
-    text/styling are unchanged.
+    then inserted via `_insert_before_body_close_tag()`, placing the footer as
+    the last thing inside `<body>`, so the unsubscribe link it carries is part
+    of the rendered message rather than stranded past `</html>`.
+
+    ALIGNMENT FIX (first rendered eyeball): inserting at the `</body>` level put
+    the footer OUTSIDE `derive_html()`'s centered content card (full-width,
+    left-aligned, not lined up with the brief body). The footer is now placed at
+    the `_FOOTER_SLOT` marker `derive_html()` emits INSIDE the card cell (after
+    the brief body), so it shares the card's width/padding and lines up with the
+    body. Falls back to the old `_insert_before_body_close_tag()` body-level
+    insertion when no slot is present (a bare fragment, or production
+    `audio_email.py`'s agent-improvised document). Footer text/styling are
+    unchanged.
     """
     footer = (
         '<hr><p style="font-size:12px;color:#666;">'
         f'You are receiving this because you subscribed to the daily AI brief. '
         f'<a href="{unsubscribe_link}">Unsubscribe</a> at any time.</p>'
     )
+    if _FOOTER_SLOT in html_body:
+        return html_body.replace(_FOOTER_SLOT, footer, 1)
     return _insert_before_body_close_tag(html_body, footer)
 
 
