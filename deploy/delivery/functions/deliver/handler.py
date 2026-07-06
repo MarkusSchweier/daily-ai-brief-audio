@@ -192,6 +192,21 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if _is_recent_briefs_request(event):
         if not recent_briefs_auth.is_authorized(event):
             return recent_briefs_auth.unauthorized_response()
+        # /recent-briefs is GET-only. Detection above is path-based (so ANY method
+        # to this path is captured by the read branch and stays under the read
+        # secret -- it can never fall through to the delivery-auth/trigger path
+        # below), and a non-GET is then explicitly rejected here rather than served
+        # as a read. In practice the API Gateway only registers `GET /recent-briefs`
+        # (a non-GET 404s at the gateway before reaching this Lambda), so this 405 is
+        # defense-in-depth for any future/alternate fronting -- checked AFTER auth so
+        # an unauthenticated caller learns nothing about the route.
+        method = (event.get("requestContext", {}).get("http", {}) or {}).get("method", "")
+        if method != "GET":
+            return {
+                "statusCode": 405,
+                "headers": {"Content-Type": "application/json", "Allow": "GET"},
+                "body": json.dumps({"error": "method_not_allowed"}),
+            }
         s3_client = boto3.client("s3")
         return _handle_recent_briefs(event, s3_client)
 

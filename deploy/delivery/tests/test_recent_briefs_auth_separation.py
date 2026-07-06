@@ -142,6 +142,64 @@ def test_delivery_token_does_authenticate_get_deliver_poll(monkeypatch, deliveri
 
 
 # ---------------------------------------------------------------------------
+# Misconfiguration / malformed-input, exercised THROUGH the real handler()
+# dispatch (not just each module in isolation) -- this file's whole point is
+# proving the property end-to-end, so the "neither secret configured" and
+# "malformed Authorization header" interactions belong here too (reviewer
+# follow-up on Decision 2d).
+# ---------------------------------------------------------------------------
+
+
+def test_recent_briefs_fails_closed_through_dispatch_when_no_secret_configured(monkeypatch):
+    """If the read secret is unresolved (None -- e.g. a fetch glitch or an
+    unpopulated secret), GET /recent-briefs must 401 through the real dispatch,
+    never fall open to an unauthenticated read."""
+    original = handler_module.recent_briefs_auth.is_authorized
+    monkeypatch.setattr(
+        handler_module.recent_briefs_auth, "is_authorized", lambda event: original(event, secret=None)
+    )
+
+    event = _event_with_bearer(READ_TOKEN, method="GET", path="/recent-briefs")
+    result = handler_module.handler(event, None)
+
+    assert result["statusCode"] == 401
+
+
+def test_recent_briefs_fails_closed_through_dispatch_on_malformed_authorization_header(monkeypatch):
+    """A non-Bearer / malformed Authorization header on GET /recent-briefs must
+    401 through the real dispatch -- the read secret is configured, but the header
+    carries no usable bearer token."""
+    _configure_both_secrets(monkeypatch, delivery_secret=DELIVERY_TOKEN, read_secret=READ_TOKEN)
+
+    event = {
+        "requestContext": {"http": {"method": "GET"}},
+        "headers": {"Authorization": f"Basic {READ_TOKEN}"},  # wrong scheme, not "Bearer"
+        "rawPath": "/recent-briefs",
+    }
+    result = handler_module.handler(event, None)
+
+    assert result["statusCode"] == 401
+
+
+def test_non_get_to_recent_briefs_is_405_not_a_fallthrough_to_delivery(monkeypatch):
+    """A (gateway-impossible) non-GET to /recent-briefs must NOT fall through to
+    the delivery-auth/trigger path -- it is captured by the path-based read branch,
+    authenticated by the READ secret, and then rejected 405. This pins the
+    '/recent-briefs is self-contained under the read secret' hardening: a non-GET
+    here can never reach POST /deliver's trigger logic."""
+    _configure_both_secrets(monkeypatch, delivery_secret=DELIVERY_TOKEN, read_secret=READ_TOKEN)
+
+    event = _event_with_bearer(READ_TOKEN, method="POST", path="/recent-briefs")
+    result = handler_module.handler(event, None)
+
+    assert result["statusCode"] == 405
+    # The delivery token must NOT unlock this path either -- confirms the 405 branch
+    # is still behind the READ secret, not the delivery one.
+    event_delivery = _event_with_bearer(DELIVERY_TOKEN, method="POST", path="/recent-briefs")
+    assert handler_module.handler(event_delivery, None)["statusCode"] == 401
+
+
+# ---------------------------------------------------------------------------
 # Structural proof: the two auth checks are genuinely independent function
 # calls against genuinely independent modules/secrets, not one shared code path
 # that happens to be parameterized identically.
