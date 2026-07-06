@@ -1,23 +1,62 @@
 # 0014. Agent-system redesign: environment topology, decoupled delivery boundary, and git-native candidate versioning
 
-- Status: **Proposed — pending human sign-off.** This is the Gate-0 decision for the
-  agent-system-redesign epic (`docs/prd/agent-system-redesign.md` §7/§8). It is a
-  major, cross-cutting, hard-to-reverse decision (it decides the runtime the live
-  subscriber-facing pipeline runs on) and therefore, per this repo's standing
-  convention, is escalated to the human for final sign-off before **any**
-  implementation begins. Two options are presented for the environment topology with a
-  clear recommendation; the delivery-boundary shape and candidate versioning layout are
-  recommended concretely. Nothing here is built, deployed, or merged yet.
+- Status: **Decision 1 (topology) ACCEPTED — hybrid, ratified by the human 2026-07-06.** The
+  other decisions (2a delivery boundary, 2b bearer auth, 2c candidate versioning, and the
+  ADR-0008 reconciliation) remain **recommended, pending sign-off**, and the build-time
+  verification items (esp. the Files-API/Sessions-events retrieval linkage) stay open. This is
+  the Gate-0 decision for the agent-system-redesign epic (`docs/prd/agent-system-redesign.md`
+  §7/§8). It is a major, cross-cutting, hard-to-reverse decision (it decides the runtime the live
+  subscriber-facing pipeline runs on) and was therefore, per this repo's standing convention,
+  escalated to the human — **who has now ratified the environment topology (Decision 1: the
+  hybrid).** The delivery-boundary shape and candidate versioning layout remain recommended
+  concretely and are not yet locked. Nothing is deployed to production yet.
   **Decision 1's recommendation was reassessed on 2026-07-06 (fifth pass, below) in light of two
-  live-confirmed `cloud` findings and now recommends the HYBRID (`cloud` for candidate/eval,
-  `self_hosted` retained for production) rather than full cloud-for-everything — the human ratifies
-  the topology.**
+  live-confirmed `cloud` findings to the HYBRID (`cloud` for candidate/eval, `self_hosted` retained
+  for production) rather than full cloud-for-everything, and the human RATIFIED the hybrid on
+  2026-07-06 (sixth pass, below).**
 - Date: 2026-07-05 (revised 2026-07-06 against PRD **revision 2**; revised again 2026-07-06 —
   **third pass** — to correct the agent-versioning premise; **fifth pass**, 2026-07-06 — reassessed
   Decision 1's recommendation to the hybrid on two live `cloud` findings, see the fifth-pass note
-  below. The fourth pass was the transport-only amendment in Decision 2a.)
-- Deciders: architect (Claude, recommendation); **human (final sign-off — pending)**
+  below. The fourth pass was the transport-only amendment in Decision 2a. **Sixth pass**, 2026-07-06 —
+  the human **ratified Decision 1 (the hybrid)**; Decision 1's status is now Accepted and a new
+  Decision 2d records the delivery-side recent-priors read endpoint that closes the hybrid's
+  eval-vs-production "read recent priors" fidelity gap.)
+- Deciders: architect (Claude, recommendation); **human — RATIFIED Decision 1 (topology: hybrid) on
+  2026-07-06; sign-off on Decisions 2a/2b/2c/2d still pending.**
 
+> **Revision note (2026-07-06 — SIXTH pass — the human RATIFIED Decision 1 (the hybrid), and a new
+> Decision 2d records the delivery-side recent-priors read endpoint that closes the hybrid's
+> eval-vs-production fidelity gap).** Two changes, both documentation-only (no code, skill, or `deploy/`
+> file edited):
+> 1. **Decision 1 is now ACCEPTED — hybrid, ratified by the human 2026-07-06.** The fifth pass
+>    reassessed the recommendation from full-cloud to the hybrid (`cloud` for candidate/eval,
+>    `self_hosted` retained for production) on Finding 2; the human has now ratified that topology. Its
+>    heading/status become Accepted; the full-cloud option stays fully documented as "considered, not
+>    chosen" (the leading alternative). Genuinely still-open items are unaffected — the delivery-boundary
+>    shape (2a), bearer auth (2b), candidate versioning (2c), the ADR-0008 reconciliation, and the
+>    build-time verification items (esp. the Files-API/Sessions-events retrieval linkage) remain
+>    recommended/pending, exactly as before. This pass ratifies **only** the topology call.
+> 2. **New Decision 2d — the recent-priors read endpoint (`GET /recent-briefs`).** The hybrid creates a
+>    real eval-vs-production fidelity gap ("Difference B"): production (self-hosted) reads the last few
+>    days' briefs from S3 first (via `audio_email.py read-recent-briefs` →
+>    `brief_history.read_recent_prior_briefs()`) so it can avoid repeating recent stories, but a `cloud`
+>    candidate has no AWS access and currently skips that step (see the `production-baseline/task-prompt.md`
+>    "this candidate does NOT have access to any prior briefs" note) — so a cloud-eval candidate can
+>    repeat a story production would not. Decision 2d closes that gap by exposing recent-priors *reading*
+>    (only) through the already-decoupled `deploy/delivery/` boundary — the one place that holds AWS
+>    credentials and already has the S3 briefs-bucket read IAM. Its **centerpiece is the auth-separation
+>    decision**: the read capability must NOT confer the send capability (FR-1/FR-7 — a candidate run must
+>    never be able to trigger a real delivery/send), so `GET /recent-briefs` gets its **own separate,
+>    read-only bearer secret**, distinct from the `POST /deliver` delivery bearer secret. The endpoint is
+>    a plain synchronous `GET` (reading ~3 small markdown objects is well under the HTTP-API 30s ceiling —
+>    unlike `POST /deliver`), needs **no new IAM** (the delivery Lambda's existing `S3ListBriefsPrefix` +
+>    `S3AudioReadWrite` grants already cover it), and is **purely additive** — production's own S3-backed
+>    `read-recent-briefs` step is untouched (FR-14/AC-14). Sections touched by this pass: the top-of-file
+>    status/date/deciders lines, Decision 1's heading + status lead (Accepted), a new Decision 2d section,
+>    and the sign-off items (Decision 1 marked ratified; 2d added). **Not touched:** Decisions 2a/2b/2c and
+>    the ADR-0008 reconciliation are unchanged (2d reuses 2a's contract-version discipline and 2b's
+>    fail-closed bearer pattern by reference; it does not alter them).
+>
 > **Revision note (2026-07-06 — FIFTH pass — Decision 1's recommendation reassessed from full-cloud to
 > the hybrid, on two live-confirmed `cloud` findings from a Phase-5 candidate run).** A live candidate
 > run on a `cloud` environment surfaced two real constraints, both then empirically confirmed, and
@@ -343,12 +382,19 @@ I trust the live evidence and say so explicitly.
   structural fact — multi-agent lives inside one agent definition — is what the
   candidate layout needs.)
 
-## Decision 1 (recommended — pending sign-off): Hybrid — `cloud` for candidate/eval, retain `self_hosted` for production
+## Decision 1 (ACCEPTED — hybrid, ratified by the human 2026-07-06): Hybrid — `cloud` for candidate/eval, retain `self_hosted` for production
 
-> **Recommendation reassessed 2026-07-06 in light of a newly-confirmed `cloud`-only constraint
-> (Finding 2, "What I verified live"). This is the biggest, hardest-to-reverse call in the epic and
-> is escalated for the human to ratify — I am presenting my updated recommendation with the new
-> evidence, NOT unilaterally flipping the decision.** The earlier passes of this ADR recommended
+> **Status: ACCEPTED. The human ratified the hybrid on 2026-07-06** (`cloud` for candidate/eval,
+> `self_hosted` retained for production). The recommendation was reassessed 2026-07-06 to the hybrid in
+> light of a newly-confirmed `cloud`-only constraint (Finding 2, "What I verified live"); the human has
+> now confirmed that call. The full-cloud alternative below remains fully documented as **considered,
+> not chosen** — it stays a legitimate future option, but the topology is now settled as the hybrid.
+> **Rollout consequence of the ratified hybrid: Phase 7 (production cut-over to `cloud`) is a NO-OP /
+> not-done, and `deploy/managed-agent/cdk/` + `microvm/` are RETAINED** to run production. The
+> discussion below is preserved as the reasoning that led to the ratified decision.
+>
+> *(The reasoning as originally written for the fifth-pass recommendation is retained verbatim below.)*
+> The earlier passes of this ADR recommended
 > **full cloud-for-everything (staged)** with the hybrid as the explicit fallback. A live Phase-5
 > candidate run then surfaced a real, unconditional `cloud`-only egress constraint — Anthropic's
 > `cloud` safety blocklist permanently blocks a handful of curated `sources.md` domains
@@ -362,8 +408,9 @@ I trust the live evidence and say so explicitly.
 > source actually matters. The full-cloud option remains fully specified below as the alternative
 > the human may still choose (its trade-off is now explicit).
 
-**Recommendation: adopt the `cloud` environment type for candidate/eval use, and RETAIN the existing
-`self_hosted` path (`deploy/managed-agent/cdk/` + `deploy/managed-agent/microvm/`) for production.**
+**Decision (ratified by the human 2026-07-06): adopt the `cloud` environment type for candidate/eval
+use, and RETAIN the existing `self_hosted` path (`deploy/managed-agent/cdk/` +
+`deploy/managed-agent/microvm/`) for production.**
 Eval/candidate work moves to `cloud` immediately at zero production risk (an infra-free, delivery-free
 runtime for arbitrary candidates); the live weekday brief keeps running on the battle-tested
 self-hosted microVM path, so it continues to reach **every** curated source. This captures the epic's
@@ -1030,6 +1077,221 @@ deploy/candidates/
   ids" operational cost entirely: the ids are committed in `candidate.json`, so they travel with a
   normal `git pull` like any other tracked content.)*
 
+## Decision 2d (recommended): the recent-priors read endpoint — `GET /recent-briefs` on the `deploy/delivery/` boundary, gated by its OWN separate read-only bearer secret (distinct from the delivery/send secret)
+
+*(Added 2026-07-06, sixth pass, after the human ratified Decision 1 (the hybrid). This decision exists
+**only** because the hybrid was chosen: it closes an eval-vs-production fidelity gap the hybrid creates.
+Under full cloud it would still be needed — a `cloud` production run would face the same "no S3 access"
+gap — so nothing here is hybrid-specific in its mechanism; it is simply the hybrid that made the gap
+concrete and worth closing now. This is a modest, well-bounded endpoint, not a new subsystem.)*
+
+### Why this endpoint exists — the hybrid's "read recent priors" fidelity gap
+
+Production (self-hosted) begins each run by reading the **last few days' briefs** from S3 so the
+research step can avoid repeating recent stories and correctly label genuine multi-day follow-ups. That
+is `deployment.json`'s `initial_prompt` **step 0**:
+`python3.13 /opt/pipeline/audio_email.py read-recent-briefs`, which calls
+`brief_history.read_recent_prior_briefs()` (reads `s3://cowork-polly-tts-740353583786/briefs/<date>/brief.md`
+for the most-recent-N dates) and writes each prior into `WORKING_FOLDER` under the skill's own dated
+filename convention, `AI Brief - <date>.md` (`audio_email.py:136-155`), so the skill finds them via its
+normal `WORKING_FOLDER` search.
+
+A **`cloud` candidate has no AWS access at all** (that is the whole point — FR-1/AC-1). So it currently
+**skips** this step: `deploy/candidates/production-baseline/task-prompt.md` says explicitly *"this
+candidate does NOT have access to any prior briefs (there is no S3/AWS access available in this
+environment) -- skip any 'read recent prior briefs' step entirely."* The consequence under the ratified
+hybrid is a real **eval-vs-production fidelity gap**: a `cloud`-eval candidate, lacking the recent
+priors production reads, can select and write up a story that production would have suppressed as a
+recent repeat. When comparing candidates against the production baseline, that difference is noise that
+does not come from the candidate's own configuration — exactly the kind of unfair-comparison artifact
+the redesign should avoid.
+
+The fix is to expose recent-priors **reading** through the already-decoupled `deploy/delivery/`
+boundary. `deploy/delivery/` is the **one** place that holds AWS credentials post-redesign, and its
+delivery Lambda **already carries S3 read IAM on the briefs bucket** (`S3ListBriefsPrefix` +
+`S3AudioReadWrite`, `stack.py:310-326`) and **already contains a hand-duplicated copy of
+`read_recent_prior_briefs()`** (`deploy/delivery/functions/deliver/brief_history.py:107`). So a `cloud`
+candidate can `curl` the delivery boundary for the same recent priors production reads directly from S3,
+and reach parity — without ever holding an AWS credential (FR-1 preserved).
+
+### The central constraint — read capability must NOT confer send capability (the auth-separation decision)
+
+Giving a `cloud` candidate the ability to call a read endpoint must **not** give it the ability to
+trigger a real delivery/send. FR-1/FR-7 (AC-1/AC-7) guarantee that a candidate run **never touches the
+delivery path and never emails a subscriber**, and the security review of Phase 1 specifically praised
+the delivery bearer secret as the tightest control in the redesign (Decision 2b: *"the delivery endpoint
+is the only new surface that can email real subscribers … its auth must be the tightest thing in the
+redesign"*). So whatever credential a candidate holds to reach `GET /recent-briefs` must be **incapable**
+of reaching `POST /deliver` (or `GET /deliver/{deliveryId}`). The read capability and the send capability
+must be genuinely, structurally separable — not merely "the candidate is trusted not to call `/deliver`."
+
+**Recommendation: `GET /recent-briefs` is gated by its OWN separate, read-only bearer secret** — a
+**new** Secrets Manager secret distinct from the `POST /deliver` delivery bearer secret (Decision 2b).
+The candidate is given **only** the read secret; it never holds the delivery/send secret. Because the
+two endpoints check two different secrets, a candidate holding the read token **cannot** authenticate to
+`POST /deliver` at all — the send path is closed to it by construction, not by trust. This preserves
+FR-1/FR-7 exactly: the only thing the read token unlocks is "read the last few briefs," a capability that
+cannot email anyone or trigger any delivery.
+
+Concretely:
+- A **second Secrets Manager secret** in the `deploy/delivery/` stack — e.g.
+  `daily-ai-brief/recent-briefs-read-bearer-secret` — created **empty** (`RemovalPolicy.RETAIN`, no
+  initial `SecretString`), populated out-of-band, exactly as the delivery bearer secret and
+  `deploy/eval/`'s reviewer secret already are (repo convention: no secret in git/CDK). The delivery
+  Lambda's role gets a second ARN-scoped `secretsmanager:GetSecretValue` grant for **just this** secret
+  (a one-line addition alongside the existing `ReadDeliveryBearerSecret` statement — not a broadening of
+  any AWS delivery grant).
+- The `GET /recent-briefs` handler checks **this** secret with the **same fail-closed constant-time
+  discipline** `delivery_auth.py` already enforces (`hmac.compare_digest`; no configured secret, no
+  supplied value, or a mismatch → **401**, never a fall-open; `Authorization: Bearer <token>` header
+  only, no query-string fallback). The natural implementation is a **sibling module** mirroring
+  `delivery_auth.py` (e.g. `recent_briefs_auth.py`) bound to its own env var
+  (`RECENT_BRIEFS_READ_BEARER_SECRET_ARN`), or the same module parameterized over which secret it reads —
+  the Developer's call; the invariant is that **the two secrets are distinct and the read handler checks
+  only the read one.** `POST /deliver` and `GET /deliver/{deliveryId}` continue to check **only** the
+  delivery secret (Decision 2b, unchanged) — the send path never accepts the read token, and the read
+  path never accepts the send token.
+
+**Why the separate secret, not the alternatives (evaluated):**
+- **(a) A separate, read-only bearer secret — CHOSEN.** It makes the capabilities genuinely separable
+  at the token level: the candidate holds only the read token, so `POST /deliver` is unreachable to it
+  full-stop. It reuses everything already proven — the same stack, the same HTTP API, the same
+  fail-closed `delivery_auth.py` pattern, the same "empty secret populated out-of-band" convention — for
+  the cost of one new empty secret and one one-line IAM grant. Blast radius is independent per the same
+  reasoning Decision 2b/`deploy/eval/` already give for keeping secrets separate: if a `cloud` session's
+  read token ever leaked (e.g. surfaced in a session log), rotating it does not disturb the delivery/send
+  secret, and — crucially — a leaked read token **cannot send** in the first place.
+- **(b) The same shared delivery bearer secret — REJECTED.** This **breaks the guarantee.** If
+  `GET /recent-briefs` and `POST /deliver` shared one secret, a candidate holding it to read priors could
+  immediately `POST /deliver` and trigger a real send/fan-out to subscribers — precisely the capability
+  FR-1/FR-7 strip from content generation and the exact thing the Phase-1 security review flagged as the
+  redesign's tightest control. No argument rescues (b): the whole point is that a candidate must **not**
+  be able to reach the send path, and sharing the secret hands it the send path. Rejected unconditionally.
+- **(c) A separate tiny read-only surface/stack — REJECTED as disproportionate.** A standalone
+  `deploy/recent-briefs/` CDK app (its own HTTP API, its own Lambda, a **third** hand-duplicated
+  `brief_history.py` copy) would also separate the capabilities — but it buys essentially no additional
+  isolation over (a) while adding a whole deploy lifecycle for a single read-only GET over **the same
+  bucket the delivery Lambda already reads.** The capability separation that matters here is at the
+  **token** level, and (a) achieves it inside the existing stack; a stack split would only add marginal
+  network/identity isolation that is not needed for a read that co-locates with a Lambda already holding
+  strictly broader (write + SES + DynamoDB) rights. The repo's one-CDK-app-per-*surface* convention
+  (ADR-0012) argues for a separate stack when a surface has a **distinct deploy lifecycle and a distinct
+  IAM/auth blast radius** — but recent-priors reading is neither a distinct lifecycle (it ships and
+  changes with delivery) nor a broader blast radius (it is a strict subset of what the delivery Lambda
+  can already do to that bucket). So it belongs **in** `deploy/delivery/`, gated by its own token —
+  reuse where it is safe (the IAM, the HTTP API, the bucket read), separate where it matters (the token).
+- **(d) Any better option?** None found. A capability-scoped short-lived token or a signed-request
+  scheme would be heavier key machinery than a single trusted service-to-service caller warrants (the
+  same reasoning Decision 2b gives for rejecting mTLS/SigV4/Cognito), and would not improve on the
+  clean, structural separation two distinct bearer secrets already give.
+
+### Endpoint contract
+
+- **Route:** `GET /recent-briefs?count=<n>` on the **same** `deploy/delivery/` HTTP API, integrated to
+  the **same** delivery Lambda (branching on the route, as the Lambda already branches between its API
+  legs and its self-invoke worker leg). `count` is optional and defaults to
+  `brief_history.DEFAULT_RECENT_BRIEFS_COUNT` (3), matching production's default; it should be clamped to
+  a small sane maximum (e.g. ≤ 10) so a caller cannot request an unbounded listing. **Bearer-auth gated**
+  by the read-only secret (above), fail-closed.
+- **Synchronous — no async trigger/poll (unlike `POST /deliver`).** Reading the most-recent-N brief
+  markdown objects is a cheap `list_objects_v2` (delimiter-scoped, one level) plus N `get_object` calls
+  on small text files — comfortably within API Gateway's **30 s HTTP-API integration ceiling** (the same
+  hard limit Decision 2a documents and which forced `POST /deliver` to be async). There is no
+  minutes-long work here (no Polly, no SES fan-out), so a plain synchronous request/response is correct
+  and simpler: no `brief-deliveries`-style tracking row, no self-invoke, no poll route. This is the
+  **read** counterpart to `POST /deliver`'s **write**, and its cheapness is exactly why it can be
+  synchronous where delivery cannot.
+- **Response — `200`:**
+  ```json
+  {
+    "briefs": [
+      { "date": "2026-07-04", "markdown": "# Daily AI Brief …" },
+      { "date": "2026-07-03", "markdown": "# Daily AI Brief …" }
+    ]
+  }
+  ```
+  The list is **most-recent-first** and contains **0..count** entries — exactly what
+  `read_recent_prior_briefs()` already returns (`brief_history.py:107`, a list of
+  `PriorBrief(date, markdown)`): fewer than `count` when fewer priors exist, and an **empty list**
+  (`{"briefs": []}`, still `200`) on a first-ever run or when the store is young — never an error. This
+  mirrors production's own graceful-degradation contract (the `read-recent-briefs` CLI prints
+  `PRIOR_BRIEFS_NOT_FOUND` and exits 0), so a candidate with no priors behaves exactly as production
+  does with no priors. A transient S3 listing/read failure degrades to the same empty/partial result the
+  underlying function already returns (it logs and skips a failed date rather than raising), so reading
+  priors can never abort the endpoint — consistent with ADR-0005's "the read must tolerate an empty
+  listing" and CLAUDE.md's "never lose the brief over a glitch."
+- **`contractVersion` discipline (consistent with Decision 2a).** The `200` response body carries an
+  explicit `contractVersion` field (e.g. `{"contractVersion": 1, "briefs": [...]}`), so a future change
+  to this read contract is a reviewable code change rather than an invisible drift — the same discipline
+  Decision 2a puts on the `POST /deliver` request body. (The request side is a trivial query string with
+  no versioned schema to speak of; the version lives on the response, which is the shape a consumer
+  actually parses.)
+- **401 on missing/invalid/absent-secret** — identical to `delivery_auth.py`'s `unauthorized_response()`
+  (`{"error": "unauthorized"}`), fail-closed.
+
+### IAM — NO new IAM is needed (verified against `stack.py`)
+
+The delivery Lambda's execution role **already holds exactly the S3 grants this endpoint needs**, because
+it already archives and (via the migrated `brief_history.py`) can read the `briefs/` prefix:
+- **`S3ListBriefsPrefix`** (`stack.py:318-326`): `s3:ListBucket` on
+  `arn:aws:s3:::cowork-polly-tts-740353583786` with `StringLike s3:prefix ["briefs/*"]` — covers
+  `read_recent_prior_briefs()`'s `list_objects_v2(Prefix="briefs/", Delimiter="/")` folder listing
+  (`brief_history.py:99`).
+- **`S3AudioReadWrite`** (`stack.py:310-317`): `s3:GetObject` (and `PutObject`) on
+  `arn:aws:s3:::cowork-polly-tts-740353583786/*` — covers reading each `briefs/<date>/brief.md`
+  (`brief_history.py:138`).
+
+Both are already present and already scoped to exactly this bucket/prefix (they are the same grants
+production's own read-recent-briefs step uses, moved to the delivery Lambda in Decision 2a). So
+**`GET /recent-briefs` requires no new AWS delivery IAM** — the only new IAM anywhere is the
+**read-only bearer secret's** `secretsmanager:GetSecretValue` grant (one ARN-scoped statement for the
+new secret), which is auth machinery, not an AWS-service delivery capability, and does not widen what the
+Lambda can do to Polly/SES/DynamoDB/S3 in any way. This is the tight-IAM outcome the design intends: the
+read endpoint adds a *token check*, not a *capability*.
+
+### How the `cloud` candidate consumes it — restoring production parity
+
+The candidate's `task-prompt.md` currently instructs it to **skip** the read-recent-priors step
+entirely. Under this decision, a candidate that wants production parity instead does what production's
+step 0 does, but over HTTP rather than S3:
+1. `curl -s -H "Authorization: Bearer $RECENT_BRIEFS_READ_TOKEN" "$DELIVERY_API_BASE_URL/recent-briefs?count=3"`
+   to fetch the recent priors as JSON.
+2. For each returned `{date, markdown}`, write the markdown into `WORKING_FOLDER` under the **skill's own
+   expected filename convention** — `AI Brief - <date>.md` — **exactly what production's
+   `read-recent-briefs` CLI writes** (`audio_email.py:148`). Writing under that same convention is what
+   makes the skill find the priors via its normal `WORKING_FOLDER` search (its "Configuration:
+   WORKING_FOLDER" behavior), with **no skill-side special-casing** — restoring parity with production's
+   behavior precisely.
+3. Proceed to research/write exactly as today, now able to avoid recent repeats and label genuine
+   follow-ups, just as production does.
+
+The read bearer token (and the delivery API base URL) reach the `cloud` sandbox the **same way** Decision
+2b specifies for the delivery token: injected via the `cloud` environment config's declarative
+`environment` (env-vars) block, **populated out-of-band and never committed** (repo convention). This ADR
+**flags that mechanism but leaves the exact wiring to the Developer** — including whether the
+`production-baseline/task-prompt.md` "skip the read step" note is replaced by these curl-then-write steps,
+or whether the read step is expressed in the candidate's declaration another way. The invariant for the
+Developer: the candidate receives **only** the read-only token (never the delivery/send token), so it can
+fetch priors but can never trigger a send.
+
+*(Note on the candidate baseline: re-expressing today's production configuration as `production-baseline/`
+and validating an **unchanged** brief (Phase 5, FR-14/AC-14) becomes cleaner with this endpoint in place —
+the baseline candidate can read the same recent priors production reads, removing "the candidate lacked
+priors" as a confound in the unchanged-brief comparison. This endpoint therefore also strengthens the
+Phase-5 drift-guard the hybrid relies on.)*
+
+### Production is untouched — additive only (FR-14/AC-14)
+
+This endpoint is **purely additive**. Production (self-hosted) keeps its **existing S3-backed
+`read-recent-briefs` step exactly as-is** — `deployment.json`'s step 0 →
+`audio_email.py read-recent-briefs` → `brief_history.read_recent_prior_briefs()` reading S3 directly via
+the microVM's IAM role, unchanged. Production does **not** call `GET /recent-briefs` and does not depend
+on it in any way; the endpoint exists **only** so `cloud` candidates can reach parity with what production
+already does. There is **no change** to production's content, schedule, send cadence, IAM, or behavior,
+and **no change** to `deploy/subscribers/` or `deploy/feedback/`. The `deploy/delivery/` stack gains one
+read route, one Lambda branch, one empty secret, and one secret-read IAM grant — nothing that touches the
+live production path.
+
 ## Reconciling ADR-0008 (skill-content lockstep): the local Desktop fallback is dead, and (if the topology moves off image-baked skills) the image-rebuild step goes away
 
 ADR-0008's original **three-way** lockstep (in-repo copy ↔ local Desktop copy ↔ live Skills-API
@@ -1308,6 +1570,13 @@ Positive (if the human ratifies):
   delivery-owned function replaces the agent's per-run `markdown.markdown(...)` improvisation, and the
   `_html_with_header()`/`_html_with_unsubscribe_footer()` chrome is unchanged — one consolidated,
   reviewable place for the standardized design, and one less thing the content agent does.
+- **The hybrid's eval-vs-production "read recent priors" gap is closed (Decision 2d) with the send
+  path still closed to candidates.** A `cloud` candidate can fetch the same recent priors production
+  reads via `GET /recent-briefs` on the delivery boundary, reaching parity — while holding **only** a
+  read-only bearer token that **cannot** reach `POST /deliver`, so FR-1/FR-7's "a candidate never
+  touches delivery / never emails a subscriber" guarantee is preserved by construction (two distinct
+  secrets, not trust). It adds **no new AWS delivery IAM** (reuses the delivery Lambda's existing
+  briefs-bucket read grants) and is **additive** — production's S3-backed read step is untouched.
 - **Every run emits a per-brief source-usage record** (FR-8a, realizing issue #28) as an additive
   sibling to `candidates.json`, seeding a later source-list-consolidation effort — with no change to
   the shipped brief.
@@ -1464,19 +1733,16 @@ treat as settled):**
    transient blip, not a tooling constraint — see the "Also confirmed live" note above.)
 
 **Items needing the owner's explicit sign-off beyond the core recommendation:**
-- **Ratify the environment topology (reassessed 2026-07-06).** The recommendation is now the
-  **hybrid — `cloud` for candidate/eval, `self_hosted` retained for production** — reassessed on the
-  live-confirmed Finding 2 (`cloud`'s safety blocklist permanently blocks four curated `sources.md`
-  domains, no config workaround; `self_hosted` is not subject to it), which imposes a permanent
-  source-coverage ceiling on the production brief that the hybrid avoids at no cost to the epic's core
-  goal. **Full cloud-for-everything (staged)** remains fully specified and is the leading alternative
-  the human may ratify instead if the operational-surface reduction and single-runtime simplicity are
-  judged worth losing those four (Tier 4/7) sources. **This is the big topology call; please ratify
-  one.** (Decision 1; Finding 1 — the `web_search` 429 — does **not** weigh against `cloud` and should
-  not factor in.)
-- Confirm the retirement posture that follows: **under the recommended hybrid, `deploy/managed-agent/cdk/`
-  + `microvm/` are RETAINED** (production runs on them) and Phase 7 is a no-op; **only if full cloud is
-  chosen** are those subtrees retired, and then **only after** the staged production cut-over validates.
+- **~~Ratify the environment topology~~ — RATIFIED by the human 2026-07-06: the HYBRID** (`cloud` for
+  candidate/eval, `self_hosted` retained for production). Reassessed to the hybrid on the live-confirmed
+  Finding 2 (`cloud`'s safety blocklist permanently blocks four curated `sources.md` domains, no config
+  workaround; `self_hosted` is not subject to it), which imposes a permanent source-coverage ceiling on
+  the production brief that the hybrid avoids at no cost to the epic's core goal. **Full
+  cloud-for-everything (staged)** remains fully documented as **considered, not chosen** — a legitimate
+  future option, but the topology is now settled. (Decision 1 — now Accepted.)
+- **Retirement posture (follows from the ratified hybrid): `deploy/managed-agent/cdk/` + `microvm/` are
+  RETAINED** (production runs on them) and Phase 7 (production cut-over) is a no-op. (Retirement would
+  have applied only under full cloud, which was not chosen.)
 - Confirm the **`deploy/delivery/` standalone stack + bearer-token auth** shape, **including that
   delivery now derives the brief HTML deterministically** (FR-2a) from the brief markdown — content
   generation no longer produces brief HTML, and the delivery-derived output is validated against a
@@ -1494,6 +1760,15 @@ treat as settled):**
   is the specific place the third-pass correction lands for sign-off: the prior pass asked you to
   confirm a per-sync tag; this asks you to confirm the simpler plain-field design the corrected
   primitive enables.)*
+- Confirm the **recent-priors read endpoint** (Decision 2d): `GET /recent-briefs` on the existing
+  `deploy/delivery/` boundary, gated by its **own separate, read-only bearer secret** (distinct from the
+  `POST /deliver` delivery/send secret) so a `cloud` candidate can fetch the recent priors production
+  reads **without** ever gaining the ability to trigger a send (FR-1/FR-7 preserved). Synchronous `GET`
+  (no async needed — reads ~3 small S3 objects); **no new AWS delivery IAM** (the delivery Lambda's
+  existing `S3ListBriefsPrefix` + `S3AudioReadWrite` already cover it; the only new IAM is the read
+  secret's `GetSecretValue`); **purely additive** — production's own S3-backed `read-recent-briefs` step
+  is untouched (FR-14/AC-14). This decision follows from the ratified hybrid (it closes the hybrid's
+  eval-vs-production "read recent priors" fidelity gap).
 - Confirm the **ADR-0008 reconciliation** (Decision "Reconciling ADR-0008"): the three-way lockstep
   collapses to **two-way** (in-repo ↔ live Skills-API) because the **local Desktop fallback is
   dead** — **unconditionally, with no reactivation hedge** (this is already the owner's stated
