@@ -598,3 +598,13 @@ if __name__ == "__main__":
     # expected common case, not a failure -- never gates or affects the send that has
     # already completed by this point.
     brief_history.archive_candidates_file(s3, _today_local_date(), working_folder=WORKING_FOLDER)
+
+    # Archive the skill's per-brief "source usage" record, if this run's skill version
+    # wrote one (PRD docs/prd/agent-system-redesign.md FR-8a, ADR-0014 -- realizes
+    # GitHub issue #28). A direct sibling of the candidates.json archival step above --
+    # same additive, best-effort semantics: an older run (or a run before the live
+    # Skills-API version push lands, ADR-0008) simply has no source-usage.json to find,
+    # which archive_source_usage_file() treats as the expected common case, not a
+    # failure -- never gates or affects the send that has already completed by this
+    # point.
+    brief_history.archive_source_usage_file(s3, _today_local_date(), working_folder=WORKING_FOLDER)

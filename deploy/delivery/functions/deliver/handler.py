@@ -61,7 +61,7 @@ from botocore.exceptions import ClientError
 
 import delivery_auth
 import delivery_core
-from brief_history import archive_candidates_file, archive_todays_brief
+from brief_history import archive_candidates_file, archive_source_usage_file, archive_todays_brief
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -454,6 +454,7 @@ def _run_delivery(
         archive_ok = False
 
     candidates_archived = archive_candidates_file(s3_client, brief_date, working_folder=WORKING_FOLDER)
+    source_usage_archived = archive_source_usage_file(s3_client, brief_date, working_folder=WORKING_FOLDER)
 
     return {
         "html_derived": True,
@@ -465,4 +466,5 @@ def _run_delivery(
         "subscriber_query_failed": subscriber_query_failed,
         "archive_ok": archive_ok,
         "candidates_archived": candidates_archived,
+        "source_usage_archived": source_usage_archived,
     }
