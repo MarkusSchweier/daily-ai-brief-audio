@@ -1,16 +1,23 @@
-Invoke the daily-ai-brief skill to research and write today's brief, per the
-skill's own output contract: write today's Markdown brief to
-`/workspace/AI Brief - YYYY-MM-DD.md` (today's date), save the listening script
-explicitly to `/workspace/listening-script.txt`, and (per the skill's own
-contract) also write `/workspace/candidates.json` (every story/topic considered,
-included or excluded) and `/workspace/source-usage.json` (every `sources.md`
-entry and whether it was featured today).
+Step 0 -- read recent prior briefs (production parity, no AWS access needed):
+run
+`curl -s -H "Authorization: Bearer __RECENT_BRIEFS_TOKEN__" "__DELIVERY_BASE_URL__/recent-briefs?count=3"`
+to fetch the last few briefs as JSON (`{"briefs": [{"date", "markdown"}, ...]}`).
+For each entry returned, write its `markdown` to
+`/workspace/AI Brief - <date>.md` (using that entry's own `date`) -- the exact
+filename convention the skill itself expects, so it finds these priors via its
+normal `WORKING_FOLDER` search with no special-casing. If the response's
+`briefs` list is empty (e.g. a cold-start store), that's normal -- proceed to
+research with no priors to avoid repeating, exactly as production does on a
+young store.
 
-Note: unlike a real scheduled production run, this candidate does NOT have
-access to any prior briefs (there is no S3/AWS access available in this
-environment) -- skip any "read recent prior briefs" step entirely and proceed
-straight to today's research. It is fine, and expected, that this run cannot
-check for or avoid repeating a very recent story.
+Then invoke the daily-ai-brief skill to research and write today's brief, per
+the skill's own output contract: write today's Markdown brief to
+`/workspace/AI Brief - YYYY-MM-DD.md` (today's date -- a DIFFERENT file from
+any prior-brief file written in Step 0, which uses THAT entry's own date), save
+the listening script explicitly to `/workspace/listening-script.txt`, and (per
+the skill's own contract) also write `/workspace/candidates.json` (every
+story/topic considered, included or excluded) and `/workspace/source-usage.json`
+(every `sources.md` entry and whether it was featured today).
 
 Do NOT convert the brief to HTML and do NOT attempt any narration, email, or
 delivery of any kind -- none of that is this candidate's job. Stop once the
