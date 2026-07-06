@@ -93,6 +93,16 @@ considered during research — not just the ones that made the final brief. Each
 `{"title": "...", "source": "...", "disposition": "included"|"excluded"}`. This is an additive,
 durable record for later evaluation of selection quality; it does not change the brief itself.
 
+**Also write a source-usage record** (agent-system-redesign.md FR-8a): alongside the brief, the
+listening script, and `candidates.json`, also write a `source-usage.json` to `WORKING_FOLDER`
+listing, for **every** source named in `sources.md` — not just the ones you featured — whether it
+was actually featured/cited in today's brief. Each entry:
+`{"source": "...", "tier": N, "featured": true|false}`, where `source` is that entry's own
+name/label exactly as `sources.md` lists it (e.g. `"Anthropic"`, `"TechCrunch — AI"`) and `tier` is
+the number from the `## Tier N — ...` heading it appears under. The point is tracking which
+sources are **never** featured over time, so include every source.md entry, not only the featured
+ones (GitHub issue #28). This is an additive, durable record; it does not change the brief itself.
+
 **Structure (tiered):**
 
 ```
