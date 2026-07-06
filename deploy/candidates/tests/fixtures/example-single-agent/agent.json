@@ -1,0 +1,10 @@
+{
+  "name": "example-single-agent-EXAMPLE",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic single-agent test fixture.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401"
+    }
+  ],
+  "mcp_servers": []
+}

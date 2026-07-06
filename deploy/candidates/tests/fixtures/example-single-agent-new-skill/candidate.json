@@ -1,0 +1,6 @@
+{
+  "slug": "example-single-agent-new-skill",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic single-agent fixture whose skills.json starts EMPTY (no skill_id at all yet), used to exercise the sync script's BRAND-NEW candidate-owned-skill creation path (api_client.create_skill(), POST /v1/skills) -- distinct from example-single-agent, which has no skill/ directory at all. Never deployed against the live Anthropic API.",
+  "composition": "single-agent",
+  "schedule_intent": "none -- test fixture only, never scheduled"
+}

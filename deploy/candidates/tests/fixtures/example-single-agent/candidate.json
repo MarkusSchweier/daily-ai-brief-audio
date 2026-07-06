@@ -1,0 +1,6 @@
+{
+  "slug": "example-single-agent",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic single-agent fixture used only to exercise the sync script's logic in tests. Never deployed against the live Anthropic API.",
+  "composition": "single-agent",
+  "schedule_intent": "none -- test fixture only, never scheduled"
+}

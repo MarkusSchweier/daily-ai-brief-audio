@@ -1,0 +1,10 @@
+{
+  "name": "example-multi-agent-coordinator-EXAMPLE",
+  "description": "EXAMPLE -- NOT A REAL CANDIDATE. A synthetic coordinator test fixture.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401"
+    }
+  ],
+  "mcp_servers": []
+}

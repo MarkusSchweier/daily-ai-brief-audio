@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "The ONE shared `cloud` Managed Agents environment for candidate/experimental runs",
+    "(agent-system-redesign epic, Phase 3; docs/adr/0014-agent-system-redesign-topology.md",
+    "Decision 1). Per the ADR: agent and environment are independent, composable",
+    "resources with no 1:1 binding -- this single environment_id is referenced by ANY",
+    "candidate's trigger/run, never created per-candidate.",
+    "",
+    "Created once, deliberately, via a real, live, confirmed POST /v1/environments call",
+    "(NOT assumed from docs -- see deploy/candidates/README.md's 'Phase 3 live",
+    "validation' section for how this was confirmed). Environments CAN be archived",
+    "(POST /v1/environments/{id}/archive -- confirmed live 2026-07-06, returns 200 with",
+    "state:archived) or deleted (DELETE /v1/environments/{id}, only when no session",
+    "references it); an earlier note here wrongly claimed no such primitive existed. Even",
+    "so, treat this as the single shared, effectively-permanent candidates environment --",
+    "do not recreate or archive it casually; that is a decision for a human, not a script.",
+    "",
+    "Confirmed live shape (2026-07-06): creating with just {\"type\": \"cloud\"} produced",
+    "networking: {\"type\": \"unrestricted\"} by default on this account -- matching the",
+    "ADR's own live-verified finding, not assumed from the platform docs."
+  ],
+  "environment_id": "env_01W3Envi4NfK7ypQMfoZccRY",
+  "type": "cloud",
+  "name": "daily-brief-candidates-shared-cloud",
+  "created_at": "2026-07-06T11:11:49.924358Z",
+  "confirmed_endpoint": "POST /v1/environments",
+  "confirmed_headers": {
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "managed-agents-2026-04-01"
+  },
+  "confirmed_config": {
+    "type": "cloud",
+    "networking": {
+      "type": "unrestricted"
+    }
+  }
+}

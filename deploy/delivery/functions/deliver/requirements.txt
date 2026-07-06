@@ -1,0 +1,12 @@
+# markdown is the ONE new third-party dependency this app introduces (PRD FR-2a,
+# ADR-0014 Decision 2a): NOT currently a listed dependency anywhere in this repo --
+# no requirements.txt/pyproject.toml lists it, and audio_email.py does not import it
+# today (the content-generation agent's ad hoc conversion runs inside the sandbox
+# where the package happens to be ambient). delivery_core.derive_html() imports it
+# explicitly; see that function's docstring for the byte-for-byte regression
+# evidence pinning this to no extensions.
+#
+# boto3/botocore are NOT listed here -- both are already present in the AWS Lambda
+# Python runtime (matching every other function in this repo, e.g.
+# deploy/eval/functions/read/ has no requirements.txt at all for the same reason).
+markdown>=3.7,<4.0

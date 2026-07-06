@@ -1,0 +1,10 @@
+{
+  "name": "smoke-test-example",
+  "description": "PERMANENT smoke-test/reference agent for the agent-system-redesign epic's candidate mechanism (FR-4/FR-5 live proof). Not a real content-generation configuration.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401"
+    }
+  ],
+  "mcp_servers": []
+}

@@ -24,10 +24,12 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   3. **`deploy/feedback/`** — the public reader-feedback form at `feedback.mschweier.com`,
      reached via a personalized per-recipient/per-edition link embedded in every brief email.
   - **The original local Claude Desktop scheduled task** (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`)
-    is now a **deactivated fallback** — re-activate only if the Managed Agents path fails. The
-    top-level `deploy/audio_email.py`, `deploy/iam-policy.json`, `deploy/audio-mail-integration.md`,
-    `deploy/scheduled-task-audio.md`, `deploy/validation-handoff.md` files describe *that* local
-    fallback path specifically — the live production code is
+    is **DEAD** — retired by the owner (agent-system-redesign epic; ADR-0014 / ADR-0008's 2026-07-06
+    amendment). It will not run and will not be reactivated; it is no longer a skill-content lockstep
+    member (the lockstep is now two-way: in-repo ↔ live Skills-API). The top-level
+    `deploy/audio_email.py`, `deploy/iam-policy.json`, `deploy/audio-mail-integration.md`,
+    `deploy/scheduled-task-audio.md`, `deploy/validation-handoff.md` files describe *that* now-dead
+    local path and are kept only as historical reference — the live production code is
     `deploy/managed-agent/pipeline/audio_email.py`, not the top-level copy.
 - **Not this project:** the actual research/writing prompt logic lives in the `daily-ai-brief`
   skill (ported into `deploy/managed-agent/skills/daily-ai-brief/` for the microVM; the original
@@ -48,8 +50,8 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   DynamoDB table, the signed HMAC feedback-link token scheme (ADR-0011/0012). **`README.md`**
   has the full setup/DNS/secret-wiring runbook.
 - `deploy/scheduled-task-audio.md`, `deploy/audio_email.py`, `deploy/iam-policy.json`,
-  `deploy/audio-mail-integration.md`, `deploy/validation-handoff.md` — the **local Desktop
-  fallback path** (deactivated; re-activate only if Managed Agents fails).
+  `deploy/audio-mail-integration.md`, `deploy/validation-handoff.md` — the **now-dead local Desktop
+  path** (retired, not reactivated — agent-system-redesign epic; kept as historical reference only).
 - `docs/prd/`, `docs/adr/` — PRDs and ADRs for every epic; `docs/prd/_active.md` points at the
   current one and is auto-imported below.
 
@@ -81,14 +83,13 @@ secret rotation). Summary:
 
 Each subsystem has its own test suite and CDK app (`cdk synth`/`cdk diff`/`cdk deploy`, run from
 within `deploy/managed-agent/cdk/`, `deploy/subscribers/`, or `deploy/feedback/` respectively) —
-see that subsystem's `README.md` for the exact commands. For the local-fallback-only files:
-
-- Syntax: `python3 -m py_compile deploy/audio_email.py`
-- Policy JSON: `python3 -m json.tool deploy/iam-policy.json`
-- End-to-end smoke test: follow `deploy/validation-handoff.md` (Polly→S3→SES self-send).
-- If the local fallback's STEP 6 changes, update **both** `deploy/audio_email.py` **and** the
-  inline copy in `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (keep them identical) — this
-  is separate from `deploy/managed-agent/pipeline/audio_email.py`, the live production copy.
+see that subsystem's `README.md` for the exact commands. The now-dead local-fallback files
+(`deploy/audio_email.py`, `deploy/iam-policy.json`, etc.) are kept only as historical reference —
+they are no longer maintained, no longer in lockstep with anything, and must not be edited to "keep
+the Desktop copy in sync" (the Desktop task is dead; there is no Desktop copy to sync). If you ever
+need to sanity-check them: `python3 -m py_compile deploy/audio_email.py` /
+`python3 -m json.tool deploy/iam-policy.json`. The live production copy is
+`deploy/managed-agent/pipeline/audio_email.py` — that is the one that matters.
 
 ## Conventions
 
