@@ -6,9 +6,9 @@ The current active PRD for this project:
 
 ---
 
-Status: **In build — Phases 1–5 shipped on `feat/agent-system-redesign`; topology ratified HYBRID
-(2026-07-06); one design-driven addition (recent-priors endpoint) + final validation remain. Not yet
-PR'd/merged.** The agent-system-redesign PRD (rev. 2) is the active planning doc; ADR-0014 records the
+Status: **BUILD COMPLETE — all phases shipped + Phase 6 validated (AC-1…AC-14 all PASS); PR opened for
+the owner's review on `feat/agent-system-redesign`. NOT merged (main stays owner-gated).** The
+agent-system-redesign PRD (rev. 2) is the active planning doc; ADR-0014 records the
 decisions. It decouples content generation (Claude Platform) from AWS delivery so a candidate agent
 system deploys via a **pure API call with no container build** and is triggered/retrieved with **zero
 AWS infrastructure**, git-tracked and declarative. **Built, each reviewed + security-cleared, all on
@@ -37,12 +37,21 @@ egress safety-blocklist permanently blocks 4 curated `sources.md` domains (The V
 Reuters, Reddit) with no config workaround, while self-hosted reaches them — a real but bounded
 production-quality cost the hybrid avoids for free (the epic's full value lands regardless). (A
 parallel `web_search` 429 scare was proven a transient backend blip, not a topology issue.)
-**Remaining:** (a) close "Difference B" — a delivery-side **`GET /recent-briefs`** read endpoint so
-cloud candidates read the same recent priors production does (auth scoped so a candidate can NEVER
-reach `POST /deliver`); (b) Phase 6 end-to-end validation (AC-1…AC-14); then reviewer/security passes
-and a PR. The FR-8 "narrated version = listening-script text, no TTS for evals" reading was owner-
-confirmed. Deferred to a later epic (unchanged): re-integrating the `deploy/eval/` harness against
-this new candidate mechanism.
+**Difference B closed + Phase 6 done.** The delivery-side **`GET /recent-briefs`** read endpoint (so
+cloud candidates read the same recent priors production does) is built, **deployed live**, and
+validated end-to-end — its auth is a **short-lived HMAC-signed token** (ADR-0014 Decision 2d
+correction, ratified 2026-07-06), scoped so a candidate can NEVER reach `POST /deliver`. **Phase 6**
+(AC-1…AC-14 + AC-2a/AC-8a) all PASS, independently reviewer-verified against real code, live API
+evidence, git history, and both suites; a fresh signed-token end-to-end run confirmed the runtime
+criteria live (priors fetched via the endpoint, all 4 artifacts produced, **no email**). ADR-0008 was
+reconciled to a **two-way** lockstep (dead Desktop fallback dropped; image-rebuild retained for
+self-hosted production). **Live on AWS:** the `deploy/delivery/` stack (signed-token endpoint live;
+`POST /deliver` deployed but **locked** — secret undistributed), the shared `cloud` environment, and
+the `production-baseline` candidate. **Production self-hosted untouched.** The FR-8 "narrated version =
+listening-script text, no TTS for evals" reading was owner-confirmed. **Follow-ups (out of scope
+here):** re-integrate the `deploy/eval/` harness against this candidate mechanism (later epic); the
+cost-optimization-candidates epic; GitHub issue #30 (candidate-sync drift-check); a one-line skill
+clarification that source-usage `featured` = "directly cited."
 
 Previous PRD — `eval-harness.md` (**Shipped, merged 2026-07-05**). `deploy/eval/` deployed and
 live-validated end to end (real evaluation runs, real cost breakdown, real candidates.json-driven
