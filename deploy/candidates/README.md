@@ -1050,6 +1050,97 @@ to the live delivery boundary in any way — a real send to the owner's real
 inbox requires the owner's explicit go-ahead first, not an automatic step of
 this validation.
 
+## Post-Phase-5 follow-up: the `web_search`/`web_fetch` investigation and the
+## RSS-fallback skill fix
+
+After Phase 5's real trigger completed, the owner reviewed the session's raw
+event stream in the Claude Platform console and flagged a high failure rate
+across `web_search`/`web_fetch` tool calls. A direct, independent re-pull of
+the same session's events (`GET /v1/sessions/sesn_011fEEWn4c9f9QAYdQvzCQwn/events`)
+confirmed the exact breakdown (182 events, 52 tool_use/tool_result pairs: 5
+`web_search`, all 5 FAILED with `HTTP 429 no_brave_error_type`; 36 `web_fetch`,
+7 failed — 5x `url_not_allowed`, 1x `unsupported_content_type`, 1x
+`url_not_accessible`), followed by three targeted, cheap diagnostic sessions
+(each a trivial `bash`-only run against the existing, permanent
+`smoke-test-example` agent — no re-triggering of the expensive research
+session) to test specific hypotheses about each failure mode:
+
+- **`web_search`'s 100% failure rate**: the very FIRST `web_search` call (made
+  ~20 seconds into the session) already returned the 429 — meaning the rate
+  limit was already exhausted before this session made its first call, not
+  something this session burned through mid-run. This points to a shared,
+  account- or platform-wide limit on the underlying search backend rather than
+  a per-session budget a backoff/retry would meaningfully help with. No
+  platform-doc citation confirms an exact numeric ceiling; documented here as a
+  known, currently-unmitigated limitation of the `cloud` topology, not
+  something a skill-content fix addresses.
+- **`url_not_allowed` on legitimate `sources.md`-listed domains (The Verge, Ars
+  Technica, Reddit, a Reuters article) — REVISED finding.** A live `curl -sI`
+  diagnostic against these exact hostnames revealed a response header
+  `x-block-reason: hostname_blocked`, identical regardless of User-Agent and
+  identical across every path/subdomain tested under each hostname (including
+  `old.reddit.com` and Reuters' generic `/technology/` index, not just the one
+  URL that failed in the real run) — a genuine, platform-level, per-hostname
+  EGRESS block, not `web_fetch`-tool-specific content filtering as first
+  hypothesized. This means a `bash curl`/`wget` fallback for these specific
+  domains would NOT actually work either (confirmed live, not assumed) — so no
+  skill-content fix was made for this failure mode; it's documented as a known
+  `cloud`-topology limitation for these confirmed domains.
+- **`unsupported_content_type` on RSS/Atom feed URLs (TechCrunch's feed, and
+  structurally the same risk for 9 other `feed:`-labeled `sources.md` entries)
+  — FIXED.** Confirmed this is a real, repo-wide gap: `web_fetch` cannot
+  consume `application/rss+xml` content at all, and the skill had no
+  documented fallback more specific than the generic "if a feed dies, fall
+  back to WebSearch" (unreliable right now, per the finding above). Since
+  every affected `sources.md` entry already lists a stable HTML site/blog-index
+  URL right alongside its feed URL, and TechCrunch's own HTML category page
+  DID succeed in the real Phase 5 run when its RSS feed didn't, a same-outlet
+  HTML fetch is a strictly better, already-proven-to-work fallback than
+  falling straight to an unreliable `WebSearch`.
+
+**The fix** — a new instruction in `deploy/managed-agent/skills/daily-ai-brief/SKILL.md`'s
+"Daily workflow → 2. Gather → Mechanics" section (and a matching update to the
+"Tips" section's own pre-existing one-line feed-fallback note, which would
+otherwise sit stale right alongside the new, more specific guidance): if a feed
+URL errors as an unsupported content type, fetch that outlet's own HTML
+site/blog-index URL instead of immediately falling back to `WebSearch`; only
+fall back to `WebSearch` if the HTML fetch also fails. The instruction
+explicitly calls out The Verge and Ars Technica as two outlets that may fail on
+BOTH the feed and the HTML URL (per the confirmed hostname-block finding above)
+— framed as an expected, known limitation to move past, not something to retry
+indefinitely.
+
+**Pushed live** as a new Skills-API version, following the exact runbook in
+`deploy/managed-agent/README.md` §3a (steps 2–4; step 1's "mirror to the local
+Desktop fallback" does not apply — that fallback is retired per the
+agent-system-redesign PRD's rev. 2). **New version: `1783347998026490`**
+(`skill_version_01F9RtHRotgv5EVJ9nWw9tYY`, pushed 2026-07-06T14:26:38Z),
+confirmed via `GET /v1/skills/skill_01H2qu83NwnJ5zqcbrqsCcJ6` (`latest_version`
+matches exactly what the push returned) and `GET .../versions` (all 6 versions
+listed, the new one most recent). Unlike the self-hosted microVM topology
+(where §3a's own documented correction requires a full image rebuild for a
+skill push to actually reach a running session — the ADR-0008 failure mode),
+this push alone IS sufficient for any `cloud`-topology candidate referencing
+this skill (confirmed structurally true by Phase 3's own live proof that a
+Skills-API version push reaches a `cloud` candidate with no image rebuild at
+all, since there is no image in this topology) — no additional step needed for
+the content to become live.
+
+**Not yet re-pinned**: `production-baseline/skills.json` still pins the
+CONCRETE version used for Phase 5's actual validated run
+(`1783340601977967`), not this new one — left as a deliberate, explicit,
+flagged next step rather than a silent repin, since Phase 5's own validated
+comparison was against that exact content and swapping it here without a new
+validation run would quietly invalidate that comparison's basis. Per the
+coordinator's own instruction, no new expensive research session was
+triggered to validate this specific instruction; that validation happens
+naturally whenever `production-baseline` (or any candidate referencing this
+skill) is next synced to the new version and triggered for a real run.
+
+Two reviewer-found follow-ups on the ORIGINAL three Phase 5 bugs (the
+`model`-shape scope-check and the single-quoted-`cat`-path parsing gap) are
+documented above, in "Real bugs found."
+
 ## Local validation
 
 ```bash

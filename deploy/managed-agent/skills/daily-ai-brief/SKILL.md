@@ -180,6 +180,15 @@ Work down the tiers, favoring breadth then pruning:
 Mechanics:
 - Prefer **RSS/Atom feeds** (listed in sources.md) — fetch with `WebFetch`; they're structured
   and fetch-friendly.
+- **If a feed URL errors as an unsupported content type (or otherwise fails to parse as a
+  feed), fetch that same outlet's own HTML site/blog-index URL instead** — it's listed right
+  alongside the feed URL in `sources.md` for exactly this reason — rather than immediately
+  falling back to `WebSearch`. A same-outlet HTML fetch is a strictly better fallback than a
+  search: it's still that outlet's own primary content, still fetch-friendly, and doesn't
+  depend on search coverage or freshness. Only fall back to `WebSearch` for that outlet if the
+  HTML fetch also fails. (Two Tier 4 outlets — The Verge, Ars Technica — may fail on *both* the
+  feed *and* the HTML URL some days; if so, that's a known access limitation for those two, not
+  a bug — don't retry repeatedly, just move on to the next source.)
 - For sites without a feed, use `WebSearch` with date-scoped queries, e.g. `"<topic>" AI news`
   and rely on freshness; or search a site directly (`site:techcrunch.com AI`).
 - **Filter by publication date.** Feeds and index pages routinely return items days or weeks old
@@ -298,8 +307,9 @@ task, not the brief.
   research.
 - smol.ai's "AI News" and Zvi's roundup are excellent end-of-pass cross-checks for "what did I
   miss in the discourse."
-- Keep `sources.md` current: if a feed dies, fall back to WebSearch and fix the URL when you
-  can.
+- Keep `sources.md` current: if a feed dies, try that outlet's own HTML site URL first (see
+  "Gather" step 2's mechanics above), then WebSearch if that also fails, and fix the URL when
+  you can.
 
 ## Reader context
 A general, technically fluent audience: expert-level in Gen AI, LLMs, agentic AI, and modern
