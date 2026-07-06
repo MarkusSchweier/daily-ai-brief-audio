@@ -1406,8 +1406,11 @@ replayed. Concretely, this **reuses the repo's existing signed-token prior art a
 - The **signing secret** is the **same** `daily-ai-brief/recent-briefs-read-bearer-secret` that already
   gates this endpoint — no new secret, no new IAM. The **orchestrator** reads that secret from Secrets
   Manager (the trigger side is the operator's own machine/CI, which legitimately can), signs a token with a
-  short TTL (e.g. **5–15 minutes**, comfortably covering a research/writing run's *start*, which is when the
-  priors are fetched — the fetch happens in the first minute, not at the end), and injects it. The
+  short TTL (**as built: 20 minutes** — `RECENT_BRIEFS_TOKEN_TTL_SECONDS` in `candidate_sync/trigger.py`;
+  the range originally sketched here was 5–15 min, but the build added headroom for
+  trigger→deployment-create→`/run`→sandbox-boot→first-tool-call latency plus clock skew, while staying "dead
+  within the run's own lifetime, not hours" — the priors fetch happens in the run's first minute, not at the
+  end), and injects it. The
   `GET /recent-briefs` handler switches from `hmac.compare_digest(supplied, static_secret)` to
   `verify_signed_read_token(supplied, secret)` (signature + `exp`). This keeps the endpoint **fail-closed**
   exactly as today: no token, a bad signature, or an expired token → **401**, never a fall-open.

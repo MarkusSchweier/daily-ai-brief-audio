@@ -30,9 +30,13 @@ What this stack does NOT do (deliberately, per the PRD/ADR):
   - It does not perform any real `cdk deploy` -- built, synthesized, and tested
     LOCALLY ONLY per this phase's brief; actual deployment is a separate,
     orchestrator-run step after independent review/security passes.
-  - It does not populate either bearer secret with a real value -- both created
-    EMPTY (RemovalPolicy.RETAIN, no initial SecretString), populated out-of-band,
-    matching `deploy/eval/`'s `_build_review_secret()` convention exactly.
+  - It does not populate either bearer secret with an operator-chosen value -- both
+    auto-generate a random, shell-safe placeholder at create time
+    (`SecretStringGenerator(exclude_punctuation=True)`, RemovalPolicy.RETAIN) that
+    may be overwritten/rotated out-of-band, matching `deploy/eval/`'s
+    `_build_review_secret()` convention. (The recent-briefs secret is now used as an
+    HMAC signing key for the signed read token -- ADR-0014 Decision 2d correction,
+    2026-07-06 -- not a static bearer compared directly.)
 """
 
 import shutil
