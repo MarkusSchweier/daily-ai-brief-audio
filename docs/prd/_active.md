@@ -2,26 +2,62 @@
 
 The current active PRD for this project:
 
-@eval-harness.md
+@agent-system-redesign.md
 
 ---
 
-Status: **Approved, build starting (2026-07-04).** New two-epic effort, epic 1 of 2: a real
-transcript-mined cost analysis found the daily pipeline costs ~$2.60–2.65/run (Sonnet 5, dominated
-by cache-read tokens — the post-research writing/delivery phase costs *more* than research). Before
-optimizing that cost (epic 2, separate, not yet started), this epic builds the **measurement
-infrastructure**: an eval harness scoring brief-production runs, calibrated against real
-`brief-feedback` reader data, with an easy human-review web UI and a structured machine-readable
-output for a future optimization agent. ADR-0013 presented custom-AWS-native vs. adopt-Langfuse/
-Phoenix; the owner approved **build custom** (new `deploy/eval/`, sibling of `deploy/subscribers/`/
-`deploy/feedback/`). The owner then trimmed the full nine-criterion candidate set down to a v1
-subset: content selection, factual accuracy (LLM-judge only), length/format compliance,
-day-over-day dedup (LLM-judge only), and cost with a phase-level breakdown. Neutrality/tone drift,
-listening-script quality, and latency are deferred (not deleted); source-tier diversity is replaced
-by a different idea (per-brief source-usage tracking to prune unused sources — issue #28, not this
-epic). Working on branch `feat/eval-harness` (created off latest `main`, since the previous
-`feat/reader-feedback` branch was already merged and had these new-epic files sitting on it
-uncommitted). Docs done; build not yet started.
+Status: **PRD rev. 2 + revised ADR-0014, both awaiting human sign-off before any build
+(2026-07-06).** The agent-system-redesign PRD is the active planning doc. It fully decouples content
+generation (Claude Platform) from AWS delivery (TTS/email/archival/DynamoDB) so a candidate agent
+system can be deployed via a **pure API call with no container build** and triggered/retrieved with
+**zero AWS infrastructure** and zero risk to the live send — with git-tracked, declarative,
+independently-diffable, multi-agent-capable candidate definitions. **The PRD was revised (rev. 2) on
+2026-07-06** to incorporate six owner-feedback points given after reviewing rev. 1: (1) **eval-harness
+re-integration is de-scoped** to a later, separate epic — this epic keeps only the standalone property
+that a candidate is triggerable and its artifacts retrievable via Claude-Platform-only APIs; (2) the
+**local Desktop fallback is declared dead**; (3) **Markdown→HTML conversion moves to the delivery
+side, deterministically (no LLM)** — content generation's output narrows to brief markdown +
+listening-script text; (4) **git-native versioning replaces a bespoke `registry.json`**; (5) restates
+(1); (6) a **new per-brief source-usage output** seeds GitHub issue #28's later source-consolidation
+effort. **`docs/adr/0014-agent-system-redesign-topology.md` has now been revised to match (also
+2026-07-06)**, status **"Proposed — pending human sign-off."** Its recommendation: full
+**cloud-for-everything** (retire `deploy/managed-agent/cdk/` + `microvm/`, staged behind validation),
+with a conservative hybrid (cloud eval, self-hosted production) offered as an explicit fallback; a new
+standalone `deploy/delivery/` stack (bearer-token auth) that now also derives brief HTML
+deterministically from markdown (flagged as a regression risk needing byte-for-byte verification
+against a real production brief); and candidate versioning via **an annotated git tag per sync event**
+(`candidate/<slug>/sync-<n>`, recording live Platform IDs in the tag message) instead of a
+`registry.json` — directly answering the owner's "retrieve a previous prompt version without rolling
+back the repo" question via `git show <ref>:<path>`. The ADR-0008 lockstep is reconciled to two-way
+(in-repo ↔ live Skills-API), unconditionally, per the dead-Desktop-fallback decision. The one PM-level
+ambiguity — "narrated version" = pre-narration listening-script text, not synthesized audio (§7/FR-8)
+— was **confirmed by the owner (2026-07-06)**: "The listening script is the output. No actual TTS for
+evals." **No implementation starts until the owner reviews both documents and signs off** — open items
+include the full-cloud-vs-hybrid topology call, the delivery/candidate-layout shapes, and the
+ADR-0008/source-usage reconciliations. Next step: owner reviews `docs/prd/agent-system-redesign.md`
+(rev. 2) and `docs/adr/0014-agent-system-redesign-topology.md` (revised) and decides.
+
+Previous PRD — `eval-harness.md` (**Shipped, merged 2026-07-05**). `deploy/eval/` deployed and
+live-validated end to end (real evaluation runs, real cost breakdown, real candidates.json-driven
+content-selection judging) — see that PRD/ADR-0013 for the full build history, including several
+real bugs found and fixed only by actually triggering live runs (a DynamoDB reserved-keyword bug,
+two Deployments-API shape gaps, a cost-miner endpoint/field bug, the microVM-image skill-content
+lockstep gap, and an eval-prompt fidelity gap caught by an independent review). Merged to `main`.
+The agent-system-redesign epic (now active, above) does **not** re-integrate this harness — as of the
+PRD's rev. 2 (owner feedback), re-integrating `deploy/eval/` against the new candidate-deployment
+mechanism is **deferred to a later, separate epic** (the harness will be adapted to whatever the
+redesign produces, not the other way around). Its current trigger still targets one hardcoded
+agent/environment pair; that stays until the later adaptation epic.
+
+- **Cost-optimization-candidates epic (deferred — `cost-optimization-candidates.md`, documented).**
+  The candidate pipeline configurations to compare once the redesign above lands. *(Note, per the
+  redesign PRD's rev. 2: eval-harness re-integration is now its **own** deferred epic between this
+  one and the redesign — the redesign delivers a triggerable/retrievable candidate mechanism, a
+  later epic adapts `deploy/eval/` to it, and this cost-optimization epic then uses both.)*
+  Documented now so the candidate list (owner + Claude contributed) is durable, but explicitly
+  **not** being built until the redesign epic above ships — building it against the current
+  architecture would mean rebuilding it again once the redesign changes how candidates are
+  deployed/run.
 
 Previous PRD — `reader-feedback.md` (**Shipped, merged PR #24 + follow-up PR #25**). A public
 feedback web form, reachable via a personalized per-recipient/per-edition link embedded in the

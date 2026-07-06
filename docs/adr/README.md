@@ -21,3 +21,4 @@ the template and when an ADR is required.
 | [0011](0011-feedback-link-signed-token-scheme.md) | Signed, self-attesting feedback-link token scheme | Accepted |
 | [0012](0012-feedback-standalone-stack-and-token-helper-packaging.md) | Standalone `deploy/feedback/` CDK app and token-helper packaging | Accepted |
 | [0013](0013-eval-harness-backbone-build-vs-adopt.md) | Evaluation-harness backbone: custom AWS-native build vs. adopting a self-hostable eval tool | Accepted |
+| [0014](0014-agent-system-redesign-topology.md) | Agent-system redesign: environment topology (cloud vs. self-hosted), decoupled delivery boundary, and git-native candidate versioning | Proposed — pending human sign-off |
