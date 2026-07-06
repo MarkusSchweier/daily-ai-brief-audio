@@ -28,6 +28,7 @@ Covers:
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from candidate_sync import trigger
@@ -272,6 +273,38 @@ def test_run_candidate_polls_until_terminal_using_injected_sleep():
     assert result.final_status == "idle"
     # Two polls came back "running" -> exactly two sleeps of 5.0s each between polls.
     assert clock.sleep_calls == [5.0, 5.0]
+
+
+def test_run_candidate_archives_even_when_start_session_itself_raises():
+    """Regression test for the leaked-deployment bug the reviewer + security-
+    engineer independently found: create_temporary_deployment() and start_session()
+    used to run BEFORE the try/finally that owns the archive call, so a
+    start_session() failure (e.g. a transient 5xx on POST
+    /v1/deployments/{id}/run) -- DISTINCT from a FAILED session status or a poll
+    timeout, both raised INSIDE the try block -- propagated with ZERO archive call.
+    This is the THIRD failure mode, the one the docstring's narrower
+    "FAILED status / timeout" claim did not cover. Asserts archive_deployment was
+    called exactly once despite start_session raising."""
+    client = FakeHttpxClient()
+    client.when("POST", "/v1/deployments", FakeResponse(200, {"id": "depl_EXAMPLE"}))
+    # A transient 5xx on POST /v1/deployments/{id}/run -- start_session() raises
+    # httpx.HTTPStatusError via raise_for_status(), never reaching the poll loop.
+    client.when("POST", "/v1/deployments/depl_EXAMPLE/run", FakeResponse(500, {"error": "simulated transient failure"}))
+    client.when("POST", "/v1/deployments/depl_EXAMPLE/archive", FakeResponse(200, {}))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        trigger.run_candidate(
+            client,
+            agent_id="agent_EXAMPLE",
+            environment_id="env_EXAMPLE",
+            task_prompt="do the thing",
+            deployment_name="candidate-trigger-example",
+        )
+
+    # THE assertion that matters: archive_deployment was called exactly once, even
+    # though start_session() itself raised before any session/poll logic ran at all.
+    archive_calls = [c for c in client.calls if c.method == "POST" and c.path == "/v1/deployments/depl_EXAMPLE/archive"]
+    assert len(archive_calls) == 1
 
 
 def test_run_candidate_raises_on_failed_status_and_still_archives():

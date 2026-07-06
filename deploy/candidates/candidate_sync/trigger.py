@@ -263,8 +263,23 @@ def run_candidate(
 
     Raises `CandidateRunFailedError` if the session reaches a FAILED status, or
     `CandidateRunTimeoutError` if it never reaches a terminal status within
-    `poll_timeout_seconds` -- in BOTH cases, the temporary deployment is still
-    archived before the exception propagates (never leaked)."""
+    `poll_timeout_seconds` -- in ALL THREE post-creation failure modes (a FAILED
+    status, a poll timeout, OR `start_session()` itself raising, e.g. a transient
+    5xx on `POST /v1/deployments/{id}/run`), the temporary deployment is still
+    archived before the exception propagates (never leaked). A failure in
+    `create_temporary_deployment()` itself needs no archive call -- nothing was
+    created yet, so `deployment_id` is never assigned and the `try`/`finally` below
+    never runs.
+
+    CORRECTED (reviewer + security-engineer, independently converged on the same
+    bug): `start_session()` used to run BEFORE the `try:` that owns the `finally:`
+    archive call, so a `start_session()` failure (distinct from a FAILED session
+    status or a poll timeout, both raised INSIDE the try block) propagated with
+    ZERO archive call -- a genuinely leaked, permanently-callable temporary
+    deployment, contradicting this function's own docstring and the README's
+    explicit "always archives... no callable temporary deployment is ever left
+    behind" claim. Fixed by moving `start_session()` inside the `try`, with the
+    `finally` now guarded on whether `deployment_id` was actually assigned."""
     deployment_id = create_temporary_deployment(
         deployments_client,
         agent_id=agent_id,
@@ -272,11 +287,12 @@ def run_candidate(
         task_prompt=task_prompt,
         name=deployment_name,
     )
-    session_id = start_session(deployments_client, deployment_id)
 
     deadline = now_fn() + poll_timeout_seconds
     final_status = ""
     try:
+        session_id = start_session(deployments_client, deployment_id)
+
         while True:
             final_status = get_session_status(deployments_client, session_id)
             if final_status.lower() in _FAILED_STATUSES:
@@ -297,6 +313,10 @@ def run_candidate(
             deployment_id=deployment_id, session_id=session_id, final_status=final_status, events=events
         )
     finally:
+        # deployment_id is ALWAYS assigned by this point (create_temporary_deployment()
+        # already returned successfully, or we wouldn't have reached this try/finally
+        # at all) -- so archiving unconditionally here is correct, not merely
+        # best-effort-if-present.
         archive_deployment(deployments_client, deployment_id)
 
 
