@@ -278,8 +278,10 @@ def run_candidate(
     ZERO archive call -- a genuinely leaked, permanently-callable temporary
     deployment, contradicting this function's own docstring and the README's
     explicit "always archives... no callable temporary deployment is ever left
-    behind" claim. Fixed by moving `start_session()` inside the `try`, with the
-    `finally` now guarded on whether `deployment_id` was actually assigned."""
+    behind" claim. Fixed by moving `start_session()` inside the `try` -- the
+    `finally` archives unconditionally, which is correct because `deployment_id`
+    is always bound before the `try`/`finally` is ever entered (see the comment
+    at the `finally` clause below)."""
     deployment_id = create_temporary_deployment(
         deployments_client,
         agent_id=agent_id,
