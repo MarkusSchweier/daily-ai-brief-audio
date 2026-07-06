@@ -32,6 +32,26 @@ This file now tests two genuinely different things instead:
      heading, the stable footer line) is well-formed and consistent across
      every one of the three real inputs -- a shape/consistency check on what
      THIS function now deterministically produces, not a diff against history.
+
+A FOURTH real fixture was added during the agent-system-redesign epic's Phase 5
+(`2026-07-06-production-baseline-candidate-brief.md`) -- the real, fresh brief
+Markdown a genuinely-triggered `production-baseline` candidate produced on the
+decoupled `cloud` topology (a SEPARATE, later run than the same day's real
+production brief already fixture'd above as `2026-07-06-brief.md` -- confirmed
+byte-different real independent research, not a duplicate). This extends the
+original 3-fixture regression evidence with a brand-new, real data point from a
+genuinely different execution path (candidate, not production), still
+confirming `derive_html()` handles real brief content correctly with zero
+Markdown extensions. This fixture's brief happened to use ONE Markdown
+construct none of the original three did -- a single inline-code span
+(`` `source-usage.json` `` in its closing "Sources checked" line) -- flagged
+explicitly (per this phase's own instruction not to silently patch the
+extension set) rather than glossed over: inline code is CORE Markdown syntax,
+not an extension-gated feature (unlike `tables`/`fenced_code`), so
+`markdown.markdown()`'s zero-extensions default already converts it correctly
+(`<code>...</code>`) with no change needed to `_convert_markdown_body()` or its
+extension set -- confirmed directly, see
+`test_inline_code_span_from_the_candidate_fixture_converts_correctly` below.
 """
 
 from __future__ import annotations
@@ -56,6 +76,7 @@ FIXTURE_MARKDOWN_FILENAMES = [
     "2026-07-03-brief.md",
     "2026-07-04-brief.md",
     "2026-07-06-brief.md",
+    "2026-07-06-production-baseline-candidate-brief.md",
 ]
 
 
@@ -286,17 +307,34 @@ def test_derive_html_uses_no_extensions_by_design():
 
 
 @pytest.mark.parametrize("filename", FIXTURE_MARKDOWN_FILENAMES)
-def test_none_of_the_three_real_fixtures_needs_a_table_or_fenced_code_extension(filename):
+def test_none_of_the_real_fixtures_needs_a_table_or_fenced_code_extension(filename):
     """Direct sanity check on the claim `_convert_markdown_body()`'s docstring
-    makes: none of the three real fixtures actually contains a Markdown pipe
-    table or a fenced code block. If a future brief legitimately needs one,
-    THIS test (not just the no-extensions-in-source test above) is the one that
-    should start failing first, precisely locating which fixture drove the
-    need."""
+    makes: none of the real fixtures (now four -- three archived production
+    briefs plus the Phase 5 production-baseline candidate brief) actually
+    contains a Markdown pipe table or a fenced code block. If a future brief
+    legitimately needs one, THIS test (not just the no-extensions-in-source
+    test above) is the one that should start failing first, precisely locating
+    which fixture drove the need."""
     markdown_text = _load_fixture_markdown(filename)
 
     assert not re.search(r"^\|.+\|$", markdown_text, re.MULTILINE)
     assert "```" not in markdown_text
+
+
+def test_inline_code_span_from_the_candidate_fixture_converts_correctly():
+    """The ONE new Markdown construct the Phase 5 candidate fixture uses that
+    none of the original three real fixtures did: a single inline-code span
+    (`` `source-usage.json` `` in its closing "Sources checked" line). Flagged
+    explicitly, per this phase's own instruction not to silently patch the
+    extension set if a new construct appeared -- confirms this is CORE Markdown
+    syntax (not extension-gated, unlike `tables`/`fenced_code`), so it already
+    converts correctly under `markdown.markdown()`'s zero-extensions default,
+    with NO change needed to `_convert_markdown_body()`."""
+    markdown_text = _load_fixture_markdown("2026-07-06-production-baseline-candidate-brief.md")
+    html = delivery_core.derive_html(markdown_text)
+
+    assert "`source-usage.json`" in markdown_text  # sanity: the fixture really uses this
+    assert "<code>source-usage.json</code>" in html
 
 
 # ---------------------------------------------------------------------------
