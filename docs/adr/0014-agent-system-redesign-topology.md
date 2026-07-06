@@ -20,10 +20,43 @@
   below. The fourth pass was the transport-only amendment in Decision 2a. **Sixth pass**, 2026-07-06 —
   the human **ratified Decision 1 (the hybrid)**; Decision 1's status is now Accepted and a new
   Decision 2d records the delivery-side recent-priors read endpoint that closes the hybrid's
-  eval-vs-production "read recent priors" fidelity gap.)
+  eval-vs-production "read recent priors" fidelity gap. **Seventh pass**, 2026-07-06 — token-delivery
+  correction: a live validation found the env-var-on-environment token-injection mechanism Decision 2d
+  and 2b originally specified is **not settable via the current beta API**; Decision 2d now records that
+  correction and recommends a **short-lived HMAC-signed read token** as the permanent mechanism —
+  flagged for the human's sign-off; the interim runtime-injection approach stays usable until then.)
 - Deciders: architect (Claude, recommendation); **human — RATIFIED Decision 1 (topology: hybrid) on
   2026-07-06; sign-off on Decisions 2a/2b/2c/2d still pending.**
 
+> **Revision note (2026-07-06 — SEVENTH pass — token-delivery correction to Decision 2d (and a
+> corrected cross-reference in Decision 2b), prompted by a live validation of the `GET /recent-briefs`
+> endpoint).** Documentation-only; no code, skill, or `deploy/` file edited (confirmed via
+> `git diff --name-only`: only this ADR changed). One substantive correction with a recommendation:
+> 1. **The env-var-on-environment token-injection mechanism does NOT work on the current beta.** Decision
+>    2d (and Decision 2b) originally specified injecting the bearer token via the shared `cloud`
+>    environment's declarative `config.environment` (env-vars) block. A live validation proved that block
+>    is **not settable via the current beta Managed Agents API** — `POST /v1/environments` with
+>    `config.environment` returns `400 "Extra inputs are not permitted"`; the field is read-only/reserved,
+>    and so are `config.init_script` and `config.packages` (I re-verified this live: only `config.type` and
+>    `config.networking` are settable at create). The **only** working per-run injection channel today is
+>    the deployment's `initial_events` (the task prompt), which lands the token in the session transcript.
+> 2. **Recommended permanent mechanism: a short-lived, HMAC-signed read token, minted per run and verified
+>    with an `exp` claim.** Reusing the ADR-0011/0012 feedback signed-token scheme already vendored into
+>    the delivery Lambda (`feedback_token.py`), plus a small `exp`-carrying variant, a transcript-leaked
+>    token dies within minutes and needs **no per-run rotation** — the property the deferred, many-run eval
+>    epic needs — for near-zero added machinery. Signed with the **existing** read secret; no new secret,
+>    no new IAM; FR-1/FR-7 auth-separation and the whole endpoint contract are **unchanged**. **Flagged for
+>    the human's sign-off** (affects the eval epic). The **interim** approach used during validation (static
+>    token via `initial_events`, read secret rotated + Lambda cold-started immediately after) is confirmed
+>    **fine to keep using until the human ratifies**, given the read token's low sensitivity (already-public
+>    content, structurally auth-separated from the send path). Sections touched by this pass: the
+>    top-of-file date line (this pass added), Decision 2d's heading amendment note + a new "Correction
+>    (2026-07-06)" subsection + its retracted "how the token reaches the sandbox" paragraph, Decision 2b's
+>    token-delivery bullet (corrected cross-reference; its core bearer-secret/fail-closed recommendation
+>    unchanged), and the sign-off items (a new token-delivery item). **Not touched:** Decision 1, Decisions
+>    2a/2c, the ADR-0008 reconciliation, and every other part of Decision 2d (the endpoint contract, the
+>    separate read-only secret, the no-new-IAM property, the additive-to-production guarantee).
+>
 > **Revision note (2026-07-06 — SIXTH pass — the human RATIFIED Decision 1 (the hybrid), and a new
 > Decision 2d records the delivery-side recent-priors read endpoint that closes the hybrid's
 > eval-vs-production fidelity gap).** Two changes, both documentation-only (no code, skill, or `deploy/`
@@ -891,11 +924,26 @@ with a constant-time compare — the exact pattern `deploy/eval/`'s reviewer sec
 (ADR-0013 §E) and the feedback-token scheme (ADR-0011/0003) already establish.
 
 - The bearer token is created **empty** in the delivery stack and populated out-of-band
-  (repo convention: no secret in git/CDK). The `cloud` sandbox receives it as an
-  environment variable via the environment's declarative `environment` config block
-  (confirmed present on the cloud env config) or injected into the delivery-step prompt
-  from a Secrets-Manager reference — **never** committed. The wrapper `curl`s
-  `POST /deliver` with `Authorization: Bearer <token>`.
+  (repo convention: no secret in git/CDK). The wrapper `curl`s `POST /deliver` with
+  `Authorization: Bearer <token>`.
+  - **Correction (2026-07-06): how the token reaches the sandbox.** This bullet originally
+    said the `cloud` sandbox "receives it as an environment variable via the environment's
+    declarative `environment` config block (confirmed present on the cloud env config)."
+    That is **retracted** — a live validation (2026-07-06) proved `config.environment` is
+    **not settable via the current beta Managed Agents API** (it is rejected at
+    environment-create with `400 "config.environment: Extra inputs are not permitted"`, and
+    is read-only/reserved; the same is true of `config.init_script` and `config.packages`).
+    The **only** working channel to pass a per-run value to a `cloud` candidate today is the
+    deployment's **`initial_events` (the task prompt)** — see the full evidence and the
+    recommended remedy in **Decision 2d → "Correction (2026-07-06): how the read token
+    actually reaches a `cloud` candidate."** That correction's short-lived-signed-token
+    recommendation is written for the **read** token (`GET /recent-briefs`), the one the live
+    validation exercised; the **delivery/send** token here reaches the sandbox by the same
+    `initial_events` channel (never `config.environment`), and whether it too should become
+    short-lived is a follow-up the Developer/human can take up when Phase 1 wires the send
+    path from a `cloud` candidate. Decision 2b's core recommendation — a bearer secret,
+    checked fail-closed with a constant-time compare — is **unchanged** by this correction;
+    only its claimed token-delivery mechanism was wrong.
 - **Fail-closed** (the security-engineer's standing bar, echoing the launcher's
   fail-closed signature check and `deploy/eval/`'s reviewer auth): a missing or invalid
   token yields **401**, never a fall-open to an unauthenticated send. The delivery
@@ -1078,6 +1126,24 @@ deploy/candidates/
   normal `git pull` like any other tracked content.)*
 
 ## Decision 2d (recommended): the recent-priors read endpoint — `GET /recent-briefs` on the `deploy/delivery/` boundary, gated by its OWN separate read-only bearer secret (distinct from the delivery/send secret)
+
+> **Amended 2026-07-06 (seventh pass — token-delivery correction).** A live validation of `GET /recent-briefs`
+> found that the token-injection mechanism this decision (and Decision 2b) originally specified —
+> setting the read token as an env var in the shared `cloud` environment's `config.environment` block —
+> is **NOT available via the current beta Managed Agents API** (probe evidence: `400 "config.environment:
+> Extra inputs are not permitted"` at environment-create; the field is read-only/reserved, as are
+> `config.init_script` and `config.packages`). The **only** working per-run injection channel today is the
+> deployment's `initial_events` (the task prompt), which lands the token in the session transcript. This
+> pass records that correction and recommends a **permanent mechanism — a short-lived, HMAC-signed read
+> token minted per run and verified with an `exp` claim** (reusing the ADR-0011 signed-token scheme already
+> vendored into the delivery Lambda), so a transcript-leaked token dies within minutes and needs no per-run
+> rotation. See the new subsection **"Correction (2026-07-06): how the read token actually reaches a `cloud`
+> candidate"** below. **Flagged for the human's sign-off** (it affects the deferred eval epic's many-run
+> cadence). The endpoint contract, its separate read-only secret, its no-new-IAM property, and the
+> FR-1/FR-7 auth-separation guarantee are all **unchanged** — only the token-delivery mechanism is
+> corrected. The interim approach used during validation (a static token injected at trigger time, the read
+> secret rotated + the Lambda cold-started immediately after) **remains fine to keep using until the human
+> ratifies.**
 
 *(Added 2026-07-06, sixth pass, after the human ratified Decision 1 (the hybrid). This decision exists
 **only** because the hybrid was chosen: it closes an eval-vs-production fidelity gap the hybrid creates.
@@ -1265,14 +1331,155 @@ step 0 does, but over HTTP rather than S3:
 3. Proceed to research/write exactly as today, now able to avoid recent repeats and label genuine
    follow-ups, just as production does.
 
-The read bearer token (and the delivery API base URL) reach the `cloud` sandbox the **same way** Decision
-2b specifies for the delivery token: injected via the `cloud` environment config's declarative
-`environment` (env-vars) block, **populated out-of-band and never committed** (repo convention). This ADR
-**flags that mechanism but leaves the exact wiring to the Developer** — including whether the
-`production-baseline/task-prompt.md` "skip the read step" note is replaced by these curl-then-write steps,
-or whether the read step is expressed in the candidate's declaration another way. The invariant for the
-Developer: the candidate receives **only** the read-only token (never the delivery/send token), so it can
-fetch priors but can never trigger a send.
+The read bearer token (and the delivery API base URL) reach the `cloud` sandbox **at trigger time via the
+deployment's `initial_events` (the task prompt), NOT via any environment-config channel** — see the
+correction and the recommended permanent mechanism below ("**Correction (2026-07-06): how the read token
+actually reaches a `cloud` candidate**"). The original phrasing here (and in Decision 2b) — "injected via
+the `cloud` environment config's declarative `environment` (env-vars) block" — is **retracted**: that
+channel is **not settable via the current beta Managed Agents API** (live-probe evidence below). The
+invariant for the Developer is unchanged: the candidate receives **only** the read-only token (never the
+delivery/send token), so it can fetch priors but can never trigger a send. Whether the
+`production-baseline/task-prompt.md` "skip the read step" note is replaced by the curl-then-write steps, or
+the read step is expressed in the candidate's declaration another way, is left to the Developer.
+
+### Correction (2026-07-06): how the read token actually reaches a `cloud` candidate — env-vars-on-environment do NOT work; recommend a short-lived signed read token injected per run
+
+> **Status: this sub-decision is RECOMMENDED, pending the human's sign-off** — it changes how every future
+> candidate/eval run obtains the read capability, so it affects the (deferred) eval epic and is flagged for
+> the human alongside Decision 2d's other items. The interim mechanism (a static read token injected at
+> trigger time, rotated after exposure) **is fine to keep using until the human ratifies** — see "Is the
+> interim approach OK to keep using?" below.
+
+**What was originally specified, and why it does not work.** Decision 2d (and Decision 2b) originally said
+the read/delivery bearer token would reach the `cloud` sandbox as an **environment variable set in the
+shared `cloud` environment's declarative `config.environment` (env-vars) block**, populated out-of-band.
+A live validation of the recent-priors read endpoint (2026-07-06) proved that channel is **not available
+via the current beta Managed Agents API.** Real probes against `api.anthropic.com`
+(`managed-agents-2026-04-01`; every probe environment archived immediately, the shared env
+`env_01W3Envi4NfK7ypQMfoZccRY` and production never touched):
+
+- **Setting `config.environment` at environment-create is rejected.**
+  `POST /v1/environments` with `config: {type: "cloud", environment: {FOO: "bar"}}` →
+  **`400 invalid_request_error: "config.environment: Extra inputs are not permitted"`**. Placing
+  `environment` at the top level (sibling of `config`) is rejected identically.
+- **A `GET` on an existing environment shows `config.environment: {}` (empty) but you cannot SET it.** The
+  field is **modeled** in the returned config shape but comes back as an empty default, and there is no
+  working update path — a create rejects the field, and `POST`/`PATCH` to `/v1/environments/{id}` do not
+  provide one (they 307-redirect). So `config.environment` is effectively **read-only / reserved** in this
+  beta.
+- **This is NOT limited to the env-vars block — `config.init_script` and `config.packages` are ALSO
+  rejected at create** with the identical `"Extra inputs are not permitted"` error (both inside `config`
+  and at the top level), and both come back as empty defaults (`init_script: ""`, all `packages` arrays
+  empty) on a `GET`. **Only `config.type` and `config.networking` are actually settable at create.** (This
+  corrects the task brief's assumption that `packages`/`init_script` were settable and only `environment`
+  was not — in this beta, the whole structured-config surface beyond `type`/`networking` is reserved.)
+
+**Consequence: the deployment's `initial_events` (the task prompt) is the ONLY working channel today** to
+pass any per-run value (a token, the delivery base URL) to a `cloud` candidate. `trigger.py` already builds
+the run this way (`create_temporary_deployment(...)` puts the task prompt into
+`initial_events[0].content[].text`, `candidate_sync/trigger.py:132`). Because `initial_events` is echoed
+into the session transcript (readable by anyone holding the org API key), **any token injected this way
+appears in that run's transcript.** For the low-sensitivity read token — it reads only already-public brief
+content and is auth-separated from the send path by its own distinct secret (the core Decision 2d
+guarantee, unaffected by this correction) — that exposure is bounded, but as a **standing** mechanism it
+means *every* candidate run would leak the token and (with a static token) need a rotation afterward. The
+future eval epic triggers **many** candidates, so it needs a clean, repeatable approach that does not
+require a rotation per run.
+
+**Recommendation (permanent mechanism): mint a SHORT-LIVED, HMAC-signed read token per run in the
+orchestrator, inject it via `initial_events`, and have `GET /recent-briefs` verify the signature + expiry.**
+Instead of injecting the long-lived static bearer secret, the trigger side (`trigger.py` now, the eval
+harness later) mints a **short-TTL signed token** for each run and injects *that* into the task prompt; the
+delivery Lambda's `GET /recent-briefs` handler verifies it. Even when it lands in the transcript, it is
+**dead within minutes**, so there is nothing to rotate per run and a leaked transcript token cannot be
+replayed. Concretely, this **reuses the repo's existing signed-token prior art almost verbatim**:
+
+- The scheme is the **feedback signed-token scheme (ADR-0011/0012)** — `<payload_b64url>.<sig_b64url>`,
+  `HMAC-SHA256(secret, payload_b64url)`, stdlib-only, constant-time verify — **already vendored into this
+  very Lambda** at `deploy/delivery/functions/deliver/feedback_token.py`. The one change from the feedback
+  token is that this token's payload carries an **`exp` (expiry) claim** — the feedback token deliberately
+  omits expiry (attribution-integrity, not a capability), but this read token **is** a short-lived
+  capability, so a small **read-capability token variant** (a sibling helper, e.g.
+  `recent_briefs_token.py`, mirroring `feedback_token.py`'s shape) adds `exp` and the verifier enforces it
+  (reject if `now > exp`). Suggested payload: `{"v": 1, "scope": "recent-briefs", "exp": <unix-ts>}` — no
+  identity needed (the capability is uniform: "read the last N public briefs").
+- The **signing secret** is the **same** `daily-ai-brief/recent-briefs-read-bearer-secret` that already
+  gates this endpoint — no new secret, no new IAM. The **orchestrator** reads that secret from Secrets
+  Manager (the trigger side is the operator's own machine/CI, which legitimately can), signs a token with a
+  short TTL (e.g. **5–15 minutes**, comfortably covering a research/writing run's *start*, which is when the
+  priors are fetched — the fetch happens in the first minute, not at the end), and injects it. The
+  `GET /recent-briefs` handler switches from `hmac.compare_digest(supplied, static_secret)` to
+  `verify_signed_read_token(supplied, secret)` (signature + `exp`). This keeps the endpoint **fail-closed**
+  exactly as today: no token, a bad signature, or an expired token → **401**, never a fall-open.
+- **Nothing about the auth-separation guarantee changes.** The read token still cannot reach `POST /deliver`
+  (that endpoint checks the *delivery* secret, and this token is signed with the *read* secret and carries a
+  `recent-briefs` scope), so FR-1/FR-7 hold by construction, exactly as Decision 2d already establishes. The
+  signed-token change only bounds the *read* token's lifetime; it does not widen what the read token can do.
+
+**Why this over the alternatives (evaluated):**
+
+- **(b) Short-lived signed read token — CHOSEN.** Given that `initial_events` is the *only* injection
+  channel today, the right mitigation is to make the injected value **non-durable** rather than to keep
+  hunting for a config channel that does not exist. It removes the per-run rotation entirely (an expired
+  token is self-neutralizing), which is exactly the property the **many-candidate eval epic** needs, and it
+  costs almost nothing because the HMAC sign/verify machinery is **already in this Lambda** (`feedback_token.py`)
+  — a small `exp`-carrying sibling and one verifier swap, mirroring a scheme two prior ADRs already reviewed.
+  This is the same "signed, self-attesting, stdlib-only, no new dependency" posture ADR-0011 chose, applied
+  to a capability that (unlike the feedback token) genuinely *should* expire.
+- **(a) Static read token via `initial_events` + a rotation policy — acceptable, but not recommended as the
+  standing mechanism; RETAINED as the interim.** This is what the live validation used and it works. Its
+  only cost is that each run leaks a *long-lived* token into its transcript, so a clean posture requires
+  rotating the read secret on a cadence (and after any known exposure). For a **one-off or low-frequency**
+  use, that is genuinely tolerable given the token's low sensitivity (public-content read, auth-separated
+  from send) — so the interim approach is fine to keep using now (below). But at the eval epic's **many-run**
+  cadence, "rotate after every run" is operational friction the signed-token approach removes for near-zero
+  extra machinery, so (a) is not the right *permanent* choice. (If the human prefers maximum simplicity over
+  minimizing transcript exposure, (a) with a documented rotation cadence — e.g. rotate weekly and after any
+  exposure — remains a defensible permanent choice; the read token's low sensitivity makes this a legitimate
+  option, not a security hole. The recommendation is (b) because it is *both* cleaner operationally *and*
+  lower-exposure, for trivial added cost.)
+- **(c) `init_script` injection — REJECTED (does not work, and would not help even if it did).** The live
+  probes show `config.init_script` is rejected at create identically to `config.environment` — so it is
+  **not** an available channel at all. Even if it were, it would be **strictly worse** than a per-run
+  injection: `init_script` is set at *environment-create* time (not per run) on the single shared
+  environment, so it would bake a **static** token into a long-lived, shared resource, and a `GET` on the
+  environment echoes `init_script` back (same readability exposure as the env-vars block). It solves nothing
+  the env-var channel didn't, and it is not settable regardless.
+- **(d) Wait for platform env-var support — NOT relied upon.** The `config.environment` field is *modeled*
+  (it appears, empty, on a `GET`), which suggests write support may arrive in a later beta — but it is not
+  available now, and this repo's discipline is to **recommend something that works today** rather than block
+  on a platform change. If `config.environment` becomes settable later, a static token in the shared
+  environment's env-vars block would remove the token from the transcript entirely and could supersede this
+  mechanism — but that is a **future** revisit, not a dependency. (Even then, a short-lived signed token is
+  arguably still preferable to a static env-var secret on a shared resource, so this is not clearly a future
+  win; note it and move on.)
+- **A separate short-lived surface / pre-signed S3 URL — REJECTED as disproportionate.** A pre-signed S3 GET
+  URL per prior object (minted by the orchestrator, which would then need S3 access it otherwise does not
+  have) or a bespoke short-lived-credential service is heavier machinery than a single trusted
+  service-to-service read warrants — the same reasoning Decision 2b gives for rejecting mTLS/SigV4/Cognito.
+  The signed-token approach reuses what is already here and needs no new AWS surface.
+
+**Is the interim runtime-injection approach OK to keep using until the human ratifies? — Yes.** The live
+validation injected the **static** read token via `initial_events` and mitigated the transcript exposure by
+**rotating the read secret and cold-starting the Lambda immediately after**, so the exposed value was dead
+before this record was written. For a low-sensitivity, read-only token (already-public brief content;
+structurally auth-separated from the send path by its own distinct secret) on the owner's own org, that
+one-off exposure-then-rotation is tolerable. So **the interim static-token-plus-rotation approach remains
+fine for occasional manual/scripted runs until the human ratifies the permanent mechanism.** What it is
+**not** suited to is the eval epic's many-run cadence — which is why the *permanent* recommendation is the
+short-lived signed token above. (Token shell-safety is already handled: both bearer secrets generate
+alphanumeric-only values via `exclude_punctuation=True`, `deploy/delivery/brief_delivery/stack.py:282,311`,
+so whichever mechanism is ratified, the token is safe to inject into a shell `curl`.)
+
+**Scope of this correction.** This changes **how the read token reaches a `cloud` candidate** (the delivery
+mechanism), not **what the read endpoint does** (Decision 2d's endpoint contract, its own separate read-only
+secret, its no-new-IAM property, and the FR-1/FR-7 auth-separation guarantee are all **unchanged**). It also
+corrects the parallel "env-vars config block" claim in **Decision 2b** for the *delivery/send* token by the
+same reasoning: that token, too, must reach the sandbox via `initial_events`, not `config.environment` (see
+the note added to Decision 2b). Whether the delivery/send token should *also* become short-lived is a
+Decision-2b question the Developer/human can take up when Phase 1 wires the send path from a `cloud`
+candidate; this correction records the mechanism gap for both tokens and recommends the signed-token
+remedy for the read token specifically (the one the live validation exercised).
 
 *(Note on the candidate baseline: re-expressing today's production configuration as `production-baseline/`
 and validating an **unchanged** brief (Phase 5, FR-14/AC-14) becomes cleaner with this endpoint in place —
@@ -1769,6 +1976,19 @@ treat as settled):**
   secret's `GetSecretValue`); **purely additive** — production's own S3-backed `read-recent-briefs` step
   is untouched (FR-14/AC-14). This decision follows from the ratified hybrid (it closes the hybrid's
   eval-vs-production "read recent priors" fidelity gap).
+- **[NEW — token-delivery correction, needs sign-off] Confirm how the read token reaches a `cloud`
+  candidate** (Decision 2d → "Correction (2026-07-06): how the read token actually reaches a `cloud`
+  candidate"). The originally-specified env-var-on-environment channel does **not** work (live-probe
+  evidence: `config.environment`/`init_script`/`packages` are all rejected at environment-create in this
+  beta; only `type`/`networking` are settable), so a token must be injected per run via `initial_events`
+  (the task prompt) — which puts it in the session transcript. **Recommended permanent mechanism: a
+  short-lived, HMAC-signed read token** (the ADR-0011 scheme + an `exp` claim, signed with the existing
+  read secret, verified by `GET /recent-briefs`), so a transcript-leaked token dies in minutes with no
+  per-run rotation — the property the **many-run eval epic** needs. This affects that (deferred) eval epic,
+  so it is flagged for your sign-off. The **interim** approach (static token via `initial_events`, read
+  secret rotated + Lambda cold-started after) is fine to keep using until you ratify. (Same `initial_events`
+  correction applies to Decision 2b's delivery/send token; whether that one should also become short-lived
+  is a Phase-1 follow-up.)
 - Confirm the **ADR-0008 reconciliation** (Decision "Reconciling ADR-0008"): the three-way lockstep
   collapses to **two-way** (in-repo ↔ live Skills-API) because the **local Desktop fallback is
   dead** — **unconditionally, with no reactivation hedge** (this is already the owner's stated
