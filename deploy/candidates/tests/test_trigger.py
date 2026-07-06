@@ -31,7 +31,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from candidate_sync import trigger
+from candidate_sync import recent_briefs_token, trigger
 from fake_httpx_client import FakeHttpxClient, FakeResponse
 
 # --- Real, observed event fixtures ---------------------------------------------------
@@ -663,3 +663,157 @@ def test_extract_tool_result_text_tolerates_a_bare_string_fallback():
 
 def test_extract_tool_result_text_returns_none_when_nothing_recognized():
     assert trigger._extract_tool_result_text({"type": "agent.tool_result", "is_error": False}) is None
+
+
+# ---------------------------------------------------------------------------
+# substitute_recent_briefs_placeholders() -- ADR-0014 Decision 2d's correction
+# (status ACCEPTED): mints a fresh signed recent-briefs read token per triggered
+# run and substitutes it (plus the delivery base URL) into a candidate's task
+# prompt, IF that prompt references the two placeholders at all.
+# ---------------------------------------------------------------------------
+
+
+def test_no_placeholders_present_returns_prompt_unchanged():
+    """A candidate whose task prompt predates this mechanism (e.g.
+    smoke-test-example) must be entirely unaffected -- no substitution
+    attempted, no env var read, no token minted."""
+    prompt = "Just research and write today's brief. Nothing about recent briefs here."
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt, signing_key="unused-key", delivery_base_url="unused-url"
+    )
+    assert result == prompt
+
+
+def test_no_placeholders_present_does_not_require_any_config_at_all():
+    """Confirms the "no env var read at all" half of the above: passing NEITHER
+    signing_key NOR delivery_base_url (so the function would fall back to
+    os.environ) must still succeed and return the prompt unchanged, since
+    neither placeholder is present -- proving the config-missing error path is
+    never reached when it isn't needed."""
+    prompt = "No placeholders anywhere in this prompt."
+    result = trigger.substitute_recent_briefs_placeholders(prompt)
+    assert result == prompt
+
+
+def test_both_placeholders_present_are_both_substituted_with_signing_key_and_url_given():
+    prompt = (
+        'curl -s -H "Authorization: Bearer __RECENT_BRIEFS_TOKEN__" '
+        '"__DELIVERY_BASE_URL__/recent-briefs?count=3"'
+    )
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt,
+        signing_key="a-real-signing-key",
+        delivery_base_url="https://example-delivery.test",
+        now=1_000_000,
+    )
+    assert "__RECENT_BRIEFS_TOKEN__" not in result
+    assert "__DELIVERY_BASE_URL__" not in result
+    assert "https://example-delivery.test/recent-briefs?count=3" in result
+
+
+def test_substituted_token_is_a_genuine_valid_signed_token():
+    """Not just "the placeholder is gone" -- the substituted value must be a
+    REAL token that verifies under the same signing key with the recent-briefs
+    scheme (candidate_sync.recent_briefs_token.verify())."""
+    prompt = 'Bearer __RECENT_BRIEFS_TOKEN__ against __DELIVERY_BASE_URL__'
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt, signing_key="a-real-signing-key", delivery_base_url="https://example.test", now=1_000_000
+    )
+    token = result.split("Bearer ", 1)[1].split(" against ", 1)[0]
+    assert recent_briefs_token.verify("a-real-signing-key", token, now=1_000_000) is True
+
+
+def test_substituted_token_respects_the_given_ttl():
+    prompt = "__RECENT_BRIEFS_TOKEN__"
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt, signing_key="key", delivery_base_url="https://example.test", ttl_seconds=300, now=1_000_000
+    )
+    # Valid just before the 300s TTL elapses...
+    assert recent_briefs_token.verify("key", result, now=1_000_000 + 299) is True
+    # ...but not after.
+    assert recent_briefs_token.verify("key", result, now=1_000_000 + 301) is False
+
+
+def test_only_token_placeholder_present_substitutes_only_that_one():
+    prompt = "token=__RECENT_BRIEFS_TOKEN__, no url placeholder here"
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt, signing_key="key", delivery_base_url="unused-since-no-url-placeholder", now=1_000_000
+    )
+    assert "__RECENT_BRIEFS_TOKEN__" not in result
+    assert "token=" in result
+
+
+def test_only_url_placeholder_present_substitutes_only_that_one_and_no_token_minted(monkeypatch):
+    """If only __DELIVERY_BASE_URL__ is present (no token placeholder at all),
+    the signing key is never even consulted for minting -- confirms the two
+    placeholders are substituted independently, not as an all-or-nothing pair."""
+    prompt = "url=__DELIVERY_BASE_URL__, no token placeholder here"
+    result = trigger.substitute_recent_briefs_placeholders(
+        prompt, signing_key=None, delivery_base_url="https://example.test"
+    )
+    assert result == "url=https://example.test, no token placeholder here"
+
+
+def test_token_placeholder_present_but_signing_key_env_var_unset_raises_clear_error(monkeypatch):
+    """A candidate's prompt referencing __RECENT_BRIEFS_TOKEN__ with NO signing
+    key configured anywhere (neither an explicit param nor the env var) must
+    raise a CLEAR, actionable error naming the env var to set -- never silently
+    trigger a run with a literal, useless placeholder string."""
+    monkeypatch.delenv(trigger.RECENT_BRIEFS_SIGNING_KEY_ENV_VAR, raising=False)
+    prompt = "Bearer __RECENT_BRIEFS_TOKEN__"
+
+    with pytest.raises(trigger.RecentBriefsPlaceholderConfigError) as exc_info:
+        trigger.substitute_recent_briefs_placeholders(prompt, delivery_base_url="https://example.test")
+
+    assert trigger.RECENT_BRIEFS_SIGNING_KEY_ENV_VAR in str(exc_info.value)
+
+
+def test_url_placeholder_present_but_env_var_unset_raises_clear_error(monkeypatch):
+    monkeypatch.delenv(trigger.DELIVERY_BASE_URL_ENV_VAR, raising=False)
+    prompt = "__DELIVERY_BASE_URL__"
+
+    with pytest.raises(trigger.RecentBriefsPlaceholderConfigError) as exc_info:
+        trigger.substitute_recent_briefs_placeholders(prompt, signing_key="a-key")
+
+    assert trigger.DELIVERY_BASE_URL_ENV_VAR in str(exc_info.value)
+
+
+def test_both_placeholders_present_but_both_env_vars_unset_raises_on_the_token_check_first(monkeypatch):
+    """When both are missing, the function must still raise (not silently
+    succeed on one check and skip the other) -- pins that the token check is
+    evaluated (and raises) before ever reaching the url check."""
+    monkeypatch.delenv(trigger.RECENT_BRIEFS_SIGNING_KEY_ENV_VAR, raising=False)
+    monkeypatch.delenv(trigger.DELIVERY_BASE_URL_ENV_VAR, raising=False)
+    prompt = "__RECENT_BRIEFS_TOKEN__ and __DELIVERY_BASE_URL__"
+
+    with pytest.raises(trigger.RecentBriefsPlaceholderConfigError):
+        trigger.substitute_recent_briefs_placeholders(prompt)
+
+
+def test_reads_signing_key_and_url_from_environment_when_not_explicitly_given(monkeypatch):
+    """The default (no explicit signing_key/delivery_base_url arguments) path
+    must read $RECENT_BRIEFS_SIGNING_KEY / $DELIVERY_BASE_URL from the process
+    environment -- proving the CLI's real call site (which passes neither
+    explicitly) actually works end-to-end, not just the test-only explicit-
+    argument path every other test above uses."""
+    monkeypatch.setenv(trigger.RECENT_BRIEFS_SIGNING_KEY_ENV_VAR, "env-sourced-key")
+    monkeypatch.setenv(trigger.DELIVERY_BASE_URL_ENV_VAR, "https://from-env.test")
+
+    prompt = 'Bearer __RECENT_BRIEFS_TOKEN__ at __DELIVERY_BASE_URL__'
+    result = trigger.substitute_recent_briefs_placeholders(prompt, now=1_000_000)
+
+    assert "https://from-env.test" in result
+    token = result.split("Bearer ", 1)[1].split(" at ", 1)[0]
+    assert recent_briefs_token.verify("env-sourced-key", token, now=1_000_000) is True
+
+
+def test_substitution_never_writes_the_real_token_to_any_file():
+    """Sanity/documentation check: substitute_recent_briefs_placeholders() is a
+    pure in-memory string transform -- it must not touch the filesystem at all
+    (confirms the "no literal token ever lands in a committed file" property is
+    upheld by construction: this function never opens a file for writing)."""
+    import inspect
+
+    source = inspect.getsource(trigger.substitute_recent_briefs_placeholders)
+    assert "open(" not in source
+    assert ".write(" not in source

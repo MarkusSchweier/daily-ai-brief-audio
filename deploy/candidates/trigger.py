@@ -115,6 +115,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: candidate '{candidate.slug}' has no task prompt (task-prompt.md is empty) and none was given", file=sys.stderr)
         return 1
 
+    # Substitute __RECENT_BRIEFS_TOKEN__/__DELIVERY_BASE_URL__ if this candidate's
+    # task prompt uses them (ADR-0014 Decision 2d's correction) -- a no-op for any
+    # candidate whose prompt doesn't reference them. Reads $RECENT_BRIEFS_SIGNING_KEY/
+    # $DELIVERY_BASE_URL from the environment; never an AWS call.
+    try:
+        task_prompt = trigger.substitute_recent_briefs_placeholders(task_prompt)
+    except trigger.RecentBriefsPlaceholderConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
     deployment_name = f"candidate-trigger-{candidate.slug}"
 
     try:

@@ -26,23 +26,77 @@ bodies.
 No Anthropic API key is ever hardcoded, logged, or committed -- read from
 `$ANTHROPIC_API_KEY` at call time via `api_client.get_anthropic_api_key()`, this
 repo's established convention.
+
+**Placeholder substitution for the recent-briefs read token (ADR-0014 Decision
+2d's "Correction: how the read token actually reaches a `cloud` candidate",
+status ACCEPTED, ratified by the human 2026-07-06).** A candidate's
+`task-prompt.md` may contain the two literal placeholders `__RECENT_BRIEFS_TOKEN__`
+and `__DELIVERY_BASE_URL__` (see `production-baseline/task-prompt.md` for the
+real usage). `substitute_recent_briefs_placeholders()` below detects them and, if
+present, mints a fresh short-lived signed token
+(`recent_briefs_token.generate()`) and substitutes both placeholders before the
+prompt is handed to `run_candidate()`. The signing key is read from a LOCAL
+environment variable (`RECENT_BRIEFS_SIGNING_KEY`), NEVER an AWS call -- this
+preserves this package's "pure local tool, no AWS" property (see that
+function's docstring for the full operator runbook). A real token is therefore
+never written to any file this repo tracks; only the literal placeholder
+strings are ever committed.
 """
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
-from . import api_client
+from . import api_client, recent_briefs_token
 
 # The same beta header the rest of this repo's Managed Agents API usage already uses
 # for Deployments/Agents/Sessions calls (see deploy/eval/functions/trigger/handler.py,
 # deploy/eval/eval_core/cost_miner.py) -- confirmed, NOT the Skills API's distinct
 # `skills-2025-10-02` header (this module never touches the Skills API).
 DEPLOYMENTS_BETA_HEADER = api_client.AGENTS_BETA_HEADER
+
+# The literal placeholder tokens a candidate's task-prompt.md may contain (see
+# production-baseline/task-prompt.md). These strings are chosen to be extremely
+# unlikely to occur in genuine prose, and to visually stand out as "substitute
+# me" if a substitution is ever accidentally skipped.
+RECENT_BRIEFS_TOKEN_PLACEHOLDER = "__RECENT_BRIEFS_TOKEN__"
+DELIVERY_BASE_URL_PLACEHOLDER = "__DELIVERY_BASE_URL__"
+
+# Env vars an operator/eval-harness populates OUT-OF-BAND before triggering a
+# candidate whose task prompt uses the placeholders above. RECENT_BRIEFS_SIGNING_KEY
+# is populated from the SAME Secrets Manager value
+# (`daily-ai-brief/recent-briefs-read-bearer-secret`) that
+# `deploy/delivery/functions/deliver/recent_briefs_auth.py` reads to VERIFY a
+# token -- this module only ever reads it from the local environment, never via
+# an AWS call, keeping candidate_sync a pure local tool.
+RECENT_BRIEFS_SIGNING_KEY_ENV_VAR = "RECENT_BRIEFS_SIGNING_KEY"
+DELIVERY_BASE_URL_ENV_VAR = "DELIVERY_BASE_URL"
+
+# TTL for a minted recent-briefs read token (ADR-0014 Decision 2d's correction:
+# "5-15 minutes, comfortably covering a research/writing run's *start*, which is
+# when the priors are fetched -- the fetch happens in the first minute, not at
+# the end"). 20 minutes is chosen (rather than the ADR's lower 5-15 minute
+# suggestion) to add extra headroom for trigger-to-run-start latency (the
+# deployment must be created AND a session started AND the sandbox must boot
+# and reach the agent's first tool call before the token is ever presented) plus
+# minor clock skew between this machine and the delivery Lambda -- while still
+# being "short-lived" in the sense that matters here: dead well within the
+# lifetime of the run itself, and long gone by the time any session transcript
+# holding it could realistically be read by someone else.
+RECENT_BRIEFS_TOKEN_TTL_SECONDS = 20 * 60
+
+
+class RecentBriefsPlaceholderConfigError(RuntimeError):
+    """Raised when a candidate's task prompt contains a recent-briefs
+    placeholder but the environment variable needed to substitute it is unset --
+    a clear, actionable error naming exactly what to set, rather than silently
+    triggering a run whose task prompt would contain a literal, useless
+    `__RECENT_BRIEFS_TOKEN__`/`__DELIVERY_BASE_URL__` string."""
 
 # Mirrors deploy/eval/functions/poll/handler.py's `_session_is_terminal()` /
 # `_session_failed()` tolerant vocabulary exactly (that module's own comment flags
@@ -111,6 +165,75 @@ def build_deployments_client(api_key: str | None = None) -> httpx.Client:
         },
         timeout=60.0,
     )
+
+
+def _task_prompt_has_recent_briefs_placeholders(task_prompt: str) -> bool:
+    return RECENT_BRIEFS_TOKEN_PLACEHOLDER in task_prompt or DELIVERY_BASE_URL_PLACEHOLDER in task_prompt
+
+
+def substitute_recent_briefs_placeholders(
+    task_prompt: str,
+    *,
+    signing_key: str | None = None,
+    delivery_base_url: str | None = None,
+    ttl_seconds: int = RECENT_BRIEFS_TOKEN_TTL_SECONDS,
+    now: int | None = None,
+) -> str:
+    """If `task_prompt` contains either `__RECENT_BRIEFS_TOKEN__` or
+    `__DELIVERY_BASE_URL__`, mint a fresh short-lived signed recent-briefs read
+    token (`recent_briefs_token.generate()`) and substitute BOTH placeholders,
+    returning the fully-substituted prompt with no literal `__..__` remaining. If
+    NEITHER placeholder is present, `task_prompt` is returned UNCHANGED (no
+    substitution attempted at all) -- backward compatible with every existing
+    candidate (e.g. `smoke-test-example`) whose task prompt predates this
+    mechanism.
+
+    `signing_key`/`delivery_base_url` default to reading
+    `$RECENT_BRIEFS_SIGNING_KEY`/`$DELIVERY_BASE_URL` from the process
+    environment -- populated OUT-OF-BAND by the operator/eval-harness (the
+    signing key from the `daily-ai-brief/recent-briefs-read-bearer-secret`
+    Secrets Manager secret, fetched via the AWS CLI/console, NOT by this
+    module -- this function and this whole package never make an AWS call).
+    Accepting them as explicit parameters too (rather than reading `os.environ`
+    unconditionally inside this function) is purely so tests can exercise this
+    function deterministically without mutating global process state.
+
+    Raises `RecentBriefsPlaceholderConfigError` -- a CLEAR error naming exactly
+    which environment variable is missing -- if a placeholder is present but its
+    corresponding value is unset/empty, rather than silently triggering a run
+    whose task prompt would contain a literal, useless placeholder string the
+    agent could not possibly act on. This function performs NO network calls of
+    its own (`recent_briefs_token.generate()` is pure/local); the caller is
+    responsible for actually triggering the run afterward."""
+    if not _task_prompt_has_recent_briefs_placeholders(task_prompt):
+        return task_prompt
+
+    if signing_key is None:
+        signing_key = os.environ.get(RECENT_BRIEFS_SIGNING_KEY_ENV_VAR, "")
+    if delivery_base_url is None:
+        delivery_base_url = os.environ.get(DELIVERY_BASE_URL_ENV_VAR, "")
+
+    if RECENT_BRIEFS_TOKEN_PLACEHOLDER in task_prompt and not signing_key:
+        raise RecentBriefsPlaceholderConfigError(
+            f"this candidate's task prompt contains {RECENT_BRIEFS_TOKEN_PLACEHOLDER!r}, but "
+            f"${RECENT_BRIEFS_SIGNING_KEY_ENV_VAR} is unset -- set it to the "
+            "'daily-ai-brief/recent-briefs-read-bearer-secret' Secrets Manager secret's value "
+            "before triggering this candidate"
+        )
+    if DELIVERY_BASE_URL_PLACEHOLDER in task_prompt and not delivery_base_url:
+        raise RecentBriefsPlaceholderConfigError(
+            f"this candidate's task prompt contains {DELIVERY_BASE_URL_PLACEHOLDER!r}, but "
+            f"${DELIVERY_BASE_URL_ENV_VAR} is unset -- set it to the deploy/delivery/ HTTP API's "
+            "base URL before triggering this candidate"
+        )
+
+    substituted = task_prompt
+    if RECENT_BRIEFS_TOKEN_PLACEHOLDER in substituted:
+        token = recent_briefs_token.generate(signing_key, ttl_seconds=ttl_seconds, now=now)
+        substituted = substituted.replace(RECENT_BRIEFS_TOKEN_PLACEHOLDER, token)
+    if DELIVERY_BASE_URL_PLACEHOLDER in substituted:
+        substituted = substituted.replace(DELIVERY_BASE_URL_PLACEHOLDER, delivery_base_url)
+    return substituted
 
 
 def create_temporary_deployment(
