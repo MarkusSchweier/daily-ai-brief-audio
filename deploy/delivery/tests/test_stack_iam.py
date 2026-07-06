@@ -14,7 +14,11 @@ import json
 import aws_cdk as cdk
 from aws_cdk.assertions import Match, Template
 
-from brief_delivery.stack import DELIVERY_BEARER_SECRET_NAME, BriefDeliveryStack
+from brief_delivery.stack import (
+    DELIVERY_BEARER_SECRET_NAME,
+    RECENT_BRIEFS_READ_BEARER_SECRET_NAME,
+    BriefDeliveryStack,
+)
 
 
 def _synth_template(context: dict | None = None) -> Template:
@@ -48,6 +52,11 @@ def _all_actions_json(statements: list[dict]) -> str:
 
 
 def test_deliver_function_role_has_exactly_the_expected_sids():
+    """ADR-0014 Decision 2d adds exactly ONE new SID here --
+    `ReadRecentBriefsReadBearerSecret` (auth machinery for GET /recent-briefs) --
+    and nothing else: no new S3/Polly/SES/DynamoDB grant, since the existing
+    S3AudioReadWrite + S3ListBriefsPrefix statements already cover exactly what
+    GET /recent-briefs's `read_recent_prior_briefs()` call needs."""
     template = _synth_template()
     statements = _policy_statements_for_role_logical_id(template, "DeliverFunctionRole")
 
@@ -55,6 +64,7 @@ def test_deliver_function_role_has_exactly_the_expected_sids():
     assert sids == {
         "DeliveriesTableAccess",
         "ReadDeliveryBearerSecret",
+        "ReadRecentBriefsReadBearerSecret",
         "PollySynthesis",
         "S3AudioReadWrite",
         "S3ListBriefsPrefix",
@@ -153,6 +163,56 @@ def test_self_invoke_grant_is_scoped_to_the_functions_own_arn_not_a_wildcard():
     assert "DeliverFunction0" not in resource_json
 
 
+# --- ADR-0014 Decision 2d: the recent-briefs read-only bearer secret's grant is the
+# ONLY new IAM this decision adds, scoped to exactly the one new secret's ARN -----------
+
+
+def test_recent_briefs_read_bearer_secret_grant_is_scoped_to_its_own_arn_only():
+    """The ONLY new IAM Decision 2d adds anywhere: a single ARN-scoped
+    `secretsmanager:GetSecretValue` statement for the NEW recent-briefs read
+    secret -- auth machinery, not an AWS delivery capability. Must be scoped to
+    exactly that one secret's ARN, never a wildcard, and must be a genuinely
+    DIFFERENT resource than the existing delivery bearer secret's own grant
+    (`ReadDeliveryBearerSecret`) -- proving the two secrets are represented as
+    two separate ARN-scoped statements, not one shared grant covering both."""
+    template = _synth_template()
+    statements = _policy_statements_for_role_logical_id(template, "DeliverFunctionRole")
+
+    read_stmt = next(s for s in statements if s.get("Sid") == "ReadRecentBriefsReadBearerSecret")
+    actions = read_stmt["Action"] if isinstance(read_stmt["Action"], list) else [read_stmt["Action"]]
+    assert actions == ["secretsmanager:GetSecretValue"]
+    read_resource_json = json.dumps(read_stmt["Resource"])
+    assert read_resource_json != '"*"'
+    # CDK resolves a Secret's ARN as a `{"Ref": "<LogicalId>"}` token at synth time
+    # (Secrets Manager appends its own random suffix to the human-readable name
+    # only at deploy time) -- so the logical id, not the literal secret NAME
+    # string, is what appears in the rendered template here.
+    assert "RecentBriefsReadBearerSecret" in read_resource_json
+
+    delivery_stmt = next(s for s in statements if s.get("Sid") == "ReadDeliveryBearerSecret")
+    delivery_resource_json = json.dumps(delivery_stmt["Resource"])
+    # The two secret-read grants must reference genuinely DIFFERENT resources --
+    # this is the IAM-level half of the auth-separation property (the other half,
+    # the actual non-interchangeability of the two TOKENS, is proven at the
+    # handler level in test_recent_briefs_auth_separation.py).
+    assert read_resource_json != delivery_resource_json
+
+
+def test_recent_briefs_read_bearer_secret_grants_no_broader_capability():
+    """The new grant is EXACTLY one secretsmanager:GetSecretValue statement --
+    confirming Decision 2d's claim that GET /recent-briefs needs no new
+    S3/Polly/SES/DynamoDB grant at all. If this ever adds a second statement
+    referencing the new secret, or broadens its actions beyond GetSecretValue,
+    that would be a scope creep this test exists to catch."""
+    template = _synth_template()
+    statements = _policy_statements_for_role_logical_id(template, "DeliverFunctionRole")
+
+    matching = [s for s in statements if s.get("Sid") == "ReadRecentBriefsReadBearerSecret"]
+    assert len(matching) == 1
+    (stmt,) = matching
+    assert stmt["Effect"] == "Allow"
+
+
 def test_no_role_in_this_stack_has_dynamodb_scan_on_the_subscribers_table():
     """A stronger, whole-template check: no policy statement anywhere grants Scan
     against the brief-subscribers table -- Query-only is the invariant this whole
@@ -206,11 +266,14 @@ def test_deliveries_table_shape():
     assert "GlobalSecondaryIndexes" not in table_props
 
 
-def test_deliveries_table_and_secret_are_retained_not_destroyed():
+def test_deliveries_table_and_both_secrets_are_retained_not_destroyed():
+    """ADR-0014 Decision 2d adds a SECOND secret (the recent-briefs read-only
+    bearer secret) alongside the existing delivery bearer secret -- both must be
+    RETAIN, same as before."""
     template = _synth_template()
     template.has_resource("AWS::DynamoDB::Table", {"DeletionPolicy": "Retain", "UpdateReplacePolicy": "Retain"})
     secrets = template.find_resources("AWS::SecretsManager::Secret")
-    assert len(secrets) == 1
+    assert len(secrets) == 2
     for resource in secrets.values():
         assert resource.get("DeletionPolicy") == "Retain"
 
@@ -222,11 +285,14 @@ def test_no_secret_has_an_explicit_secret_string_value():
         assert "SecretString" not in resource["Properties"]
 
 
-def test_delivery_bearer_secret_is_the_expected_name():
+def test_delivery_and_recent_briefs_read_bearer_secrets_are_the_expected_distinct_names():
+    """Confirms both secrets exist under their own distinct names -- the
+    IAM-template-level half of the "two secrets, not one shared secret" property
+    ADR-0014 Decision 2d requires."""
     template = _synth_template()
     resources = template.find_resources("AWS::SecretsManager::Secret")
     names = {r["Properties"].get("Name") for r in resources.values()}
-    assert names == {DELIVERY_BEARER_SECRET_NAME}
+    assert names == {DELIVERY_BEARER_SECRET_NAME, RECENT_BRIEFS_READ_BEARER_SECRET_NAME}
 
 
 def test_no_static_access_keys_anywhere():
@@ -239,10 +305,12 @@ def test_no_static_access_keys_anywhere():
 
 
 def test_expected_routes_exist():
+    """ADR-0014 Decision 2d adds exactly one new route, GET /recent-briefs,
+    alongside the two existing POST /deliver / GET /deliver/{deliveryId} routes."""
     template = _synth_template()
     routes = template.find_resources("AWS::ApiGatewayV2::Route")
     route_keys = {r["Properties"]["RouteKey"] for r in routes.values()}
-    assert route_keys == {"POST /deliver", "GET /deliver/{deliveryId}"}
+    assert route_keys == {"POST /deliver", "GET /deliver/{deliveryId}", "GET /recent-briefs"}
 
 
 def test_http_api_stage_is_throttled():
