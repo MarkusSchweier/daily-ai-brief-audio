@@ -339,7 +339,25 @@ and its README runbook remain relevant (updated for the `cloud` topology). Only 
 self-hosted *infrastructure* subtrees (`cdk/` and `microvm/`) are retired once
 production has cut over.
 
-## Decision 2a (recommended): the decoupled delivery boundary — a new standalone `deploy/delivery/` CDK stack, bearer-token authenticated, that derives the brief HTML deterministically
+## Decision 2a (recommended): the decoupled delivery boundary — a new standalone `deploy/delivery/` CDK stack, bearer-token authenticated, that derives the brief HTML deterministically and runs delivery as an async trigger-and-poll
+
+*(Transport amended 2026-07-06 — **fourth-pass, surgical, transport-only**. The `POST /deliver`
+contract below was originally described as **synchronous** — one HTTP call that returns once
+everything (HTML derivation, Polly synthesis, SES fan-out, archival) is done. That is **not viable
+on an API Gateway HTTP API**: the real delivery work takes several minutes (Polly synthesis alone
+carries an existing 5-minute allowance — `audio_email.py:171` `deadline = time.time() + 300`,
+polling every 5s — and the SES fan-out then sends one `send_raw_email` per confirmed subscriber on
+top), while an HTTP API caps the integration response at well under a minute (constraint confirmed
+against the AWS docs below). So the contract is changed from synchronous to an **async
+trigger-and-poll** shape — `POST /deliver` returns `202` immediately and a new
+`GET /deliver/{deliveryId}` route reports completion — **mirroring this repo's own already-shipped
+`deploy/eval/` precedent** (`POST /trigger` kicks off a long-running run and returns immediately;
+a separate poll mechanism finishes once it completes, status tracked in the `brief-eval-records`
+DynamoDB table). **This is a transport change only.** Everything else in Decision 2a — the
+deterministic no-LLM HTML derivation, the thin-wrapper-around-`audio_email.py` principle, the
+delivery-side IAM grants, the byte-for-byte HTML regression check, the `contractVersion` field —
+is unchanged; the delivery Lambda does exactly the same work once invoked, only the way it is
+invoked and its result is retrieved changes. Decisions 1, 2b, and 2c are untouched by this pass.)*
 
 **Recommendation: build the decoupled delivery boundary as a NEW, standalone
 `deploy/delivery/` CDK app** — a sibling of `deploy/subscribers/`, `deploy/feedback/`,
@@ -347,22 +365,98 @@ and `deploy/eval/`, matching this repo's proven one-CDK-app-per-surface conventi
 (ADR-0012 established exactly this reasoning for keeping `deploy/feedback/` standalone).
 No static review site is needed; the shape is **API Gateway (HTTP API) + a delivery
 Lambda that wraps today's `audio_email.py` logic and takes on the Markdown→HTML
-derivation that today's content-generation agent does ad hoc**, plus the delivery-side
-IAM and a bearer secret.
+derivation that today's content-generation agent does ad hoc**, plus a small
+delivery-tracking DynamoDB table, the delivery-side IAM, and a bearer secret. Because
+the AWS work behind a delivery call runs for minutes, the boundary is an **async
+trigger-and-poll** pair (`POST /deliver` + `GET /deliver/{deliveryId}`), not a single
+synchronous request/response (see "Why async" below).
 
 Concretely:
 
-- **`POST /deliver`** on an HTTP API, taking the brief content as its JSON body: the
-  **brief markdown**, the **listening-script text**, and the minimal metadata delivery
-  needs (email subject, the run's local date / `PIPELINE_TIMEZONE`, and the
-  fan-out/feedback config toggles). **The request body does NOT include `brief_html`**
-  (rev. 2, FR-2a) — content generation no longer produces brief HTML; delivery derives it
-  itself (next bullet). This is the **stable, versioned contract** (FR-2): the request
-  body schema carries an explicit `contractVersion` field so a change to it is a reviewable
-  code change, not an invisible `initial_prompt` edit. The response reports back what was
-  **derived** (the HTML), synthesized, sent, and archived. *(This is a change from this
-  ADR's original — rev. 1 — pass, where `brief_html` was a contract **input**; it is now a
-  delivery-derived value, never an input.)*
+- **Why async — the confirmed HTTP API constraint.** An API Gateway **HTTP API**
+  (`aws_apigatewayv2.HttpApi` — the type this repo already uses for `deploy/eval/`,
+  `deploy/feedback/`, and `deploy/subscribers/`) has a **maximum integration timeout of
+  30 seconds that CANNOT be raised** — a hard platform limit, not a tuning knob, and
+  independent of the backing Lambda's own timeout (which can go to 15 minutes). A Lambda
+  behind an HTTP API that takes minutes to respond will therefore always fail the request
+  (a 5xx integration timeout) long before it finishes, no matter how the Lambda is
+  configured. **Confirmed against the AWS docs (2026-07-06):** the "Quotas for configuring
+  and running an HTTP API" table
+  (`docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html`) lists
+  **"Maximum integration timeout — 30 seconds — Can be increased: No"**. This is the
+  HTTP-API-specific row: it is distinct from, and stricter than, the REST-API execution
+  quota (`api-gateway-execution-service-limits-table.html`), which lists integration
+  timeout as `50 ms – 29 seconds` and *raisable* above 29s at the cost of throttle quota —
+  that raisability applies to **REST** (`aws_apigateway.RestApi`) only and does **not**
+  transfer to HTTP APIs, whose row is explicitly non-increasable. The effective ceiling is
+  ~29 s (the practical integration limit) against a documented hard maximum of 30 s;
+  either way it is far below the several minutes real delivery needs. The delivery work is
+  genuinely minutes-long: Polly synthesis alone carries an existing 5-minute allowance
+  (`audio_email.py:171`, `deadline = time.time() + 300`, polling every 5 s until the task
+  completes or times out), and the SES fan-out then issues one `send_raw_email` per
+  confirmed subscriber (`send_all`, `audio_email.py:383`) after Polly finishes — so a
+  synchronous `POST /deliver` would reliably time out. Switching to REST API purely to buy
+  the raisable-but-still-≤-throttle-capped timeout is rejected: it breaks the repo's
+  uniform HTTP-API-everywhere convention, and even a raised REST timeout is a fragile way
+  to hold a multi-minute request open. The correct pattern — and the one this repo already
+  ships in `deploy/eval/` — is to make the long-running call **asynchronous**.
+
+- **`POST /deliver`** on an HTTP API — an **async trigger** that returns immediately. Its
+  JSON body is the brief content and minimal metadata: the **brief markdown**, the
+  **listening-script text**, and the metadata delivery needs (email subject, the run's
+  local date / `PIPELINE_TIMEZONE`, and the fan-out/feedback config toggles). **The request
+  body does NOT include `brief_html`** (rev. 2, FR-2a) — content generation no longer
+  produces brief HTML; delivery derives it itself (the HTML-derivation bullet below). This
+  is the **stable, versioned contract** (FR-2): the request body schema carries an explicit
+  `contractVersion` field so a change to it is a reviewable code change, not an invisible
+  `initial_prompt` edit. On receipt the delivery Lambda **(1)** checks the bearer auth
+  (Decision 2b, fail-closed) and validates the body, **(2)** writes a **pending** record to
+  a new small DynamoDB table (`brief-deliveries` — PK `deliveryId`, a generated UUID; no
+  sort key and no GSI, since single-item get-by-`deliveryId` is the only access pattern —
+  the same minimal shape `deploy/eval/`'s `brief-eval-records` uses, `stack.py:276`),
+  **(3)** kicks off the actual delivery work **asynchronously**, and **(4)** returns **`202
+  Accepted`** with `{"deliveryId": "...", "status": "pending"}`. It does **not** wait for
+  Polly/SES/archival — that is exactly what would blow the 30 s ceiling. *(The `brief_html`
+  change from this ADR's original rev.-1 pass — where it was a contract **input** — stands:
+  it is now a delivery-derived value, never an input.)*
+
+- **How the async work is kicked off: Lambda self-invoke with `InvocationType="Event"`,
+  not a second worker Lambda.** The `POST /deliver` handler asynchronously invokes **the
+  same delivery function** (`lambda.invoke(FunctionName=<self>, InvocationType="Event",
+  Payload=<the deliveryId + validated body>)`) and returns the `202` right away; the async
+  invocation then runs the full derive→synthesize→send→archive path (below) with a Lambda
+  timeout set generously above the real runtime (e.g. 10 min, comfortably over Polly's 5 min
+  + fan-out), writing the outcome back to the `brief-deliveries` row when done. A single
+  function handling both the synchronous trigger leg and the asynchronous worker leg
+  (branching on whether the event is an API Gateway request or its own self-invoke payload)
+  is chosen over a second, internal-only worker Lambda because it is **simpler and keeps all
+  the delivery logic — the HTML derivation and the `audio_email.py` wrapper — in one place
+  with one IAM role**, which matters here since that role is the *only* holder of
+  SES-to-subscriber rights post-redesign (Decision 2a IAM bullet): one role to review, not
+  two. `deploy/eval/` split trigger and poll into two functions only because its "poller" is
+  a general **EventBridge-scheduled sweep** over *all* pending rows (`poll/handler.py`,
+  invoked every 2 min by a schedule rule, `stack.py:547`) — a different mechanism serving a
+  different need (there is no long-lived caller waiting on any one eval). Delivery has one
+  discrete unit of work per call and a caller that will poll for *that* call's result, so a
+  per-call self-invoke is the leaner fit; no EventBridge rule and no cross-function sweep are
+  needed. *(Async self-invoke has at-least-once/retry semantics; the worker leg must be
+  written so a duplicate invocation of the same `deliveryId` does not double-send — it should
+  no-op or short-circuit if the row is already past `pending` — the same idempotency
+  discipline the launcher's webhook guard (ADR-0010) already applies. Flagged for the
+  Developer; the delivery-tracking row is the natural place to enforce it.)*
+
+- **`GET /deliver/{deliveryId}`** on the same HTTP API — the **poll** route, bearer-auth
+  gated identically. It reads the `brief-deliveries` row and returns the current status:
+  `{"status": "pending"}` while the async work runs, `{"status": "succeeded", ...}` with the
+  same **"what was derived (the HTML), synthesized, sent, and archived"** summary the
+  original synchronous response was to carry once the work completes, or `{"status":
+  "failed", "error": "..."}` (with a concise, non-leaking error detail) if the worker leg
+  raised. The caller (the content-generation session's `curl`, or any manual/scripted check)
+  polls this until it leaves `pending` — the same trigger-then-poll rhythm the eval harness's
+  own trigger/poll pair uses. This poll route is what lets delivery report back its full
+  outcome (which the 30 s HTTP-API ceiling forbids doing inline on `POST /deliver`) without
+  the content-generation side needing any AWS identity — it is one more bearer-gated HTTP
+  GET (Decision 2b, unchanged).
 
 - **Delivery derives the brief HTML deterministically, with no LLM (rev. 2, FR-2a) — the
   delivery Lambda's new, explicit responsibility.** Today the inbox-readable HTML is
@@ -379,29 +473,67 @@ Concretely:
      import it today — the agent's call runs inside the sandbox where the package is
      ambient), so it must be **newly added to the delivery Lambda's `requirements.txt`** (a
      new `deploy/delivery/` requirements file); and
-  2. wraps that body with the **existing, unchanged** delivery-side chrome already in
-     `audio_email.py`: `_html_with_header(...)` (`audio_email.py:309` — the top banner:
-     per-recipient feedback prompt when available + "subscribe here" forward prompt +
-     AI-curation disclaimer, in one styled box) and `_html_with_unsubscribe_footer(...)`
-     (`audio_email.py:344` — the `<hr>` + "Unsubscribe" footer on subscriber copies). These
-     two functions are **already delivery-side today** and stay **exactly as-is** — only the
-     *body* conversion moves from the agent into delivery.
+  2. wraps that body-plus-a-fixed-shell with the **existing, unchanged** delivery-side
+     chrome already in `audio_email.py`: `_html_with_header(...)` (`audio_email.py:309` — the
+     top banner: per-recipient feedback prompt when available + "subscribe here" forward
+     prompt + AI-curation disclaimer, in one styled box) and
+     `_html_with_unsubscribe_footer(...)` (`audio_email.py:344` — the `<hr>` + "Unsubscribe"
+     footer on subscriber copies). These two functions are **already delivery-side today**,
+     are **genuinely stable, code-defined chrome** wrapped around whatever the body-conversion
+     produces, and stay **exactly as-is** — only the *body-and-document-shell* conversion moves
+     from the agent into delivery.
 
-  **This is a flagged regression risk, not a mere refactor (rev. 2 / PRD §6).** Because
-  today's body conversion is agent-improvised and undocumented, faithfully reproducing "the
-  standardized design" means **reverse-engineering the exact current output** (the precise
-  `markdown` extensions/options the produced HTML implies — e.g. whether tables, fenced
-  code, or nl2br are in play), **not guessing**. Concretely, this is a **build-time task for
-  the Developer**: pull a **real recent production `brief.html`** (`aws s3 cp
-  s3://cowork-polly-tts-740353583786/briefs/<date>/brief.html -` — note the current
-  `cowork-polly-tts` credentials in this environment lack `s3:ListBucket`/`GetObject` on
-  that bucket, so this is done with delivery-side or owner credentials at build time, not
-  during this ADR pass) and **diff the new delivery-side conversion's output against it**,
-  confirming byte-for-byte (or visually-equivalent) parity **before this ships**. The
-  Reviewer must treat this as a regression check on the rendered brief, not just a code
-  move (AC-2a). *(The content-generation side stops producing `brief.html` entirely, so
-  `deployment.json` step 2 and `audio_email.py`'s `BRIEF_HTML_PATH` input are removed as
-  part of decoupling delivery — see the migration sketch, Phase 1.)*
+  *(Corrected 2026-07-06 — evidence-driven; supersedes the "reverse-engineer THE standardized
+  design and confirm byte-for-byte parity against a single real production `brief.html`"
+  framing this paragraph originally carried. That framing rested on a false premise: that a
+  single, stable HTML design exists today to be preserved. Diffing three real, genuine
+  production `brief.html` files — `s3://cowork-polly-tts-740353583786/briefs/<date>/brief.html`
+  for 2026-07-03, 2026-07-04, and 2026-07-06 — disproves it: they are **three structurally
+  different HTML documents**. 2026-07-03 uses a single `<div style="max-width:680px…">` wrapper
+  (no table), a `.footer` CSS class, link colour `#0645ad`, background `#f2f2f4`. 2026-07-04
+  uses a `.email-wrapper`/`.email-card` `<div>` structure with CSS as **named classes in a
+  `<head>`-level `<style>` block**, a `.tldr` callout class absent on the other days, link
+  colour `#2b6cb0`, and a coloured `h1` bottom border absent elsewhere. 2026-07-06 uses a
+  `<table role="presentation">` email-client-robust layout with an inline `<style>` block
+  inside the body's inner `<td>` (not in `<head>`), an uppercase "eyebrow" label div absent
+  elsewhere, and link colour `#2563eb`; its footer disclaimer ("You're receiving this because
+  you subscribed to the Daily AI Brief.") matches **neither** `_html_with_header()` nor
+  `_html_with_unsubscribe_footer()`'s actual text (`audio_email.py:347` reads "You **are**
+  receiving this because you subscribed to **the daily AI brief**. Unsubscribe at any time." —
+  different wording, and it adds an unsubscribe link) — confirming the archived `brief.html`
+  is the **raw pre-header/footer-wrap file the agent itself writes** (`audio_email.py:159`),
+  so the variance is the **agent's**, re-improvised every run, not something added later by
+  delivery-side wrapping. In short: the agent re-improvises the entire HTML document — wrapper
+  strategy, CSS class system, colour palette, presence/absence of elements like a `.tldr` box
+  or eyebrow label — fresh every run; **there is no fixed template underneath to reverse-
+  engineer.**)*
+
+  **This is a determinism improvement, not a fidelity-to-a-moving-target constraint (rev. 2 /
+  PRD §6; corrected 2026-07-06).** Because the current output is not one design but a different
+  agent-improvised document every run (evidence above), `derive_html()` should **establish one
+  fixed, deterministic, well-designed HTML email template — chosen once by the Developer and
+  applied consistently on every future run.** This is a genuine upgrade over today's
+  non-determinism, not a constraint fighting against it: it *ends* the per-run variance rather
+  than trying to reproduce it. **Recommendation (with reasoning): the Developer should favour a
+  table-based layout** — `<table role="presentation">`, closest to what 2026-07-06 happened to
+  use — over a plain-`<div>` wrapper (the 2026-07-03 / 2026-07-04 approach). This is a real
+  engineering reason, not an arbitrary pick among three equally-valid shapes: table-based email
+  layouts are the long-established best practice for cross-client CSS rendering compatibility —
+  Outlook's rendering engine and various webmail clients handle modern CSS (flex, border-radius,
+  box-shadow, `<head>`-scoped `<style>`) inconsistently, whereas presentation-table layouts
+  degrade far more gracefully across that client matrix. **The acceptance bar is
+  content-conversion fidelity, not byte-for-byte parity with any one historical day.** The
+  Developer/Reviewer must verify that `markdown.markdown(...)`'s handling of the brief's actual
+  constructs — headings, paragraphs, lists, emphasis, links, `<hr>` — is correct against
+  **multiple real markdown fixtures** (e.g. the 2026-07-03/04/06 `brief.md` sources), choosing
+  and pinning the `markdown` extensions/options the source Markdown actually requires. It is
+  **not** "diff the output against a single day's `brief.html` and demand a match" — that
+  target does not exist and never did. `_html_with_header()`/`_html_with_unsubscribe_footer()`
+  (`audio_email.py:309`/`:344`) are unaffected — genuinely stable, code-defined, delivery-owned
+  chrome, wrapped around whatever the new fixed template produces, exactly as the sub-bullet
+  above states. *(The content-generation side stops producing `brief.html` entirely, so
+  `deployment.json` step 2 and `audio_email.py`'s `BRIEF_HTML_PATH` input are removed as part
+  of decoupling delivery — see the migration sketch, Phase 1.)*
 
 - **The delivery Lambda is otherwise a thin wrapper around the EXISTING
   `deploy/managed-agent/pipeline/` code**, not a rewrite. `audio_email.py` already does
@@ -734,8 +866,11 @@ record and the git-native versioning are added; the sketch ends with the redesig
 **on its own terms**, not with `deploy/eval/` wired up.)*
 
 1. **Decouple delivery + move Markdown→HTML into it (FR-1/FR-2/FR-2a/FR-3).** Stand up
-   `deploy/delivery/` (HTTP API + delivery Lambda wrapping `pipeline/audio_email.py`; delivery-side
-   IAM = today's grants, moved not duplicated; empty bearer secret populated out-of-band). **As part
+   `deploy/delivery/` (HTTP API with the **async `POST /deliver` + `GET /deliver/{deliveryId}`
+   trigger-and-poll pair**, Decision 2a; delivery Lambda wrapping `pipeline/audio_email.py`,
+   self-invoked for the minutes-long worker leg; the `brief-deliveries` tracking table (PK
+   `deliveryId`); delivery-side IAM = today's grants, moved not duplicated; empty bearer secret
+   populated out-of-band). **As part
    of the same decoupling, extract the ad hoc `markdown.markdown(...)` body conversion out of the
    content-generation agent and into the delivery Lambda** as a tested, deterministic,
    delivery-owned function (add `markdown` to `deploy/delivery/`'s `requirements.txt`; reuse

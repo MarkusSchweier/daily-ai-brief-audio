@@ -324,19 +324,44 @@ gap. Two new requirements are added: **FR-2a** (delivery-side deterministic HTML
    context. *(Rev. 2, owner feedback #3: the contract input **no longer includes brief HTML**;
    delivery derives HTML itself per FR-2a.)* The contract's version shall be recorded so a change to
    it is explicit and reviewable, not an invisible inline prompt edit.
-2a. **Delivery derives the brief HTML deterministically, with no LLM.** The delivery side shall
-   derive the inbox-readable brief HTML from the brief markdown **deterministically, with no
-   LLM/agent involvement**, via an explicit, tested, delivery-owned function based on the pipeline's
-   existing markdown-to-HTML conversion approach. The content-generation side shall **not** produce
-   brief HTML. The **existing standardized HTML design shall be preserved**: the delivery-side chrome
-   already applied today by `audio_email.py`'s `_html_with_header()` and
-   `_html_with_unsubscribe_footer()` stays exactly as-is, and the body-conversion behavior currently
-   done ad hoc by the agent (a `markdown.markdown(...)` call — the specific library and any
-   extensions/options actually used) shall be **faithfully reproduced**, not guessed. *(Rev. 2, owner
-   feedback #3. Build-time note: because today's body conversion is agent-improvised and undocumented,
-   this is a **regression risk**, not a mere refactor — the Architect/Developer must reverse-engineer
-   the exact current conversion from a real recent production brief and confirm byte-for-byte (or
-   visually-equivalent) output before this ships.)*
+2a. **Delivery derives the brief HTML deterministically, with no LLM, from one fixed template.** The
+   delivery side shall derive the inbox-readable brief HTML from the brief markdown
+   **deterministically, with no LLM/agent involvement**, via an explicit, tested, delivery-owned
+   function that applies **one fixed, well-designed HTML email template**, chosen once and applied
+   **identically on every run**. The content-generation side shall **not** produce brief HTML.
+   The stable, code-defined delivery-side chrome — `audio_email.py`'s `_html_with_header()`
+   (`:309`) and `_html_with_unsubscribe_footer()` (`:344`) — stays **exactly as-is** (unchanged,
+   still delivery-owned, still wrapping whatever the body-conversion function produces). The
+   acceptance bar for the body conversion has **two** parts: (a) the **content conversion itself**
+   — headings, paragraphs, lists, bold/italic, links, horizontal rules, i.e. whatever
+   `markdown.markdown(...)` does with the source Markdown — is verified **correct and faithful
+   against multiple real markdown fixtures**, not just one; and (b) the chosen template is
+   **professional, internally consistent, and broadly in the visual spirit** (clean, modern styling
+   fit for a daily newsletter) of recent production output — **without** being pinned to any single
+   day's exact CSS values, wrapper markup, or incidental structural choices.
+   *(Corrected 2026-07-06 — supersedes the rev.-2 requirement to "preserve THE existing standardized
+   design" and "reproduce it byte-for-byte against a real recent production brief (singular)." That
+   premise was **factually wrong**: there is no single standardized design to preserve. Three real
+   production `brief.html` files pulled from `s3://cowork-polly-tts-740353583786/briefs/<date>/` —
+   2026-07-03, 2026-07-04, 2026-07-06 — are **three genuinely different HTML documents**, not
+   variations of one template. 07-03 uses a single `<div>` wrapper (no `<table>`), a `.footer` CSS
+   class, link colour `#0645ad`, background `#f2f2f4`; 07-04 uses `.email-wrapper`/`.email-card`
+   divs with named classes in a `<head>`-level `<style>` block, a `.tldr` callout the others lack,
+   link colour `#2b6cb0`, and an `h1` colour-bordered the others aren't; 07-06 uses a nested
+   `<table role="presentation">` layout with an inline `<style>` inside the body's inner `<td>`, an
+   uppercase "Daily AI Brief" eyebrow label the others lack, link colour `#2563eb`, and its own ad
+   hoc footer text ("You're receiving this because you subscribed to the Daily AI Brief.", no
+   unsubscribe link — which does **not** match `_html_with_unsubscribe_footer()`'s actual output,
+   confirming it is the agent's own improvised body footer, not delivery code). The agent
+   re-improvises the whole document — wrapper approach, CSS class system, colour palette, presence
+   of a `.tldr` box or eyebrow label — fresh every run: today's output is **non-deterministic by
+   construction** (an LLM writing free-form HTML), so there is nothing stable to reverse-engineer.
+   Fixing one template is therefore a genuine improvement — subscribers currently receive a
+   visually-different email every day; determinism removes that as a side effect. Build-time note:
+   this remains a **regression risk** in that the developer must validate the content conversion
+   against multiple real fixtures and confirm the chrome is untouched — but the target is a chosen
+   fixed template in the same visual spirit as recent output, **not** a byte-for-byte match to any
+   one historical brief. Rev. 2, owner feedback #3, still applies otherwise.)*
 3. **Delivery authenticates the caller; content generation does not carry AWS identity.** The
    delivery boundary shall authenticate its caller by a mechanism that does **not** require the
    content-generation side to hold AWS credentials or IAM (e.g. a bearer token / API key
@@ -511,13 +536,21 @@ new **AC-2a** and **AC-8a** added.)*
   Then delivery happens **only** by handing the content (**brief markdown + listening-script text** +
   minimal metadata — **not** brief HTML) across a stable, versioned contract whose version is
   recorded — not via a shared execution context or an inline prompt blob (FR-2).
-- **AC-2a (delivery derives HTML deterministically, no LLM, standardized design preserved):** Given
-  the brief markdown handed across the contract, When delivery runs, Then the inbox-readable brief
-  HTML is derived on the **delivery side** by an explicit, tested function with **no** LLM/agent
-  involvement, the content-generation side produces **no** brief HTML, and the output preserves the
-  existing standardized design — the `_html_with_header()`/`_html_with_unsubscribe_footer()` chrome
-  unchanged and the body conversion faithfully reproducing today's `markdown.markdown(...)` behavior,
-  confirmed byte-for-byte (or visually-equivalent) against a real recent production brief (FR-2a).
+- **AC-2a (delivery derives HTML deterministically, no LLM, one fixed template):** Given the brief
+  markdown handed across the contract, When delivery runs, Then the inbox-readable brief HTML is
+  derived on the **delivery side** by an explicit, tested function with **no** LLM/agent involvement,
+  the content-generation side produces **no** brief HTML, and the output applies **one fixed HTML
+  email template identically on every run** with the `_html_with_header()`/
+  `_html_with_unsubscribe_footer()` chrome unchanged; And When the body conversion is checked, Then
+  (a) the content conversion (headings, paragraphs, lists, bold/italic, links, horizontal rules) is
+  verified correct and faithful against **multiple** real markdown fixtures, and (b) the chosen
+  template is professional, internally consistent, and broadly in the visual spirit of recent
+  production output — **without** being pinned to any single day's exact CSS, wrapper markup, or
+  incidental structural choices (FR-2a). *(Corrected 2026-07-06 — the former "preserves the existing
+  standardized design, confirmed byte-for-byte against a real recent production brief" bar was
+  factually unmeetable: no single standardized design exists — three real production briefs
+  (2026-07-03/04/06) are three structurally different documents; see FR-2a's correction note for the
+  evidence.)*
 - **AC-3 (delivery authenticates its caller; no AWS identity on the content side):** Given the
   delivery boundary, When a caller invokes it, Then the caller is authenticated by a mechanism that
   does **not** require the content-generation side to hold AWS credentials/IAM, and the AWS delivery
@@ -659,12 +692,25 @@ decisions are the two in §7.)*
   by the content-generation agent (a `markdown.markdown(...)` call driven by `deployment.json`'s
   `initial_prompt` step 2, which only says "convert that brief Markdown to clean, inbox-readable
   HTML"), while delivery already owns the surrounding chrome (`audio_email.py`'s `_html_with_header()`
-  and `_html_with_unsubscribe_footer()`). Moving body conversion to delivery is a **consolidation**,
-  but because today's conversion is improvised and undocumented, the "standardized design" must be
-  **reverse-engineered faithfully from a real recent production brief** (the exact `markdown` library
-  and any extensions/options actually used) and the delivery-derived output confirmed byte-for-byte
-  (or visually-equivalent) **before ship** — the Reviewer must treat this as a regression check, not
-  just a code move.
+  and `_html_with_unsubscribe_footer()`). Moving body conversion to delivery both **consolidates** an
+  already-split concern **and fixes a real defect**: because the agent writes free-form HTML each run,
+  the output is **non-deterministic** — subscribers receive a visually-different email every day.
+  `derive_html()` must therefore establish **one fixed, well-designed template applied identically on
+  every run**. The acceptance bar is: (a) the **content conversion** (headings, paragraphs, lists,
+  bold/italic, links, rules — whatever `markdown.markdown(...)` does with the source Markdown) is
+  verified correct against **multiple** real markdown fixtures; and (b) the chosen template is
+  professional, internally consistent, and in the same visual spirit (clean, modern newsletter
+  styling) as recent output — **not** pinned to any one day's CSS/wrapper/structure. The Reviewer must
+  treat (a) as a regression check; the code-defined chrome (`_html_with_header()`,
+  `_html_with_unsubscribe_footer()`) stays untouched. *(Corrected 2026-07-06 — supersedes the earlier
+  "reverse-engineer THE standardized design and confirm byte-for-byte against a real recent production
+  brief" wording, which assumed a single stable design that does not exist. Three real production
+  `brief.html` files (2026-07-03/04/06, from `s3://cowork-polly-tts-740353583786/briefs/<date>/`) are
+  three structurally different documents — differing wrapper approach (`<div>` vs.
+  `.email-wrapper`/`.email-card` vs. nested `<table>`), CSS class systems, colour palettes
+  (`#0645ad`/`#2b6cb0`/`#2563eb`), and structural elements (a `.tldr` box on 07-04 only, an uppercase
+  eyebrow label on 07-06 only) — proving the agent re-improvises the whole document each run. The full
+  evidence is in FR-2a's correction note.)*
 - **Per-brief source-usage record is additive and must not change the brief (rev. 2, owner feedback
   #6, FR-8a).** The new source-usage output (which `sources.md` sources were featured in a run) is
   produced on **every** run and follows the same additive, non-behavior-changing pattern the
@@ -797,13 +843,19 @@ decisions are the two in §7.)*
 - **Regression risk to a live, subscriber-facing pipeline.** This redesign touches the runtime that
   currently emails real subscribers every weekday. The chief risks are that moving production runtime
   (e.g. to `cloud`) silently changes the brief's content or breaks a send, **and** that moving
-  Markdown→HTML derivation to the delivery side (FR-2a) subtly changes the brief's rendered
-  appearance. Mitigation (in scope, FR-14 / §8): the current production configuration is re-expressed
-  as the first candidate and validated to produce an **unchanged** brief before any redesigned
-  production path supersedes the live one; the delivery-derived HTML is confirmed byte-for-byte (or
-  visually-equivalent) against a real recent production brief (FR-2a); the cut-over is staged, not a
-  hard swap; and the security review confirms the content-generation side genuinely cannot email a
-  subscriber (AC-1/AC-7).
+  Markdown→HTML derivation to the delivery side (FR-2a) changes the brief's rendered appearance.
+  *(Corrected 2026-07-06: this appearance change is now understood as **intended** — today's HTML is
+  non-deterministic (a different-looking email daily; three real briefs, 2026-07-03/04/06, are
+  structurally different documents — see FR-2a's correction note), and FR-2a fixes one template, so
+  the "risk" is a template regression in the **content conversion**, not a deviation from a
+  nonexistent single design.)* Mitigation (in scope, FR-14 / §8): the current production configuration
+  is re-expressed as the first candidate and validated to produce an **unchanged** brief (content,
+  structure, listening script) before any redesigned production path supersedes the live one; the
+  delivery-derived HTML's **content conversion** is validated against **multiple** real markdown
+  fixtures and its **fixed template** is confirmed professional and in the same visual spirit as
+  recent output (FR-2a) — **not** matched byte-for-byte to any one historical brief; the cut-over is
+  staged, not a hard swap; and the security review confirms the content-generation side genuinely
+  cannot email a subscriber (AC-1/AC-7).
 - **Delivery-boundary security surface (for the security-engineer).** Introducing a decoupled
   delivery API creates a new authenticated surface that *can* email real subscribers if misused —
   the very capability FR-1 strips from content generation. The security review must confirm: its
@@ -846,11 +898,14 @@ decisions are the two in §7.)*
   1. **Decouple delivery + move Markdown→HTML to delivery (FR-1/FR-2/FR-2a/FR-3).** Stand up the
      decoupled delivery boundary (per the ADR) so delivery is reachable only by handing content
      (**brief markdown + listening-script text**, no HTML) across a versioned, authenticated contract;
-     move the AWS delivery credentials to the delivery side only; and extract today's ad-hoc
-     `markdown.markdown(...)` body conversion into an explicit, tested, delivery-owned deterministic
-     function, confirmed byte-for-byte (or visually-equivalent) against a real recent production brief,
-     with the `_html_with_header()`/`_html_with_unsubscribe_footer()` chrome unchanged. Content
-     generation loses all AWS delivery IAM and stops producing brief HTML.
+     move the AWS delivery credentials to the delivery side only; and replace today's ad-hoc
+     `markdown.markdown(...)` body conversion with an explicit, tested, delivery-owned deterministic
+     function applying **one fixed template** — its content conversion validated against **multiple**
+     real markdown fixtures and its template confirmed professional and in the visual spirit of recent
+     output (**not** byte-for-byte against any single historical brief — no single standardized design
+     exists; see FR-2a's correction note), with the
+     `_html_with_header()`/`_html_with_unsubscribe_footer()` chrome unchanged. Content generation loses
+     all AWS delivery IAM and stops producing brief HTML.
   2. **Candidate declaration + git-native versioning + sync (FR-9/FR-10/FR-11/FR-12).** Add the
      git-tracked, declarative candidate representation (independently-diffable
      model/prompt(s)/skill(s)/params; multi-agent-capable), rely on **git's own versioning** for
@@ -877,7 +932,10 @@ decisions are the two in §7.)*
      data — via Claude-Platform APIs only, **no HTML**, audio not synthesized (AC-8), **using a
      manual/scripted API check, not `deploy/eval/`** (its adaptation is a later epic); confirm the
      source-usage record is emitted every run without changing the brief (AC-8a); confirm the
-     delivery-derived HTML matches the standardized design (AC-2a); confirm a single-dimension
+     delivery-derived HTML applies one fixed template with its content conversion validated against
+     multiple real markdown fixtures (AC-2a — **not** a byte-for-byte match to any single historical
+     brief; no single standardized design exists, see FR-2a's correction note); confirm a
+     single-dimension
      candidate diff isolates that dimension (AC-9) and a multi-agent candidate is representable
      (AC-10); confirm every candidate persists selectably without rebuild (AC-11) and a historical
      candidate declaration is retrievable via `git show <ref>:<path>` with no repo rollback, with no
@@ -898,8 +956,10 @@ decisions are the two in §7.)*
   (AC-7), the delivery boundary's auth is least-privilege and fail-closed with AWS delivery
   credentials scoped no broader than today and no new static key (§7 security note), and ADR-0008 is
   reconciled with no half-applied lockstep remaining **and no stale reference to the now-dead local
-  Desktop fallback**; the delivery-derived HTML is confirmed to preserve the standardized design
-  (AC-2a) and the per-brief source-usage record is confirmed additive (AC-8a); and the re-expressed
+  Desktop fallback**; the delivery-derived HTML is confirmed to apply one fixed template with its
+  content conversion validated against multiple real markdown fixtures (AC-2a — no byte-for-byte
+  match to any single historical brief; no single standardized design exists) and the per-brief
+  source-usage record is confirmed additive (AC-8a); and the re-expressed
   current configuration is confirmed to produce an **unchanged** brief with no regression to
   `deploy/subscribers/` or `deploy/feedback/` (AC-14).
 - **Success metric.** After ship: the owner can **declare a new candidate agent system in git,
@@ -908,7 +968,8 @@ decisions are the two in §7.)*
   version retained and selectable, and any historical version recoverable via `git show <ref>:<path>`
   **without a repo rollback** — with a manual/scripted API check genuinely running the **specified**
   candidate rather than one hardcoded configuration. Delivery derives the brief HTML deterministically
-  (no AI cost) while preserving the standardized design, and every run emits a per-brief source-usage
+  (no AI cost) from **one fixed template applied identically every run** — a genuine improvement over
+  today's day-to-day-varying, agent-improvised HTML — and every run emits a per-brief source-usage
   record seeding later source consolidation (issue #28). Concretely, this epic is a success when the
   **next** (cost-optimization) epic can spin up and retrieve an arbitrary candidate configuration's
   output in **minutes via API calls**, instead of a container rebuild plus a full AWS-stack stand-up
