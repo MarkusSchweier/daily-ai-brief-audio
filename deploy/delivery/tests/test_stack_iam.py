@@ -188,6 +188,13 @@ def test_self_invoke_grant_is_scoped_to_the_functions_own_arn_not_a_wildcard():
     # logical id (which would reintroduce the cycle) -- the resource must be
     # scoped by the literal function NAME only.
     assert "DeliverFunction0" not in resource_json
+    # The resource MUST use the Lambda COLON separator (`function:<name>`), not the
+    # format_arn default slash (`function/<name>`): a slash makes the granted ARN never
+    # match the real function ARN, so the self-invoke fails AccessDenied at runtime -- a
+    # latent bug found only by a real POST /deliver trigger (never on synth, never while
+    # the endpoint was locked and untriggered).
+    assert "function:brief-delivery-deliver" in resource_json
+    assert "function/brief-delivery-deliver" not in resource_json
 
 
 # --- ADR-0014 Decision 2d: the recent-briefs read-only bearer secret's grant is the

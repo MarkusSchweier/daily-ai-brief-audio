@@ -543,10 +543,18 @@ class BriefDeliveryStack(Stack):
         resource AT ALL, so the Role's policy no longer depends on the Function --
         only the Function still depends on the Role, the correct, acyclic
         direction."""
+        # Lambda function ARNs use a COLON separator (`...:function:<name>`), NOT the
+        # `format_arn` default slash (`...:function/<name>`). Getting this wrong makes
+        # the granted resource never match the real function ARN, so the self-invoke
+        # fails AccessDenied at runtime -- a latent bug that only surfaces on a real
+        # POST /deliver trigger (never on synth, and never while the endpoint was locked
+        # and untriggered), which is exactly how it was found. ArnFormat.COLON_RESOURCE_NAME
+        # forces the correct `function:<name>` form.
         self_invoke_arn = self.format_arn(
             service="lambda",
             resource="function",
             resource_name=DELIVER_FUNCTION_NAME,
+            arn_format=cdk.ArnFormat.COLON_RESOURCE_NAME,
         )
         fn.role.add_to_policy(
             iam.PolicyStatement(
