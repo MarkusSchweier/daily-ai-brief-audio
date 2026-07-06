@@ -1,0 +1,7 @@
+{
+  "slug": "smoke-test-example",
+  "description": "PERMANENT, deliberately synthetic reference candidate -- proves FR-4/FR-5 (pure-API deploy, skill reaches a candidate with no image rebuild), NOT a real content-generation configuration. Never point production or the cost-optimization epic at this candidate. See deploy/candidates/README.md's 'Phase 3 live validation' section for what was run against it and observed.",
+  "composition": "single-agent",
+  "schedule_intent": "none -- smoke-test/reference candidate only, never scheduled",
+  "agent_id": "agent_01ExTVacFoay8yrAdebiRoj7"
+}
