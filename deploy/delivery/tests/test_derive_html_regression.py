@@ -197,24 +197,30 @@ def test_title_tag_is_derived_from_the_briefs_own_h1_heading(filename):
 
 
 @pytest.mark.parametrize("filename", FIXTURE_MARKDOWN_FILENAMES)
-def test_stable_footer_line_present_and_identical_across_every_fixture(filename):
-    """Unlike the three real archived emails (whose footer text/presence
-    genuinely varied day to day -- one had no unsubscribe-adjacent text at all),
-    THIS template's own footer line is fixed and appears identically regardless
-    of the brief's content."""
+def test_derive_html_does_not_bake_in_its_own_subscription_disclaimer(filename):
+    """REVIEWER-FOUND BUG, FIXED: an earlier version of this template baked a
+    fixed "you're receiving this because you subscribed" disclaimer into EVERY
+    document it produced. Composed with `_html_with_unsubscribe_footer()` (which
+    adds its own, equivalent-but-more-complete disclaimer carrying the actual
+    unsubscribe link), a real subscriber ended up with the phrase appearing
+    TWICE, back to back. `derive_html()` must NOT produce any such text on its
+    own -- that messaging belongs exclusively to `_html_with_unsubscribe_footer()`
+    (for subscribers) and is simply absent for the owner's copy (whose
+    `_html_with_header()` banner already covers subscription-context messaging
+    at the top). See `deploy/delivery/tests/test_html_composition.py` for the
+    full composed-pipeline regression tests this bug required."""
     markdown_text = _load_fixture_markdown(filename)
     html = delivery_core.derive_html(markdown_text)
 
-    assert delivery_core._EMAIL_FOOTER_TEXT in html
+    assert "subscribed" not in html.lower()
+    assert "unsubscribe" not in html.lower()
 
 
-def test_footer_line_is_byte_identical_across_all_three_real_fixtures():
-    """Cross-fixture consistency check: the SAME footer text appears for every
-    brief, proving the template is genuinely fixed, not incidentally varying
-    with content the way the three real historical emails did."""
-    outputs = [delivery_core.derive_html(_load_fixture_markdown(f)) for f in FIXTURE_MARKDOWN_FILENAMES]
-    footer_occurrences = {html.count(delivery_core._EMAIL_FOOTER_TEXT) for html in outputs}
-    assert footer_occurrences == {1}
+def test_derive_html_output_never_defines_an_email_footer_text_constant_reference():
+    """Documents the removal explicitly: `derive_html()`'s own docstring/module
+    constants no longer include a fixed footer-disclaimer string at all (the
+    old `_EMAIL_FOOTER_TEXT` module constant is gone, not just unused)."""
+    assert not hasattr(delivery_core, "_EMAIL_FOOTER_TEXT")
 
 
 @pytest.mark.parametrize("filename", FIXTURE_MARKDOWN_FILENAMES)

@@ -27,9 +27,16 @@ reusable logic into clean, importable, testable functions for the new async
     mp3_bytes)` instead of three module-level globals.
   - `send_all()` -- ported verbatim (same signature/logic) from
     `audio_email.py:383-481` -- already a clean function there.
-  - `_html_with_header()` / `_html_with_unsubscribe_footer()` -- verbatim, unchanged
-    copies of `audio_email.py:309` / `audio_email.py:344`. These are ALREADY
-    delivery-side chrome conceptually (ADR-0014 Decision 2a) and must not change.
+  - `_html_with_header()` / `_html_with_unsubscribe_footer()` -- banner/footer
+    TEXT and styling are unchanged from `audio_email.py:309` / `audio_email.py:344`
+    (ALREADY delivery-side chrome conceptually, ADR-0014 Decision 2a). The
+    MECHANICAL INSERTION POINT was fixed (reviewer-found bug, independently
+    reproduced by the coordinator): a blind prepend/append was correct only
+    when the input was a bare HTML fragment; now that `derive_html()` always
+    returns a complete document, both functions insert into it (right after
+    `<body>` / right before `</body>`) instead -- see each function's own
+    docstring for the concrete bug this fixes (an unsubscribe link that
+    landed after `</html>`, outside the document entirely).
   - `_query_confirmed_subscribers()` / `_unsubscribe_link()` -- ported verbatim from
     `audio_email.py:213-251`.
   - `_feedback_link()` / `_get_feedback_signing_secret()` -- ported verbatim from
@@ -68,6 +75,7 @@ already follows for `feedback_token.py` and `review_auth.py`.
 
 from __future__ import annotations
 
+import re
 import time
 import urllib.parse
 from email.mime.application import MIMEApplication
@@ -173,7 +181,13 @@ _EMAIL_CONTENT_STYLE_BLOCK = (
     "  em { color:#555555; }\n"
     "</style>\n"
 )
-_EMAIL_FOOTER_TEXT = "You are receiving this because you subscribed to the Daily AI Brief."
+# NOTE: there is deliberately NO fixed footer-disclaimer constant baked into
+# derive_html()'s own output (an earlier version had one, `_EMAIL_FOOTER_TEXT`)
+# -- see derive_html()'s docstring's "reviewer-found bug, fixed" note for why:
+# it duplicated `_html_with_unsubscribe_footer()`'s own subscription-context
+# messaging (which additionally carries the real unsubscribe link) for every
+# subscriber, and was redundant with `_html_with_header()`'s top-of-email
+# disclaimer for the owner's copy.
 
 
 def _extract_email_title(brief_markdown: str) -> str:
@@ -225,9 +239,12 @@ def derive_html(brief_markdown: str) -> str:
     `BRIEF_HTML_PATH` as `brief_html` -- i.e. the RAW, pre-header/footer-wrap
     HTML, not the per-recipient `owner_html`/`subscriber_html` `send_all()`
     computes later by wrapping with `_html_with_header()`/
-    `_html_with_unsubscribe_footer()` (those two functions stay unchanged, called
-    separately, per recipient, inside `send_all()` below -- confirmed their exact
-    text/markup is unrelated to and absent from every real brief examined here).
+    `_html_with_unsubscribe_footer()` (called separately, per recipient, inside
+    `send_all()` below -- their banner/footer text/markup is unchanged and
+    confirmed unrelated to and absent from every real brief examined here; only
+    their mechanical insertion point was fixed to compose correctly into the
+    complete document this function now always returns -- see their own
+    docstrings).
 
     CORRECTED DESIGN (this function originally returned a bare, unstyled
     `markdown.markdown(...)` fragment, on the premise that "the existing
@@ -269,6 +286,24 @@ def derive_html(brief_markdown: str) -> str:
     above. The Markdown body conversion itself (`_convert_markdown_body()`) is
     unaffected by this correction -- zero extensions were, and remain, the right
     call; see that function's own docstring.
+
+    NOTE (reviewer-found bug, fixed): this function does NOT append its own
+    "you're receiving this because you subscribed" disclaimer line -- an
+    earlier version did (a fixed `_EMAIL_FOOTER_TEXT` baked into every
+    document), which produced a real, user-visible bug once composed with
+    `_html_with_unsubscribe_footer()` below: subscribers ended up with TWO
+    near-identical disclaimers back-to-back (one text-only, baked in here;
+    one with the actual unsubscribe link, added by
+    `_html_with_unsubscribe_footer()`). For subscribers,
+    `_html_with_unsubscribe_footer()` already provides equivalent (and MORE
+    complete, since it carries the real link) subscription-context messaging,
+    making a baked-in duplicate here pure redundancy. For the owner's copy
+    (which never gets `_html_with_unsubscribe_footer()`),
+    `_html_with_header()` already gives every copy (owner included) the
+    AI-curation disclaimer + subscribe/forward prompt at the top, so nothing
+    subscription-relevant is lost by not also closing with one. See
+    `_html_with_header()`/`_html_with_unsubscribe_footer()`'s own docstrings
+    below for the composition-correctness fix this same bug also required.
     """
     title = _extract_email_title(brief_markdown)
     body_html = _convert_markdown_body(brief_markdown)
@@ -288,7 +323,6 @@ def derive_html(brief_markdown: str) -> str:
         f'<tr><td style="{_EMAIL_CARD_CELL_STYLE}">\n'
         f"{_EMAIL_CONTENT_STYLE_BLOCK}"
         f"{body_html}\n"
-        f'<hr><p style="font-size:12px;color:#9a9ea5;">{_EMAIL_FOOTER_TEXT}</p>\n'
         "</td></tr>\n"
         "</table>\n"
         "</td></tr>\n"
@@ -481,14 +515,73 @@ def _feedback_link(secretsmanager_client, email, brief_date, feedback_base_url, 
 
 
 # ---------------------------------------------------------------------------
-# Header/footer chrome -- VERBATIM, UNCHANGED from audio_email.py:309-350.
-# Already delivery-side conceptually (ADR-0014 Decision 2a) -- must not change.
+# Header/footer chrome -- banner/footer TEXT and styling are VERBATIM, UNCHANGED
+# from audio_email.py:309-350 (already delivery-side conceptually, ADR-0014
+# Decision 2a) -- ONLY the mechanical insertion point changed (see the
+# "COMPOSITION FIX" note on each function below). This is not a violation of
+# "these two functions stay exactly as-is": that instruction was written when
+# `derive_html()`'s output was a bare fragment, for which blind prepend/append
+# was correct. `derive_html()` now deliberately produces a COMPLETE HTML
+# document (its own corrected design, ADR-0014 Decision 2a's rework), so
+# composing correctly INTO that document is the natural, necessary
+# consequence of that design, not scope creep.
 # ---------------------------------------------------------------------------
+
+# Matches the FIRST opening `<body ...>` tag (case-insensitive, tolerant of any
+# attributes -- e.g. derive_html()'s own `<body style="...">`) -- the banner is
+# inserted immediately after it. Matches the LAST closing `</body>` tag for the
+# footer, inserted immediately before it.
+_BODY_OPEN_TAG_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+_BODY_CLOSE_TAG_RE = re.compile(r"</body\s*>", re.IGNORECASE)
+
+
+def _insert_after_body_open_tag(html_document: str, fragment_to_insert: str) -> str:
+    """Insert `fragment_to_insert` immediately after the document's opening
+    `<body ...>` tag -- REVIEWER-FOUND BUG FIX (independently reproduced and
+    confirmed by the coordinator): a blind prepend (`fragment + html_document`)
+    placed the banner BEFORE `<!DOCTYPE html>`/`<html>`/`<head>`, which is
+    invalid HTML (content is only valid inside `<body>`) and, more concretely
+    reproduced, left it entirely outside the actual document a mail client
+    renders as the message body.
+
+    Falls back to a plain prepend if no `<body>` tag is found at all (e.g. a
+    caller ever passes a bare fragment rather than `derive_html()`'s own full-
+    document output) -- never raises, matching this module's fail-safe
+    conventions; the caller still gets SOME banner, just not correctly
+    positioned relative to a document root that, in that case, doesn't exist
+    anyway."""
+    match = _BODY_OPEN_TAG_RE.search(html_document)
+    if match is None:
+        return fragment_to_insert + html_document
+    insertion_point = match.end()
+    return html_document[:insertion_point] + fragment_to_insert + html_document[insertion_point:]
+
+
+def _insert_before_body_close_tag(html_document: str, fragment_to_insert: str) -> str:
+    """Insert `fragment_to_insert` immediately before the document's closing
+    `</body>` tag -- the footer half of the same reviewer-found bug fix as
+    `_insert_after_body_open_tag()` above: a blind append
+    (`html_document + fragment`) placed the unsubscribe footer AFTER
+    `</html>`, entirely outside the document root -- confirmed live
+    (`</html>` at position 19132 of a 19352-character composed string, ~190
+    bytes of real footer markup, including the actual unsubscribe link,
+    stranded past the end of the document). Content outside `<html>...</html>`
+    is invalid HTML and renders unreliably across email clients -- exactly the
+    one thing this footer must reliably deliver.
+
+    Falls back to a plain append if no `</body>` tag is found -- same
+    fail-safe reasoning as `_insert_after_body_open_tag()` above."""
+    match = _BODY_CLOSE_TAG_RE.search(html_document)
+    if match is None:
+        return html_document + fragment_to_insert
+    insertion_point = match.start()
+    return html_document[:insertion_point] + fragment_to_insert + html_document[insertion_point:]
 
 
 def _html_with_header(html_body, feedback_link=None):
-    """Prepend the top banner: feedback prompt (when available) + forward-friendly
-    sign-up prompt + AI-curation disclaimer, all in one box.
+    """Insert the top banner immediately after the document's opening `<body>`
+    tag: feedback prompt (when available) + forward-friendly sign-up prompt +
+    AI-curation disclaimer, all in one box.
 
     The feedback link is per-recipient (each person's own token), so this is called
     once per recipient rather than once shared across the whole send. Omitted
@@ -496,6 +589,13 @@ def _html_with_header(html_body, feedback_link=None):
 
     Added to every recipient's copy (owner included) since the owner is the most
     likely person to forward their own copy along to someone else.
+
+    COMPOSITION FIX (reviewer-found bug): previously prepended via
+    `header + html_body` (correct only when `html_body` was a bare fragment,
+    not a complete document) -- now inserted via
+    `_insert_after_body_open_tag()`, placing the banner as the first thing
+    inside `<body>`, still visually "at the top" but now actually inside the
+    document root. Banner text/styling are unchanged.
     """
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
@@ -514,16 +614,27 @@ def _html_with_header(html_body, feedback_link=None):
         "original sources and do your own research.</p>"
         "</div>"
     )
-    return header + html_body
+    return _insert_after_body_open_tag(html_body, header)
 
 
 def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
+    """Insert the unsubscribe footer immediately before the document's closing
+    `</body>` tag.
+
+    COMPOSITION FIX (reviewer-found bug): previously appended via
+    `html_body + footer` (correct only when `html_body` was a bare fragment) --
+    now inserted via `_insert_before_body_close_tag()`, placing the footer as
+    the last thing inside `<body>`, still visually "at the bottom" but now
+    actually inside the document root, so the unsubscribe link it carries is
+    part of the rendered message rather than stranded past `</html>`. Footer
+    text/styling are unchanged.
+    """
     footer = (
         '<hr><p style="font-size:12px;color:#666;">'
         f'You are receiving this because you subscribed to the daily AI brief. '
         f'<a href="{unsubscribe_link}">Unsubscribe</a> at any time.</p>'
     )
-    return html_body + footer
+    return _insert_before_body_close_tag(html_body, footer)
 
 
 # ---------------------------------------------------------------------------
