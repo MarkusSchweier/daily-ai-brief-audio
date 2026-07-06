@@ -16,14 +16,16 @@ brief — a specific combination of model, system prompt, task prompt, skill
 reference(s), and tunable parameters. Every candidate lives in its own directory here,
 `deploy/candidates/<slug>/`, tracked in git like any other source file.
 
-**`deploy/candidates/production-baseline/` (re-expressing the real, live production
-configuration as a candidate) does NOT exist yet.** That is a later, separate,
-already-tracked phase of the agent-system-redesign epic (PRD §8 Phase 5) — it needs
-the actual current production model/prompt/skill values, which this phase
-deliberately does not touch. What exists here so far are two clearly-fake **synthetic
-test fixtures** (`tests/fixtures/example-single-agent/`,
-`tests/fixtures/example-multi-agent/`) used only to exercise the sync script's logic
-in tests — never deploy them for real.
+**`deploy/candidates/production-baseline/` re-expresses the real, live production
+configuration as a candidate — built, synced, triggered, and validated in Phase 5**
+(PRD §8 Phase 5, FR-14/AC-14; see "Phase 5 live validation," below, for the full
+build/sync/trigger/comparison record). It has its own real, separate `agent_id`
+(`agent_017KynQYfK2gNXtJBDeWe81B`), distinct from the real live production agent
+(`agent_01EswBTose8dnTAUDbGvzdLq`), which this candidate can never mutate or
+invoke. Separately, `smoke-test-example/` (documented above) and two clearly-fake
+**synthetic test fixtures** (`tests/fixtures/example-single-agent/`,
+`tests/fixtures/example-multi-agent/`) exist purely to exercise the sync script's
+logic in tests — never deploy the synthetic fixtures for real.
 
 ## Directory schema
 
@@ -748,6 +750,259 @@ listed exactly ONE active deployment — the real, unrelated, live production
 `daily-ai-brief-scheduled` deployment. Every temporary deployment this phase's
 `trigger.py` runs created (including ones from ad hoc debugging sessions while
 tracking down the events-settle race) was correctly archived — none leaked.
+
+## Phase 5 live validation (2026-07-06) — the production-baseline safety
+## baseline, PRD FR-14/AC-14
+
+Where Phase 3 proved the candidate MECHANISM works (a synthetic, trivial
+smoke-test agent), Phase 5 is the first real, non-trivial content-generation
+run: `deploy/candidates/production-baseline/` re-expresses TODAY'S real, live
+production `daily-ai-brief-agent` configuration (model, an adapted system
+prompt, the real pinned `daily-ai-brief` skill, the same tools/mcp_servers) as
+a candidate on the decoupled `cloud` topology, and validates its output against
+what real production actually produced this same morning — the safety baseline
+this whole redesign needs before any future production cut-over is even
+considered (PRD FR-14/AC-14, ADR-0014 rollout Phase 5).
+
+### 1. The candidate, synced for real
+
+`production-baseline/`'s declaration (`candidate.json`, `agent.json`,
+`model.txt`, `system-prompt.md`, `task-prompt.md`, `skills.json`,
+`parameters.json` — no `skill/` subdirectory, since it references the
+EXISTING `daily-ai-brief` Skills-API resource by id + a concrete pinned
+version, `skill_01H2qu83NwnJ5zqcbrqsCcJ6` @ `1783340601977967`, rather than
+owning its own skill source) was synced via `python3 sync.py production-baseline`.
+This created a genuinely NEW, SEPARATE agent resource:
+
+- **`agent_id: agent_017KynQYfK2gNXtJBDeWe81B`** — confirmed, via a read-only
+  `GET`, to be its own distinct resource with `version: 1`, entirely separate
+  from the real live production agent (`agent_01EswBTose8dnTAUDbGvzdLq`), which
+  was never touched, read-written, or invoked by anything in this phase beyond
+  one read-only reference `GET` (to confirm the real production config this
+  candidate re-expresses) and one read-only `GET .../versions` on its skill.
+
+The system prompt was deliberately ADAPTED, not copied byte-for-byte, from the
+real production agent's own 858-character system prompt: the
+`/opt/pipeline`-specific narration/email-delivery clause was dropped (there is
+no `/opt/pipeline` on a `cloud` sandbox, and per FR-1 content generation must
+hold no delivery role at all), and the closing "research through delivery ...
+produced and sent" was changed to "research through writing ... produced" —
+every other instruction (anti-fabrication, "no human watching, don't stop to
+ask," "treat the skill as authoritative") was preserved verbatim, confirmed via
+a direct word-diff against the real prompt.
+
+### 2. Real bugs found — a genuinely long-running task exposes what a trivial one can't
+
+**Every prior real trigger against this mechanism (Phase 3's `smoke-test-example`)
+completed in roughly a dozen real seconds.** `production-baseline`'s real
+research/writing task is this repo's first genuinely long-running (many-minutes)
+candidate run, and it immediately exposed THREE real, previously-undiscovered
+bugs — none synthetic, none guessed at, each found by directly diagnosing a real
+failure against the live API, in the same "fail loudly, then fix, then prove it
+live" discipline this repo's other epics have already established:
+
+1. **The `model`-shape no-op bug** (`_normalize_live_field_for_comparison()`,
+   `candidate_sync/sync.py`) — a live `GET /v1/agents/{id}` echoes `model` as a
+   nested object (`{"id": ..., "speed": ...}`), never the bare string
+   `to_agent_body()` sends on write, so `_live_declaration_differs()` always saw
+   a mismatch and silently issued a spurious update on every "unchanged" re-sync
+   of every candidate. See "Judgment calls," above, for the full story.
+2. **The spurious-first-poll-`idle` race** (`run_candidate()`'s poll loop,
+   `candidate_sync/trigger.py`) — the VERY FIRST `GET /v1/sessions/{id}` call,
+   with zero delay after starting the session, can report a stale `idle`
+   placeholder before the session has even started running, wrongly accepted as
+   terminal on a task that then ran for real for many more minutes. Confirmed
+   live via a dedicated diagnostic probe (a fresh trivial session polled
+   repeatedly from the instant `/run` returned); see "Judgment calls," above.
+3. **The quoted-`cat`-path parsing gap** (`_parse_plain_cat_command()`,
+   `candidate_sync/trigger.py`) — the brief file this repo's own skill output
+   contract names, `AI Brief - YYYY-MM-DD.md`, has LITERAL SPACES in its
+   filename; the agent correctly double-quoted its `cat` invocation for it and
+   every other path it wrote, but the pre-fix parser rejected any bare space
+   with no quote-aware exception — silently dropping the brief file entirely
+   (the single most important artifact a candidate produces) and mis-parsing
+   three other quoted paths into dict keys that still carried literal quote
+   characters. See "Judgment calls," above.
+
+All three bugs share one root cause worth stating plainly: **the trivial
+smoke-test task finishes too fast, and never writes a path with a space in it,
+to ever exercise any of these code paths.** Only a genuinely long-running,
+realistic content-generation task — exactly what `production-baseline`
+provides — could have found them. Each was confirmed, directly, to reproduce
+against the pre-fix code and resolve against the fix, with a dedicated
+regression test for each (`test_update_is_a_full_no_op_against_the_REAL_live_nested_model_shape`,
+`test_run_candidate_does_not_accept_a_spurious_first_poll_idle_status`,
+`test_parse_plain_cat_command_accepts_a_double_quoted_path_with_spaces` +
+three related rejection-case tests).
+
+### 3. The real triggered run
+
+Once the fixes above were in place, `production-baseline`'s real, full run
+completed successfully:
+
+- **Session id:** `sesn_011fEEWn4c9f9QAYdQvzCQwn`
+- **Temporary deployment id:** `depl_01LFmEKRNK9gkXVVTwiNnUbh` (created,
+  `/run`, then correctly archived — confirmed `archived_at` set, and confirmed
+  archiving a deployment does NOT interrupt an already-started session, since
+  this candidate's own genuinely-still-running session at that point was
+  independently confirmed to keep executing normally afterward).
+- **Wall-clock duration:** `duration_seconds: 757.7` (~12.6 minutes, session
+  creation to terminal — this includes the several minutes an earlier
+  `trigger.py` invocation spent erroring out on bug #2 above BEFORE the poll
+  loop fix was in place; `active_seconds: 396.06` (~6.6 minutes) is the actual
+  model-active time, a more representative figure for "how long does this
+  candidate's real research/writing task take").
+- **Real token/cost usage** (from the session's own `usage` field, retrieved
+  via a read-only `GET /v1/sessions/{id}` — no separate cost-mining tool
+  needed): `output_tokens: 34482`, `input_tokens: 49`,
+  `cache_read_input_tokens: 5242324`,
+  `cache_creation.ephemeral_5m_input_tokens: 356172`. The overwhelming
+  cache-read-vs-fresh-input ratio is expected and healthy for a research-heavy
+  agentic task (repeated tool-result content reused across many turns rather
+  than re-sent).
+- **Archival hygiene reconfirmed:** a subsequent `GET /v1/deployments` listed
+  exactly ONE active deployment on the whole account — the real, unrelated
+  live production `daily-ai-brief-scheduled` deployment. The temporary
+  deployment above was correctly archived despite the mid-run poll-loop bug,
+  proving the "always archives, even on a mid-run internal error" guarantee
+  held through a genuinely new failure mode, not just the ones it was
+  originally written against.
+
+### 4. Retrieved artifacts
+
+All four files the task prompt asked for were retrieved via the Sessions
+events API (`fetch_catted_file_contents()`, after the quoted-path parsing fix)
+— plus the candidate's own `cat`'d copies of `SKILL.md`/`sources.md`
+(confirming exactly which skill content it actually read, byte for byte):
+
+- `AI Brief - 2026-07-06.md` — 16,689 chars / 2,239 words
+- `listening-script.txt` — 8,508 chars / 1,321 words
+- `candidates.json` — 72 entries (12 `included`, 60 `excluded`)
+- `source-usage.json` — 51 entries spanning all 9 of `sources.md`'s tiers (12
+  `featured: true`, 39 `featured: false`)
+
+### 5. Comparison against real production's own brief from the same morning
+
+A genuine, real production brief from THIS SAME MORNING's live scheduled run
+(fetched from `s3://cowork-polly-tts-740353583786/briefs/2026-07-06/`, the
+SAME AWS credential pattern used throughout this repo) is the comparison
+baseline. Per the task's own framing, this is a check for **structural and
+qualitative equivalence, not byte-identical content** — the candidate ran
+independently, hours later, and did its own real research, so different
+specific headlines are expected (AI news develops throughout a day) and are
+NOT a defect.
+
+**Structure — matches exactly.** Both use the identical tiered Markdown shape
+`SKILL.md` specifies: a `# Daily AI Brief — {Weekday}, {Month} {D}, {YYYY}`
+title, an italic tl;dr line, a `## 📌 Headlines` bulleted list, then
+`## {emoji} {Category}` deep-dive sections, then a closing "Sources checked"
+line. Both correctly OMIT sections with no items that day (the skill's own
+documented rule) — the candidate's brief includes a
+`## 🛠️ Products, Tools & Releases` section the production brief happens to omit
+that day, and neither includes a `## 📊 Benchmarks & Evals` section; this is
+expected per-day content variance, not a structural mismatch.
+
+**Length/depth — same ballpark.** Candidate: 2,239 words / 12 headlines / 10
+deep-dive items. Production: 2,129 words / 12 headlines / 7 deep-dive items.
+Both are well within the skill's own "8–15 headlines, 5–10 deep dives" target.
+
+**Listening script — same ballpark, both within the skill's own spec.**
+Candidate: 1,321 words. Production: 1,188 words. Both are genuinely derived
+from their own respective brief's content (spot-checked: every deep-dive topic
+in the candidate's script appears in its own brief, in the same order); both
+correctly satisfy every one of the skill's own listening-script constraints —
+confirmed directly, not asserted: no URLs, no Markdown syntax, no "Sources:"
+lines, no emoji. The candidate's script runs slightly over the skill's
+800–1,200-word target (1,321 vs. the upper bound); production's (1,188) sits
+right at it — a minor, real, honestly-reported difference, not a hard failure.
+
+**Tone/style — consistent.** Both are dense, fact-led, lab-neutral, with the
+same "why it matters" pattern the skill's own item-format spec requires
+(concrete facts first, then one neutral sentence on industry significance) —
+confirmed by reading both briefs in full, not inferred from metadata alone.
+
+**`candidates.json` — a real, honest difference worth flagging, not glossed
+over.** Production's `candidates.json` has 25 total entries, ALL marked
+`included` (zero `excluded` entries) — i.e. it only recorded the stories that
+made the final cut. The candidate's `candidates.json` has 72 entries, 60 of
+them explicitly `excluded` — a genuinely more complete record, matching the
+skill's own stated contract ("listing every story/topic you considered ...
+not just the ones that made the final brief") more faithfully. Both runs used
+the exact same, confirmed-latest pinned skill version
+(`1783340601977967`), so this is NOT a skill-content difference — it's a real,
+observed behavioral variance between two independent agent runs in how
+exhaustively each logged its own exclusions. Flagged here honestly, as a real
+finding about run-to-run consistency of this additive artifact, not something
+to paper over.
+
+**`source-usage.json` — new in this skill version, well-formed, complete.**
+This is the first real run to exercise Phase 4's source-usage instruction.
+Cross-checked directly against the candidate's own `cat`'d copy of
+`sources.md`: all 9 real tier headings are represented, with no gaps, and
+every source marked `featured: true` (TechCrunch, Anthropic, Reuters, NVIDIA
+Blog, xAI, Hugging Face Daily Papers, smol.ai, Financial Times, The
+Information, Bloomberg, Hacker News front page, Hugging Face Trending) does
+genuinely appear cited in the brief's own Sources lines — confirmed by direct
+inspection, not assumed. Production's brief was generated by an earlier skill
+version predating this instruction, so no production-side `source-usage.json`
+exists to compare against; this artifact is validated purely on its own
+internal consistency (against the candidate's own recovered `sources.md` and
+brief), which it passes cleanly.
+
+**Overall verdict:** the candidate's output is structurally and qualitatively
+equivalent to real production's — same tiered shape, same tone, same
+skill-contract compliance, comparable length/depth — with the two flagged,
+honest differences above (a longer listening script; a more complete
+`candidates.json`) being real, reportable observations rather than defects
+that would block a future cut-over decision.
+
+### 6. The accepted recent-priors-reading gap
+
+As directed, this run deliberately skipped `deployment.json`'s real step 0
+(`audio_email.py read-recent-briefs`, S3-backed) — there is no AWS access at
+all on a `cloud` sandbox, and no delivery-side "read recent priors" endpoint
+exists yet (new scope, explicitly out of this phase). The candidate's own
+`task-prompt.md` states this explicitly, and `candidate.json`'s description
+documents it as an accepted, temporary limitation of this FIRST candidate on
+the `cloud` topology — a real gap worth solving before any real production
+cut-over (likely via a new delivery-side read endpoint mirroring the existing
+write/archive endpoints), not silently omitted. The practical consequence for
+this one-off validation run was negligible: comparing the candidate's brief
+against production's own (both from the same day) found no repeated story
+between them, so the missing "avoid repeating yesterday's story" safeguard
+never actually mattered for this particular run — though it would need
+solving before any candidate could safely run on a REAL production schedule.
+
+### 7. `derive_html()` cross-validated against this candidate's fresh, real output
+
+Called directly as a pure function (no HTTP, no real delivery call) against
+the candidate's real brief Markdown — extending Phase 1's original 3-fixture
+regression evidence with a 4th, brand-new real data point
+(`deploy/delivery/tests/fixtures/2026-07-06-production-baseline-candidate-brief.md`).
+Confirmed: well-formed HTML (no parser errors; correct doctype/head/body/title/
+closing tags), structurally consistent with the existing template (the same
+table-based layout, in-body scoped `<style>` block, and content-conversion
+fidelity — every heading/bold/italic/link/hr from the real input converts
+correctly). One genuinely NEW Markdown construct appeared that none of the
+original three fixtures used — a single inline-code span
+(`` `source-usage.json` `` in the brief's own closing "Sources checked" line)
+— flagged explicitly per this phase's own instruction, not silently patched:
+confirmed this is CORE Markdown syntax (not extension-gated, unlike
+`tables`/`fenced_code`), so it already converts correctly
+(`<code>source-usage.json</code>`) under `_convert_markdown_body()`'s existing
+zero-extensions design, with no code change required. All 164 of
+`deploy/delivery`'s tests (48 in this file alone, now covering 4 real
+fixtures) pass.
+
+### 8. Explicitly NOT done in this phase
+
+Per explicit instruction, this phase stopped at retrieving and comparing the
+candidate's raw output and validating `derive_html()` as a pure function call.
+It did NOT call the real `deploy/delivery/` `POST /deliver` endpoint, did NOT
+trigger any real Polly synthesis or SES send, and did NOT wire this candidate
+to the live delivery boundary in any way — a real send to the owner's real
+inbox requires the owner's explicit go-ahead first, not an automatic step of
+this validation.
 
 ## Local validation
 
