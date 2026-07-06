@@ -61,6 +61,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import time
 import uuid
 from typing import Any
 
@@ -75,8 +77,8 @@ import delivery_core
 import recent_briefs_auth
 from brief_history import (
     DEFAULT_RECENT_BRIEFS_COUNT,
-    archive_candidates_file,
-    archive_source_usage_file,
+    archive_candidates_content,
+    archive_source_usage_content,
     archive_todays_brief,
     read_recent_prior_briefs,
 )
@@ -106,7 +108,25 @@ def _today_local_date() -> str:
 # caller supplying anything else is rejected with 400 rather than silently
 # accepted -- a version bump here is a deliberate, reviewed code change, mirroring
 # feedback_token.py's own `_SCHEME_VERSION` discipline.
-SUPPORTED_CONTRACT_VERSION = 1
+#
+# VERSION 2 (ADR-0015 D2): the four-artifact contract for full production decouple.
+# In addition to v1's `brief_markdown` + `listening_script`, the body now carries the
+# other two content artifacts -- `candidates` and `source_usage` (each the raw JSON
+# string the skill produced) -- because in the decoupled model those files live in the
+# MicroVM, not this Lambda's filesystem, so their content must travel in the body to be
+# archived (v1 archived them by reading this Lambda's own WORKING_FOLDER, which is empty
+# in the decoupled model). `brief_markdown` + `listening_script` stay REQUIRED (no brief
+# can be sent without them); `candidates` + `source_usage` are archived best-effort and
+# NEVER block the send (an additive artifact must never cost the subscriber the brief --
+# see `_validate_request_body`). There is no live v1 caller (POST /deliver was never
+# reached in production), so v1 is retired rather than dual-supported.
+SUPPORTED_CONTRACT_VERSION = 2
+
+# TTL (seconds from now) written on an idempotency-dedup row so the dedup table does not
+# grow without bound (ADR-0015 D7). 48h comfortably covers a single run's retry window
+# (the idempotency key is the run's brief_date); real delivery rows are NOT given a TTL
+# and are retained as operational history (matching the table's RETAIN posture).
+_IDEMPOTENCY_DEDUP_TTL_SECONDS = 48 * 60 * 60
 
 # GET /recent-briefs's own response-contract version (ADR-0014 Decision 2d's
 # "contractVersion discipline, consistent with Decision 2a" -- a future change to
@@ -231,22 +251,52 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 def _validate_request_body(payload: dict[str, Any]) -> str | None:
     """Returns an error message string if `payload` is invalid, else None.
 
-    Validates the `contractVersion` field (FR-2) and the two required content
-    fields. Deliberately does NOT accept a `brief_html` field at all -- FR-2a:
-    content generation never produces brief HTML; delivery derives it. A caller
-    that still sends one is not rejected for it (a forward-compatible field the
-    delivery side simply ignores would be a needless footgun to punish), but it is
-    never read anywhere in this module."""
+    Validates the `contractVersion` field (FR-2) and the content fields (ADR-0015 D2,
+    the four-artifact contract v2). Deliberately does NOT accept a `brief_html` field at
+    all -- FR-2a: content generation never produces brief HTML; delivery derives it. A
+    caller that still sends one is not rejected for it (a forward-compatible field the
+    delivery side simply ignores would be a needless footgun to punish), but it is never
+    read anywhere in this module.
+
+    REQUIRED (a 400 here happens at trigger time, BEFORE any send -- so rejecting a
+    malformed request loses no brief): `contractVersion`, `brief_markdown`,
+    `listening_script`. The brief cannot be sent without these.
+
+    BEST-EFFORT, NOT required (ADR-0015 D2's fail-safe): `candidates` and `source_usage`
+    are additive archival artifacts. The real client always sends them, but the server
+    must NOT 400 the whole delivery when one is absent -- that would let an additive
+    artifact cost the subscriber the actual brief, violating "never lose the brief."
+    They are therefore optional at validation; when present they must be strings (a
+    wrong TYPE is a genuine caller bug worth a 400, since it is not "absent" -- it is
+    malformed), and archival of them is handled best-effort in `_run_delivery`."""
     if payload.get("contractVersion") != SUPPORTED_CONTRACT_VERSION:
         return f"contractVersion must be {SUPPORTED_CONTRACT_VERSION}"
     if not payload.get("brief_markdown"):
         return "brief_markdown is required"
     if not payload.get("listening_script"):
         return "listening_script is required"
+    for optional_str_field in ("candidates", "source_usage"):
+        value = payload.get(optional_str_field)
+        if value is not None and not isinstance(value, str):
+            return f"{optional_str_field} must be a string (the raw JSON the skill produced)"
     metadata = payload.get("metadata")
     if metadata is not None and not isinstance(metadata, dict):
         return "metadata must be an object"
+    if metadata is not None:
+        idempotency_key = metadata.get("idempotency_key")
+        if idempotency_key is not None and not _is_valid_idempotency_key(idempotency_key):
+            return "metadata.idempotency_key must be a short string of [A-Za-z0-9._-]"
     return None
+
+
+# An idempotency key is echoed into a DynamoDB partition-key value and a `/deliver/{id}`
+# URL path, so it is constrained to a safe, bounded alphabet -- the production client
+# supplies the run's `brief_date` (e.g. "2026-07-06"), which fits comfortably.
+_IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _is_valid_idempotency_key(value: Any) -> bool:
+    return isinstance(value, str) and bool(_IDEMPOTENCY_KEY_RE.match(value))
 
 
 def _handle_trigger(event: dict[str, Any], table, lambda_client) -> dict[str, Any]:
@@ -262,7 +312,34 @@ def _handle_trigger(event: dict[str, Any], table, lambda_client) -> dict[str, An
     if validation_error:
         return _bad_request(validation_error)
 
+    metadata = payload.get("metadata") or {}
+    idempotency_key = metadata.get("idempotency_key")
+
     delivery_id = uuid.uuid4().hex
+
+    # Idempotency dedup (ADR-0015 D7): the async self-invoke worker leg is already
+    # idempotent (it claims pending->in_progress and no-ops on a duplicate), but that
+    # only defends against Lambda re-delivering the SAME deliveryId. It does NOT defend
+    # against the CALLER (the production API client) POSTing /deliver twice -- e.g. a
+    # client-side timeout then retry -- which would otherwise mint a SECOND deliveryId
+    # and double-send. When the caller supplies an idempotency key (the run's
+    # brief_date), a duplicate trigger returns the delivery the FIRST trigger already
+    # started, and no second delivery/self-invoke happens. Claimed BEFORE the real
+    # delivery row + self-invoke, and released (below) only if the self-invoke never
+    # starts, so a genuine "nothing happened" failure can still be safely retried.
+    if idempotency_key is not None:
+        claimed_id = _claim_or_get_idempotent_delivery(table, idempotency_key, delivery_id)
+        if claimed_id != delivery_id:
+            logger.info(
+                "DELIVERY_TRIGGER_IDEMPOTENT_REPLAY idempotency_key=%s delivery_id=%s",
+                idempotency_key,
+                claimed_id,
+            )
+            return {
+                "statusCode": 202,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"deliveryId": claimed_id, "status": "pending", "idempotentReplay": True}),
+            }
 
     table.put_item(
         Item={
@@ -293,18 +370,80 @@ def _handle_trigger(event: dict[str, Any], table, lambda_client) -> dict[str, An
             ExpressionAttributeNames={"#s": "status", "#e": "error"},
             ExpressionAttributeValues={":failed": "failed", ":error": "failed to start delivery worker"},
         )
+        # Nothing was sent (the worker never started), so release the idempotency claim
+        # to let a subsequent retry start fresh rather than being deduped to this dead,
+        # never-processed delivery (ADR-0015 D7/D8: a genuine "nothing happened" failure
+        # must be re-drivable).
+        if idempotency_key is not None:
+            _release_idempotency_claim(table, idempotency_key)
         return {
             "statusCode": 502,
             "headers": {"Content-Type": "application/json"},
             "body": json.dumps({"error": "trigger_failed"}),
         }
 
-    logger.info("DELIVERY_TRIGGERED delivery_id=%s", delivery_id)
+    logger.info("DELIVERY_TRIGGERED delivery_id=%s idempotency_key=%s", delivery_id, idempotency_key)
     return {
         "statusCode": 202,
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps({"deliveryId": delivery_id, "status": "pending"}),
     }
+
+
+# ---------------------------------------------------------------------------
+# Idempotency dedup (ADR-0015 D7) -- a front-guard "dedup row" in the SAME
+# brief-deliveries table (partition key `deliveryId`), stored under a namespaced
+# `idem#<key>` id so it coexists with real delivery rows (whose ids are random UUIDs
+# that never collide with the `idem#` prefix). No GSI / no schema change needed.
+# ---------------------------------------------------------------------------
+
+
+def _idempotency_row_key(idempotency_key: str) -> str:
+    return f"idem#{idempotency_key}"
+
+
+def _claim_or_get_idempotent_delivery(table, idempotency_key: str, delivery_id: str) -> str:
+    """Atomically claim `idempotency_key` for `delivery_id`. Returns `delivery_id` if
+    THIS call won the claim (the first trigger for this key), else the delivery id a
+    prior trigger already mapped the key to (a dedup replay -- the caller should poll
+    THAT id, and no new delivery is started).
+
+    A conditional PutItem (`attribute_not_exists(deliveryId)`) is the DynamoDB
+    compare-and-swap idiom -- race-safe for two concurrent first-triggers: exactly one
+    wins the put; the other's put fails the condition, reads the row, and returns the
+    winner's mapped id. Mirrors the fail-closed, never-double-fire discipline of
+    docs/adr/0010-restore-webhook-idempotency.md and the worker leg's own
+    `_claim_delivery()` below."""
+    row_key = _idempotency_row_key(idempotency_key)
+    try:
+        table.put_item(
+            Item={
+                "deliveryId": row_key,
+                "mappedDeliveryId": delivery_id,
+                "expiresAt": int(time.time()) + _IDEMPOTENCY_DEDUP_TTL_SECONDS,
+            },
+            ConditionExpression="attribute_not_exists(deliveryId)",
+        )
+        return delivery_id
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            existing = table.get_item(Key={"deliveryId": row_key}).get("Item") or {}
+            # Defensive: if the row somehow lacks the mapped id, fall back to this
+            # call's own id rather than returning None (never worse than "no dedup").
+            return existing.get("mappedDeliveryId") or delivery_id
+        raise
+
+
+def _release_idempotency_claim(table, idempotency_key: str) -> None:
+    """Delete the dedup row so a subsequent retry can re-claim the key. Called ONLY
+    when the worker self-invoke never started (nothing was sent), so re-triggering is
+    safe. Best-effort: a delete failure is logged, never raised (the caller is already
+    returning a 502; a stale dedup row would at worst dedupe a retry to a
+    clearly-failed delivery, which the client surfaces loudly per D8)."""
+    try:
+        table.delete_item(Key={"deliveryId": _idempotency_row_key(idempotency_key)})
+    except Exception as e:  # noqa: BLE001 - best-effort cleanup
+        logger.warning("IDEMPOTENCY_RELEASE_FAILED idempotency_key=%s error=%r", idempotency_key, e)
 
 
 def _bad_request(message: str) -> dict[str, Any]:
@@ -525,6 +664,12 @@ def _run_delivery(
     succeeded."""
     brief_markdown = body["brief_markdown"]
     listening_script = body["listening_script"]
+    # The other two content artifacts (ADR-0015 D2, contract v2) -- raw JSON strings the
+    # skill produced, handed straight through and archived best-effort below. Optional at
+    # this layer: their absence never blocks the send (they are additive archival
+    # artifacts), matching `_validate_request_body`'s fail-safe stance.
+    candidates_content = body.get("candidates")
+    source_usage_content = body.get("source_usage")
     metadata = body.get("metadata") or {}
     email_subject = metadata.get("email_subject") or "Daily AI Brief"
     brief_date = metadata.get("brief_date") or _today_local_date()
@@ -589,8 +734,13 @@ def _run_delivery(
         logger.warning("DELIVERY_ARCHIVE_FAILED brief_date=%s error=%r", brief_date, e)
         archive_ok = False
 
-    candidates_archived = archive_candidates_file(s3_client, brief_date, working_folder=WORKING_FOLDER)
-    source_usage_archived = archive_source_usage_file(s3_client, brief_date, working_folder=WORKING_FOLDER)
+    # Archive the other two artifacts from the REQUEST BODY (ADR-0015 D2) -- in the
+    # decoupled model they are produced in the MicroVM, not on this Lambda's filesystem,
+    # so their content travels in the body (v1 read them from this Lambda's own empty
+    # WORKING_FOLDER). Best-effort: a missing/failed additive artifact never affects the
+    # send, which already completed above.
+    candidates_archived = archive_candidates_content(s3_client, brief_date, content=candidates_content)
+    source_usage_archived = archive_source_usage_content(s3_client, brief_date, content=source_usage_content)
 
     return {
         "html_derived": True,

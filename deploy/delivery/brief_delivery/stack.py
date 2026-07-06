@@ -242,12 +242,18 @@ class BriefDeliveryStack(Stack):
     # Data
     # ------------------------------------------------------------------
     def _build_deliveries_table(self) -> dynamodb.Table:
-        """DynamoDB table `brief-deliveries`: PK `deliveryId` (a generated UUID), no
-        sort key, no GSI -- single-item get-by-id is the only access pattern
-        (mirroring `deploy/eval/brief_eval/stack.py`'s `_build_eval_table()`).
-        PAY_PER_REQUEST, RETAIN (this table tracks real delivery outcomes -- useful
-        operational history, same posture as `brief-eval-records`, not a purely
-        transient idempotency table like the managed-agent stack's dedup table)."""
+        """DynamoDB table `brief-deliveries`: PK `deliveryId`, no sort key, no GSI --
+        single-item get-by-id is the only access pattern (mirroring
+        `deploy/eval/brief_eval/stack.py`'s `_build_eval_table()`). PAY_PER_REQUEST,
+        RETAIN (this table tracks real delivery outcomes -- useful operational history,
+        same posture as `brief-eval-records`).
+
+        Two item types share the PK (ADR-0015 D7): real delivery rows (`deliveryId` = a
+        random UUID) and idempotency-dedup rows (`deliveryId` = `idem#<key>`). Only the
+        dedup rows carry an `expiresAt` epoch, so the `expiresAt` TTL reaps ONLY them
+        (DynamoDB TTL ignores items without the attribute) -- delivery rows have no TTL
+        and are retained as history, while dedup rows self-clean after 48h so the table
+        does not grow without bound."""
         return dynamodb.Table(
             self,
             "DeliveriesTable",
@@ -258,6 +264,7 @@ class BriefDeliveryStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True
             ),
+            time_to_live_attribute="expiresAt",
             removal_policy=RemovalPolicy.RETAIN,
         )
 
@@ -383,7 +390,11 @@ class BriefDeliveryStack(Stack):
             iam.PolicyStatement(
                 sid="DeliveriesTableAccess",
                 effect=iam.Effect.ALLOW,
-                actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+                # DeleteItem (ADR-0015 D7): the trigger leg deletes an idempotency-dedup
+                # row when the worker self-invoke never started, so a genuine
+                # "nothing-sent" failure can be retried instead of being deduped forever
+                # to a dead delivery.
+                actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
                 resources=[self.deliveries_table.table_arn],
             )
         )

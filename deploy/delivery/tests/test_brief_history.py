@@ -162,3 +162,55 @@ def test_source_usage_file_write_failure_is_logged_not_raised(tmp_path, capsys):
     assert archived is False
     captured = capsys.readouterr()
     assert "BRIEF_ARCHIVE_FAILED" in captured.out
+
+
+# --- CONTENT-based archival (ADR-0015 D2, contract v2) -- the decoupled model hands
+# candidates/source-usage CONTENT in the POST /deliver body (they live in the MicroVM,
+# not this Lambda's filesystem), so these archive from a string, not a local file. -----
+
+
+def test_archive_candidates_content_present_is_archived_verbatim(briefs_bucket):
+    content = json.dumps([{"title": "Story A", "source": "TechCrunch", "disposition": "included"}])
+
+    archived = brief_history.archive_candidates_content(briefs_bucket, "2026-07-06", content=content)
+
+    assert archived is True
+    obj = briefs_bucket.get_object(
+        Bucket=brief_history.BUCKET, Key=f"briefs/2026-07-06/{brief_history.CANDIDATES_FILENAME}"
+    )
+    assert obj["Body"].read().decode("utf-8") == content
+
+
+def test_archive_source_usage_content_present_is_archived_verbatim(briefs_bucket):
+    content = json.dumps({"featured": [{"source": "The Verge", "used": True}]})
+
+    archived = brief_history.archive_source_usage_content(briefs_bucket, "2026-07-06", content=content)
+
+    assert archived is True
+    obj = briefs_bucket.get_object(
+        Bucket=brief_history.BUCKET, Key=f"briefs/2026-07-06/{brief_history.SOURCE_USAGE_FILENAME}"
+    )
+    assert obj["Body"].read().decode("utf-8") == content
+
+
+def test_archive_content_none_or_empty_is_skipped_not_archived(briefs_bucket):
+    """An absent/empty additive artifact is the expected common case -- skipped
+    (returns False), NEVER raised, and no object is written (ADR-0015 D2 fail-safe)."""
+    for empty in (None, "", "   "):
+        assert brief_history.archive_candidates_content(briefs_bucket, "2026-07-06", content=empty) is False
+        assert brief_history.archive_source_usage_content(briefs_bucket, "2026-07-06", content=empty) is False
+
+    # Nothing was written under that day for these filenames.
+    listing = briefs_bucket.list_objects_v2(Bucket=brief_history.BUCKET, Prefix="briefs/2026-07-06/")
+    assert listing.get("KeyCount", 0) == 0
+
+
+def test_archive_content_write_failure_is_logged_not_raised(capsys):
+    class RaisingS3Client:
+        def put_object(self, **kwargs):
+            raise RuntimeError("simulated S3 outage")
+
+    archived = brief_history.archive_candidates_content(RaisingS3Client(), "2026-07-06", content='{"x": 1}')
+
+    assert archived is False
+    assert "BRIEF_ARCHIVE_FAILED" in capsys.readouterr().out

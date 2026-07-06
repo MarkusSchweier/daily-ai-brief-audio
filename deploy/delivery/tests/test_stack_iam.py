@@ -143,18 +143,25 @@ def test_s3_grant_scoped_to_prefixes_no_broader_bucket_wildcard_actions():
     assert list_stmt["Condition"]["StringLike"]["s3:prefix"] == ["briefs/*"]
 
 
-def test_deliveries_table_grant_has_no_scan_or_delete():
-    """This role only ever get/put/updates a SINGLE known deliveryId (no listing
-    access pattern exists for this Lambda) -- Scan/DeleteItem would be broader
-    than needed."""
+def test_deliveries_table_grant_is_item_level_only_no_scan():
+    """This role only ever get/put/update/deletes items by a SINGLE known key -- no
+    listing access pattern exists for this Lambda, so Scan must never be granted.
+    DeleteItem IS granted (ADR-0015 D7): the trigger leg deletes an idempotency-dedup
+    row when the worker self-invoke never started, so a genuine "nothing-sent" failure
+    can be retried instead of being deduped forever to a dead delivery. All four
+    actions are item-level (keyed) operations, never a table-wide Scan."""
     template = _synth_template()
     statements = _policy_statements_for_role_logical_id(template, "DeliverFunctionRole")
 
     stmt = next(s for s in statements if s.get("Sid") == "DeliveriesTableAccess")
     actions = stmt["Action"] if isinstance(stmt["Action"], list) else [stmt["Action"]]
-    assert set(actions) == {"dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"}
+    assert set(actions) == {
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+    }
     assert "dynamodb:Scan" not in actions
-    assert "dynamodb:DeleteItem" not in actions
 
 
 def test_self_invoke_grant_is_scoped_to_the_functions_own_arn_not_a_wildcard():
