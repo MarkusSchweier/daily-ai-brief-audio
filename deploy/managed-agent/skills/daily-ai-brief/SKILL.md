@@ -99,9 +99,12 @@ listing, for **every** source named in `sources.md` — not just the ones you fe
 was actually featured/cited in today's brief. Each entry:
 `{"source": "...", "tier": N, "featured": true|false}`, where `source` is that entry's own
 name/label exactly as `sources.md` lists it (e.g. `"Anthropic"`, `"TechCrunch — AI"`) and `tier` is
-the number from the `## Tier N — ...` heading it appears under. The point is tracking which
-sources are **never** featured over time, so include every source.md entry, not only the featured
-ones (GitHub issue #28). This is an additive, durable record; it does not change the brief itself.
+the number from the `## Tier N — ...` heading it appears under. **One entry per named
+source/outlet, not per bullet line** — a few `sources.md` lines bundle more than one outlet
+separated by `·` (e.g. `Qwen (Alibaba): ... · DeepSeek: ...`); write a separate entry for each
+named outlet on such a line. The point is tracking which sources are **never** featured over time,
+so include every source.md entry, not only the featured ones (GitHub issue #28). This is an
+additive, durable record; it does not change the brief itself.
 
 **Structure (tiered):**
 
