@@ -198,7 +198,8 @@ Via the Claude Console or the Deployments API (with the beta header
 
 ### 3a. Push a new version of the `daily-ai-brief` skill (after any content edit)
 
-Per ADR-0008 (three-way lockstep + live version push). Editing
+Per ADR-0008 (two-way lockstep — in-repo ↔ live Skills-API — + live version push; the local Desktop
+copy is dead, per ADR-0008's 2026-07-06 amendment). Editing
 `deploy/managed-agent/skills/daily-ai-brief/{SKILL.md,sources.md}` in the repo has **no effect
 on the live deployment** until a new version is pushed to the live Skills API resource —
 `agent.json`'s `skills[].version: "latest"` only re-resolves once a new version actually
@@ -224,20 +225,15 @@ microVM container image") must ALSO be done — with no code change needed, sinc
 to actually reach a running session.** Treat "push skill version" and "rebuild+push the image" as
 one combined, required step for this deployment, not two independent options.
 
-1. **Edit the in-repo copy first**, then mirror the same content change to the local Desktop
-   fallback's skill invocation path (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`,
-   outside this repo — only the skill-content sections it echoes, not its own STEP 5-8 delivery
-   wrapper) — see ADR-0008 for why both copies must move together. If the change also needs to
-   reach a separately-registered local Claude Desktop **Cowork** skill (a different resource
-   entirely from this Skills API — confirmed via a `404 Skill not found` when queried with the
-   Console API key, i.e. a different auth realm tied to the desktop app's own account), package
-   `daily-ai-brief/{SKILL.md,sources.md}` as a `.skill` zip (same two-file structure, no
-   `plugin.json`) and re-import it through the Cowork chat UI's own accept flow — there is no API
-   for this third surface. **Do not reuse the in-repo copy's content verbatim for that package**
-   if the in-repo copy carries any deployment-specific adaptation (e.g. this skill's
-   `WORKING_FOLDER` is deliberately `/workspace` for the microVM, not the real local Mac path) —
-   strip those adaptations back out first, or the Cowork skill will break in ways that are easy
-   to miss until the next real local run.
+1. **Edit the in-repo copy first.** The lockstep is now **two-way** (in-repo ↔ live Skills-API) —
+   the former local Desktop fallback copy (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`) is
+   **dead and is no longer mirrored to** (ADR-0008's 2026-07-06 amendment; agent-system-redesign
+   epic — the owner retired the local task, it will not run or be reactivated). Do **not** mirror
+   skill-content changes there anymore. (The separately-registered local Claude Desktop **Cowork**
+   skill, if you still maintain one, remains a distinct manual surface with no API — package
+   `daily-ai-brief/{SKILL.md,sources.md}` as a `.skill` zip and re-import via the Cowork UI, stripping
+   any microVM-specific adaptation like `WORKING_FOLDER=/workspace` first — but that is a separate,
+   optional surface, not part of this deployment's required lockstep.)
 2. **Validate** per whatever the change's own PRD requires before pushing live.
 3. **Zip and push a new version:**
    ```bash

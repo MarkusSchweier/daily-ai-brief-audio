@@ -1,8 +1,28 @@
-# 0008. Three-way lockstep + live Skills-API version push for skill-content changes
+# 0008. Skill-content lockstep + live Skills-API version push for skill-content changes
 
-- Status: Accepted
+- Status: Accepted (originally a **three-way** lockstep; **reconciled to TWO-WAY** by the
+  agent-system-redesign epic — see the 2026-07-06 amendment below)
 - Date: 2026-07-03
 - Deciders: architect (Claude)
+- **Amended 2026-07-06 (agent-system-redesign epic; reconciling with ADR-0014 Decision 1's ratified
+  hybrid + the owner's dead-Desktop-fallback decision):** two independent reconciliations, per
+  ADR-0014's "Reconciling ADR-0008" section:
+  1. **The local Desktop fallback is DEAD — the lockstep collapses to TWO-WAY, unconditionally.** The
+     owner has stated the local Desktop copy (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`) is
+     dead: it will not run and will not be reactivated, in any form. So the original **three-way**
+     lockstep (in-repo ↔ local Desktop ↔ live Skills-API) collapses to a **two-way lockstep: in-repo
+     source-of-truth (`deploy/managed-agent/skills/daily-ai-brief/`) ↔ live Skills-API resource
+     (`skill_01H2qu83NwnJ5zqcbrqsCcJ6`)**. The Desktop copy is **no longer a lockstep member — full
+     stop, not "for now," not "unless reactivated"; there is no reactivation hedge.** Wherever the
+     text below (Context item 2, Decision step 2, the "three artifacts" follow-up) still says
+     "three-way" or "mirror to the local Desktop copy," it is **superseded by this amendment** —
+     drop the Desktop member; only steps 1 and 3–6 remain, unchanged.
+  2. **The 2026-07-04 image-rebuild amendment (below) REMAINS IN FORCE for production** under the
+     ratified hybrid. Decision 1 keeps **production on `self_hosted`** with the current custom worker,
+     which still bakes the skill into the microVM image — so a Skills-API push alone still does not
+     reach the live scheduled brief without the image rebuild (README §5). The "no image rebuild
+     needed" relief applies **only to the candidate/`cloud` path** (skills download dynamically per
+     session there — FR-5), **not** to production. This amendment is **not** superseded for production.
 - **Amended 2026-07-04 (eval-harness epic):** step 4's Skills-API version push, while worth doing
   for the record and for any future non-self-hosted environment type, is **NOT sufficient by
   itself** to make a skill-content change reach a running session on this self-hosted microVM
@@ -17,16 +37,18 @@
 
 ## Context
 
-The `daily-ai-brief` research/writing skill now exists in **three** places that must stay
-consistent for **any** content edit — not just the label-neutrality change that surfaced this
-(PRD `neutral-briefing-pipeline.md`, §7 "Whether an ADR is needed", FR-7…FR-9, AC-6/AC-7):
+The `daily-ai-brief` research/writing skill originally existed in **three** places that had to stay
+consistent for **any** content edit (PRD `neutral-briefing-pipeline.md`, §7 "Whether an ADR is
+needed", FR-7…FR-9, AC-6/AC-7). **As of the 2026-07-06 amendment above, item 2 (the local Desktop
+copy) is DEAD and no longer a lockstep member — only items 1 and 3 remain (two-way):**
 
 1. **In-repo source-of-truth** — `deploy/managed-agent/skills/daily-ai-brief/SKILL.md` and
    `sources.md` (committed per ADR-0007).
-2. **Local Desktop fallback copy** — `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`,
-   *outside this repo*, which the still-running local scheduled task invokes. It stays the
-   monitored fallback through the Managed Agents migration's parallel-run window
-   (`managed-agents-migration.md` non-goal; ADR-0006/0007), so it must not be broken.
+2. **~~Local Desktop fallback copy~~ — DEAD (2026-07-06 amendment).**
+   `~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md` (outside this repo) is retired: the local
+   scheduled task will not run and will not be reactivated. It is **no longer part of the lockstep**
+   and must not be mirrored to. (Historically it was the monitored fallback through the Managed
+   Agents migration's parallel-run window; that window is over and the fallback is dead.)
 3. **Live Skills API resource** — `skill_01H2qu83NwnJ5zqcbrqsCcJ6`, referenced by agent
    `agent_01EswBTose8dnTAUDbGvzdLq` (with `skills[].version: "latest"`) and live scheduled
    deployment `depl_0132ARBCdsSRh6hxocbbW7ac`. The running Managed Agents deployment produces
@@ -54,11 +76,10 @@ repeatable from git.** Concretely, the standing procedure is:
 
 1. **Edit the in-repo source-of-truth first** — `deploy/managed-agent/skills/daily-ai-brief/`
    `SKILL.md` (+ `sources.md`). This is canonical; the other two derive from it.
-2. **Mirror to the local Desktop copy** in the same change (lockstep, per the project
-   `CLAUDE.md` convention that already governs `deploy/audio_email.py` ↔ the local `SKILL.md`).
-   Because the local copy is a *wrapper* that invokes the skill plus its own delivery steps,
-   mirror only the skill-content sections — not the wrapping STEP 5–8 delivery task (matching
-   the skill/delivery separation ADR-0007 established).
+2. **~~Mirror to the local Desktop copy~~ — REMOVED (2026-07-06 amendment).** The local Desktop
+   fallback is dead and is no longer a lockstep member; there is nothing to mirror to. The lockstep
+   is now **two-way** (in-repo ↔ live Skills-API), so a skill-content change goes straight from
+   step 1 (edit the in-repo source-of-truth) to step 3 (validate) to step 4 (push the live version).
 3. **Validate before the live push** — run whatever pre-schedule validation the change's PRD
    requires (for the neutral-briefing change: the structural prompt-text checks + one human
    before/after read, PRD AC-8). The live push happens **only after** validation passes, so the
@@ -115,10 +136,11 @@ Positive:
   schedule never runs an unvalidated skill — reusable discipline for every future edit.
 
 Negative / follow-ups:
-- **Three artifacts stay in manual lockstep** for the duration of the parallel-run window; this
-  ADR formalizes the discipline but does not remove the burden. Consolidation (retiring the
-  local Desktop copy, and its skill dependency) is gated on retiring the local task — a separate
-  follow-up per the migration PRD, not this change.
+- **~~Three~~ Two artifacts stay in manual lockstep** (in-repo ↔ live Skills-API), after the
+  2026-07-06 amendment retired the local Desktop copy from the lockstep. This ADR formalizes the
+  discipline but does not remove the (now-smaller) burden. The consolidation the original ADR
+  gated on "retiring the local task" **has happened** — the Desktop fallback is dead (owner
+  decision, agent-system-redesign epic), so the three-way burden is already reduced to two-way.
 - The recorded runbook must be **kept current** if the beta Skills-API version-push surface
   changes; the runbook should note the beta header/version it was written against.
 - This ADR governs **procedure**, not content: it does not by itself guarantee any given edit is
