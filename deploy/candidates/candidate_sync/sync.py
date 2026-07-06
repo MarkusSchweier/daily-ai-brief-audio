@@ -352,6 +352,44 @@ def _create_agent(agents_client: httpx.Client, declaration: AgentDeclaration, *,
     return created["id"]
 
 
+def _normalize_live_field_for_comparison(field_name: str, live_value: Any) -> Any:
+    """Normalize ONE field of a live `GET /v1/agents/{id}` response into the same
+    shape `AgentDeclaration.to_agent_body()` sends on write, so `_live_declaration_
+    differs()` compares like with like.
+
+    CORRECTED (agent-system-redesign epic, Phase 5, found on the FIRST real
+    production-baseline sync -- not assumed, not caught by the mocked test suite):
+    `model` is the one field this repo's write-side (`to_agent_body()`) and
+    read-side (a live GET) disagree on in SHAPE, not just value. `to_agent_body()`
+    sends `model` as a plain string (`"claude-sonnet-5"`, per `model.txt`), which
+    `POST /v1/agents` accepts -- but a live `GET /v1/agents/{id}` echoes `model`
+    back as a NESTED OBJECT, `{"id": "claude-sonnet-5", "speed": "standard"}`
+    (confirmed live on BOTH the newly-created `production-baseline` candidate
+    AND, independently, the real live production `daily-ai-brief-agent`
+    (`agent_01EswBTose8dnTAUDbGvzdLq`) -- so this is a universal API behavior, not
+    a fluke of one agent). Comparing the raw values directly
+    (`{"id": "claude-sonnet-5", ...} != "claude-sonnet-5"`) is therefore ALWAYS
+    unequal, even when the model genuinely hasn't changed -- silently breaking
+    FR-12/AC-12's "an unchanged declaration is a full no-op at the mutation level"
+    guarantee for `model` specifically: EVERY re-sync of EVERY existing candidate
+    (this bug predates Phase 5; it was simply never exercised against the real API
+    until now, since the mocked test fixtures for the "unchanged" case
+    (`tests/test_sync.py`'s `_agent_response(..., model=model)`) echoed `model` back
+    as the SAME plain string the loader produces, not the real nested-object
+    shape) would have silently issued a spurious `POST /v1/agents/{id}` update on
+    every single sync, forever -- never a hard failure, just an unnecessary
+    mutation call and an unwanted version bump on Claude Platform's own side. This
+    function extracts `live_value["id"]` when `live_value` is a dict with an `id`
+    key (the confirmed live shape), so the comparison in
+    `_live_declaration_differs()` below is between two plain model-id strings on
+    BOTH sides -- correcting the comparison, not the request body `to_agent_body()`
+    sends (that string-only shape is what the write side of the API actually
+    requires; only the READ side nests it)."""
+    if field_name == "model" and isinstance(live_value, dict):
+        return live_value.get("id", live_value)
+    return live_value
+
+
 def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDeclaration) -> bool:
     """Compare the CURRENT live agent (from a fresh GET) against the local
     declaration on exactly the fields the local declaration controls. This is the
@@ -359,10 +397,15 @@ def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDecl
     instead of) the platform's own no-op detection on update, so an unchanged
     declaration never even attempts an update call (per the task brief: "Only call
     update for a genuinely changed declaration -- an unchanged one is a no-op at the
-    script level, not just relying on the platform's own no-op detection")."""
+    script level, not just relying on the platform's own no-op detection").
+
+    Each live field is normalized via `_normalize_live_field_for_comparison()`
+    before comparing -- see that function's docstring for the real, live-confirmed
+    `model` shape mismatch this closes (Phase 5's production-baseline sync)."""
     local_body = declaration.to_agent_body()
     for field_name, local_value in local_body.items():
-        if live_agent.get(field_name) != local_value:
+        live_value = _normalize_live_field_for_comparison(field_name, live_agent.get(field_name))
+        if live_value != local_value:
             return True
     return False
 

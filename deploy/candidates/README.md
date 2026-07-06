@@ -570,6 +570,45 @@ tracked files — the id is just "this candidate's one address").
   inconsistent ones, relative to the real API — a pre-existing Phase 2 convention,
   left as-is here since correcting it is a separate, broader cleanup across many
   already-passing tests, not something this fix pass changes.
+- **(Phase 5) The live `model` field is a NESTED OBJECT on read, a PLAIN STRING on
+  write — `_live_declaration_differs()` compared them raw and always saw a
+  mismatch, silently breaking the "unchanged declaration → no-op" guarantee for
+  EVERY candidate.** Found on the very first real `sync.py production-baseline`
+  re-run (see "Phase 5 live validation," below): a genuinely unchanged candidate
+  reported `updated: agent ...` instead of `no-op`. Direct diagnosis (comparing
+  `to_agent_body()`'s local `model` field against a fresh `GET /v1/agents/{id}`
+  response field-by-field) isolated the exact cause: `to_agent_body()` sends
+  `model` as a bare string (`"claude-sonnet-5"`, from `model.txt`) — which
+  `POST /v1/agents` accepts — but a live `GET /v1/agents/{id}` always echoes
+  `model` back as `{"id": "claude-sonnet-5", "speed": "standard"}`, confirmed
+  independently on BOTH the newly-created `production-baseline` agent AND, as a
+  second, unrelated data point, a **read-only** `GET` against the real live
+  production agent (`agent_01EswBTose8dnTAUDbGvzdLq`) — so this is a universal
+  read-side API behavior, not specific to one agent. Comparing the two raw
+  shapes is therefore *always* unequal, meaning every prior "unchanged
+  declaration" re-sync of every existing candidate in this repo (including
+  `smoke-test-example`'s own Phase 3 re-syncs) had been silently issuing an
+  unnecessary `POST /v1/agents/{id}` update the whole time — never a hard
+  failure, just a wasted mutation call and an unwanted extra version bump on
+  Claude Platform's own side, invisible unless someone actually checked the
+  agent's version-history length against how many times it was "really" changed
+  (which nobody had, until this run). This escaped every existing mocked test
+  because `tests/test_sync.py`'s own "unchanged" fixtures (e.g.
+  `test_update_single_agent_unchanged_declaration_is_a_full_no_op`) echo `model`
+  back as the SAME bare string the loader produces — a mock built to match an
+  untested assumption about the live shape, not the real one. **Fixed** by
+  `_normalize_live_field_for_comparison()`, which extracts `live_value["id"]`
+  when the live `model` value is a dict before comparing — correcting the
+  *comparison*, not the request body (the write side genuinely does want a bare
+  string; only the read side nests it). A new regression test,
+  `test_update_is_a_full_no_op_against_the_REAL_live_nested_model_shape`, uses
+  the real, live-confirmed nested shape and was confirmed, directly, to FAIL
+  against the pre-fix code (it attempted an unmocked `POST`, tripping the fake
+  client's "no scripted response registered" assertion — i.e. a real spurious
+  mutation call would have been made) and PASS against the fix. All of this
+  repo's OTHER existing "unchanged" tests (which use the wrong bare-string mock
+  shape) still pass unmodified after the fix, since normalizing an
+  already-bare-string is a no-op.
 
 ## Phase 3 live validation (2026-07-06) — the FR-4/FR-5 proof, run for real
 

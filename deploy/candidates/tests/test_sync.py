@@ -487,6 +487,63 @@ def test_update_single_agent_unchanged_declaration_is_a_full_no_op(single_agent_
     assert candidate_json["agent_id"] == "agent_ALREADY_SYNCED"  # unchanged, no rewrite needed
 
 
+def test_update_is_a_full_no_op_against_the_REAL_live_nested_model_shape(single_agent_dir):
+    """Regression test for a real bug this phase's live production-baseline sync
+    found (agent-system-redesign epic, Phase 5) -- NOT caught by the test above,
+    which (like every other "unchanged" fixture in this file) echoes `model` back
+    as the SAME plain string `to_agent_body()` sends, not the shape the REAL
+    Anthropic API actually returns.
+
+    CONFIRMED LIVE (2026-07-06): a real `GET /v1/agents/{id}` -- both on the
+    freshly-created `production-baseline` candidate AND, independently, on the
+    real live production agent (`agent_01EswBTose8dnTAUDbGvzdLq`) -- returns
+    `model` as a NESTED OBJECT, `{"id": "claude-sonnet-5", "speed": "standard"}`,
+    never a bare string, even though `to_agent_body()` (correctly) SENDS a plain
+    string on write. Before `_normalize_live_field_for_comparison()` existed,
+    `_live_declaration_differs()` compared these two shapes directly
+    (`{"id": ..., "speed": ...} != "claude-sonnet-5"`) and always found them
+    unequal -- meaning EVERY re-sync of EVERY candidate in this repo would issue a
+    spurious `POST /v1/agents/{id}` update, forever, even when nothing had
+    actually changed, silently breaking FR-12/AC-12's "an unchanged declaration
+    is a full no-op at the mutation level" guarantee. This test was confirmed,
+    directly, to FAIL against the pre-fix code (asserting `result.no_op is True`
+    failed; an update call was made) and PASS against the fix."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    agent_json = json.loads((single_agent_dir / "agent.json").read_text())
+    model = (single_agent_dir / "model.txt").read_text().strip()
+    system_prompt = (single_agent_dir / "system-prompt.md").read_text()
+    parameters = json.loads((single_agent_dir / "parameters.json").read_text())
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _agent_response(
+            "agent_ALREADY_SYNCED",
+            version=1,
+            name=agent_json["name"],
+            description=agent_json["description"],
+            # The REAL, live-confirmed shape -- a nested object, NOT the bare
+            # string model.txt holds. This is the one thing this test changes
+            # versus the test above.
+            model={"id": model, "speed": "standard"},
+            system=system_prompt,
+            tools=agent_json["tools"],
+            mcp_servers=agent_json["mcp_servers"],
+            skills=[],
+            parameters=parameters,
+        ),
+    )
+    skills_client = FakeHttpxClient()
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.no_op is True
+    assert not result.created
+    assert not result.updated
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
 # --- 409-then-retry -----------------------------------------------------------------
 
 
