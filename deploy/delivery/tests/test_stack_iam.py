@@ -48,6 +48,26 @@ def _all_actions_json(statements: list[dict]) -> str:
     return json.dumps([s.get("Action") for s in statements])
 
 
+# --- Both bearer secrets auto-generate a SHELL-SAFE value (no punctuation) ------------
+
+
+def test_both_bearer_secrets_generate_shell_safe_values_no_punctuation():
+    """Both bearer secrets are presented via `curl -H "Authorization: Bearer <token>"`
+    from a candidate/agent shell, so their auto-generated value must exclude
+    punctuation (a live run proved a `'` in the value breaks the shell quoting).
+    Assert every AWS::SecretsManager::Secret in the stack pins
+    GenerateSecretString.ExcludePunctuation = true (2026-07-06 hardening)."""
+    template = _synth_template()
+    secrets = template.find_resources("AWS::SecretsManager::Secret")
+    assert len(secrets) == 2, f"expected exactly the 2 bearer secrets, found {len(secrets)}"
+    for logical_id, resource in secrets.items():
+        gen = resource.get("Properties", {}).get("GenerateSecretString", {})
+        assert gen.get("ExcludePunctuation") is True, (
+            f"secret {logical_id} must set GenerateSecretString.ExcludePunctuation=true "
+            f"so its generated bearer token is shell-safe; got {gen!r}"
+        )
+
+
 # --- The delivery Lambda's role: exactly the intended Sids, nothing broader -----------
 
 

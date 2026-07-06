@@ -258,31 +258,47 @@ class BriefDeliveryStack(Stack):
         )
 
     def _build_delivery_bearer_secret(self) -> secretsmanager.Secret:
-        """The shared delivery bearer secret (ADR-0014 Decision 2b) -- created
-        EMPTY, populated out-of-band (README), same pattern as
-        `deploy/eval/`'s `_build_review_secret()`. A NEW secret/purpose, not a
-        reuse of `deploy/eval/`'s reviewer secret or `deploy/managed-agent/`'s
-        environment key -- see `delivery_auth.py`'s module docstring for why."""
+        """The shared delivery bearer secret (ADR-0014 Decision 2b) -- CDK
+        auto-generates a random value at create time (a placeholder that may be
+        overwritten out-of-band, per the README), same pattern as `deploy/eval/`'s
+        `_build_review_secret()`. A NEW secret/purpose, not a reuse of
+        `deploy/eval/`'s reviewer secret or `deploy/managed-agent/`'s environment
+        key -- see `delivery_auth.py`'s module docstring for why.
+
+        `exclude_punctuation=True` (added 2026-07-06) forces the generated value to
+        a SHELL-SAFE alphabet (alphanumeric only, no `'`/`"`/`\\`/space): this token
+        is presented as `curl -H "Authorization: Bearer <token>"` from a candidate
+        sandbox, and a live run proved a punctuation char (a `'`) in the value
+        breaks the shell command's quoting. Alphanumeric-only removes that class of
+        failure by construction."""
         return secretsmanager.Secret(
             self,
             "DeliveryBearerSecret",
             secret_name=DELIVERY_BEARER_SECRET_NAME,
             description=(
                 "Shared bearer token gating POST /deliver + GET /deliver/{deliveryId} "
-                "(ADR-0014 Decision 2b). Populated out-of-band."
+                "(ADR-0014 Decision 2b). Auto-generated (shell-safe); may be rotated out-of-band."
             ),
+            generate_secret_string=secretsmanager.SecretStringGenerator(exclude_punctuation=True),
             removal_policy=RemovalPolicy.RETAIN,
         )
 
     def _build_recent_briefs_read_bearer_secret(self) -> secretsmanager.Secret:
         """The read-only bearer secret gating GET /recent-briefs (ADR-0014
-        Decision 2d) -- created EMPTY, populated out-of-band, same convention as
+        Decision 2d) -- CDK auto-generates a random value (a placeholder that may
+        be overwritten out-of-band), same convention as
         `_build_delivery_bearer_secret()` above. DELIBERATELY a SEPARATE secret,
         not a reuse of DELIVERY_BEARER_SECRET_NAME: the central auth-separation
         property Decision 2d requires is that a `cloud` candidate given ONLY this
         secret's token can read recent priors but is structurally UNABLE to
         authenticate to POST /deliver (which checks only the OTHER secret) -- see
-        `recent_briefs_auth.py`'s module docstring for the full rationale."""
+        `recent_briefs_auth.py`'s module docstring for the full rationale.
+
+        `exclude_punctuation=True` (added 2026-07-06): this token is the one a
+        `cloud` candidate presents via `curl -H "Authorization: Bearer <token>"`,
+        and a live run confirmed a punctuation char in the value breaks the shell
+        quoting -- so the generated value is pinned SHELL-SAFE (alphanumeric only)
+        by construction."""
         return secretsmanager.Secret(
             self,
             "RecentBriefsReadBearerSecret",
@@ -290,8 +306,9 @@ class BriefDeliveryStack(Stack):
             description=(
                 "Read-only bearer token gating GET /recent-briefs ONLY (ADR-0014 Decision 2d) "
                 "-- DISTINCT from the delivery bearer secret; never authenticates POST /deliver "
-                "or GET /deliver/{deliveryId}. Populated out-of-band."
+                "or GET /deliver/{deliveryId}. Auto-generated (shell-safe); may be rotated out-of-band."
             ),
+            generate_secret_string=secretsmanager.SecretStringGenerator(exclude_punctuation=True),
             removal_policy=RemovalPolicy.RETAIN,
         )
 
