@@ -15,6 +15,10 @@ Covers, per the task brief's required scenarios:
   - the full no-op path (unchanged declaration -> zero create/update calls)
   - partial-failure resumption (skill-push succeeds, agent-creation then fails, then
     re-running picks up correctly without re-pushing the skill)
+  - partial-failure resumption where sub-agent creation succeeds but the SUBSEQUENT
+    coordinator creation fails -- a retry must reuse the already-created sub-agent
+    (not recreate a second, orphaned duplicate) and issue exactly one more
+    POST /v1/agents call (the coordinator only)
 """
 
 from __future__ import annotations
@@ -430,6 +434,79 @@ def test_partial_failure_resumption_does_not_repush_skill(multi_agent_dir):
     # NOT re-pushed (skills_client_retry has no registered handler at all; if the
     # sync script had tried to push again, FakeHttpxClient.post() would have raised
     # "no scripted response registered", which it did not).
+    assert skills_client_retry.calls == []
+
+
+def test_partial_failure_resumption_does_not_recreate_sub_agent(multi_agent_dir):
+    """Regression test for the bug the reviewer found: sub-agent creation succeeds
+    (and its id is written into multiagent.json's roster), but the SUBSEQUENT
+    coordinator-create call then fails. Re-running must NOT recreate a second,
+    duplicate sub-agent -- it must reuse the already-created one and issue exactly
+    ONE more `POST /v1/agents` call (the coordinator only).
+
+    Both the sub-agent's create and the coordinator's create hit the identical
+    (method, path) key `("POST", "/v1/agents")` -- they're distinguished only by
+    request body, not URL -- so this test relies on FakeHttpxClient.when()'s
+    documented "multiple registered responses are returned in order across repeated
+    calls" behavior: [success, failure] queues the sub-agent's create to succeed and
+    the very next call to that same key (the coordinator's create) to fail.
+    """
+    agents_client_first_attempt = FakeHttpxClient()
+    agents_client_first_attempt.when(
+        "POST",
+        "/v1/agents",
+        _agent_response("agent_SUB_NEW"),  # 1st call: the sub-agent's create -- succeeds
+        FakeResponse(500, {"error": "simulated coordinator create failure"}),  # 2nd call: the coordinator's create -- fails
+    )
+    skills_client = FakeHttpxClient()
+    skills_client.when(
+        "POST",
+        "/v1/skills/skill_EXAMPLE_NOT_REAL/versions",
+        FakeResponse(200, {"id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829}),
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        sync_candidate(multi_agent_dir, agents_client=agents_client_first_attempt, skills_client=skills_client)
+
+    # THE assertion that proves this test genuinely reaches the "sub-agent succeeded,
+    # coordinator failed" branch (not just "some failure happened somewhere"): exactly
+    # two POST /v1/agents calls were made in the first attempt (sub-agent, then
+    # coordinator) -- not one (which would mean the sub-agent's own create failed
+    # instead, the bug the reviewer found in the OLD test).
+    assert agents_client_first_attempt.call_signature() == [
+        ("POST", "/v1/agents"),
+        ("POST", "/v1/agents"),
+    ]
+    # And the sub-agent's id WAS persisted before the coordinator's create failed --
+    # this is the exact state a real partial failure leaves behind.
+    persisted_multiagent = json.loads((multi_agent_dir / "multiagent.json").read_text())
+    assert persisted_multiagent["agents"][0]["agent_id"] == "agent_SUB_NEW"
+    assert "agent_id" not in json.loads((multi_agent_dir / "candidate.json").read_text())
+
+    # --- Re-run, simulating a fixed/retried invocation ---
+    agents_client_retry = FakeHttpxClient()
+    agents_client_retry.when("POST", "/v1/agents", _agent_response("agent_COORD_NEW"))
+    skills_client_retry = FakeHttpxClient()  # deliberately given NO scripted skill-push response
+
+    result = sync_candidate(multi_agent_dir, agents_client=agents_client_retry, skills_client=skills_client_retry)
+
+    # Only the COORDINATOR was created this time -- the sub-agent was reused, not recreated.
+    assert result.created == ["agent (coordinator) example-multi-agent-coordinator-EXAMPLE"]
+    assert agents_client_retry.call_signature() == [("POST", "/v1/agents")]
+
+    coordinator_create_body = agents_client_retry.calls[0].kwargs["json"]
+    # The coordinator's create body references the ORIGINAL sub-agent id, never a
+    # second, freshly-minted one -- confirming no duplicate sub-agent was created.
+    assert coordinator_create_body["multiagent"]["agents"][0]["entry"]["agent"] == "agent_SUB_NEW"
+
+    updated_multiagent = json.loads((multi_agent_dir / "multiagent.json").read_text())
+    assert updated_multiagent["agents"][0]["agent_id"] == "agent_SUB_NEW"  # unchanged, no rewrite needed
+    updated_candidate = json.loads((multi_agent_dir / "candidate.json").read_text())
+    assert updated_candidate["agent_id"] == "agent_COORD_NEW"
+
+    # The skill was also NOT re-pushed on retry (same resumability guarantee as the
+    # sibling test above, exercised together here since both partial-failure paths
+    # apply to the same multi-agent first-sync).
     assert skills_client_retry.calls == []
 
 

@@ -149,7 +149,13 @@ The script inspects `candidate.json`'s `agent_id` field:
   pushes a new Skills-API version **first**, records the concrete version into
   `skills.json`, **then** creates the agent(s) via `POST /v1/agents`, and writes the
   returned `agent_id`(s) back into `candidate.json` (and, for a multi-agent candidate,
-  each sub-agent's id into `multiagent.json`'s roster).
+  each sub-agent's id into `multiagent.json`'s roster). For a multi-agent candidate,
+  each sub-agent is created **before** the coordinator (the coordinator's `entry.agent`
+  field needs the sub-agent's real, freshly-minted id) — and if a sub-agent's id is
+  **already present** (from a prior, partially-failed first-sync attempt where the
+  sub-agent create succeeded but the subsequent coordinator create failed), the script
+  reuses it rather than creating a second, duplicate, permanently-orphaned sub-agent —
+  the same resumability guarantee as the skill-version push, below.
 - **`agent_id` already present → update in place.** For each agent, the script reads
   its **current live state** (`GET /v1/agents/{id}`) and compares it against the local
   declaration. Only a genuinely-**changed** agent gets updated

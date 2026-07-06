@@ -30,7 +30,13 @@ Required behavior (implemented exactly, per the task brief and Decision 2c):
      create); re-running after a partial failure (skill pushed + skills.json
      updated, but agent creation then failed) does not re-push the skill, because
      `skills.json` already carries the pushed version by the time creation is
-     retried.
+     retried. Likewise, a first-sync multi-agent create that succeeds for the
+     sub-agent(s) but then fails on the COORDINATOR's own create call is resumable:
+     `_first_sync()` checks each sub-agent's `agent_id` before creating it and skips
+     (reuses) any that already has one from the prior attempt, so a retry issues
+     exactly one more `POST /v1/agents` call (the coordinator only) -- never a
+     second, duplicate, permanently-orphaned sub-agent (there is no confirmed
+     delete/archive primitive for an agent resource once created).
 """
 
 from __future__ import annotations
@@ -167,7 +173,8 @@ def _update_agent_with_retry(agents_client: httpx.Client, agent_id: str, declara
             raise
         # Stale version -- re-read the current version and retry exactly once.
         current = api_client.get_agent(agents_client, agent_id)
-        api_client.update_agent(agents_client, agent_id, version=current["version"], agent_definition=body)
+        retry_version = api_client.require_field(current, "version", context=f"re-reading agent {agent_id} after a 409")
+        api_client.update_agent(agents_client, agent_id, version=retry_version, agent_definition=body)
 
 
 def _build_multiagent_config(candidate: CandidateDeclaration, sub_agent_ids: list[str | None]) -> dict[str, Any]:
@@ -225,12 +232,27 @@ def _first_sync(
         write_candidate_agent_id(candidate.candidate_json_path, agent_id)
         return
 
+    # Resumability (the bug this fixes): a PRIOR, partially-failed first-sync attempt
+    # may already have created some sub-agent(s) and written their id(s) into
+    # multiagent.json's roster (candidate.json's agent_id is still None, though, or
+    # we wouldn't be in _first_sync at all -- that's exactly the "coordinator create
+    # failed after sub-agent create succeeded" scenario). Re-running must NOT
+    # recreate a sub-agent that already has an id -- same "don't recreate what's
+    # already there" discipline the update path applies -- or the original resource
+    # becomes a permanently orphaned duplicate (no delete/archive primitive exists).
     sub_agent_ids: list[str | None] = []
+    newly_created_by_index: dict[int, str] = {}
     for index, sub_agent in enumerate(candidate.sub_agents):
+        if sub_agent.agent_id is not None:
+            # Already created in a prior attempt -- reuse it, don't recreate.
+            sub_agent_ids.append(sub_agent.agent_id)
+            continue
         agent_id = _create_agent(agents_client, sub_agent, multiagent=None)
         sub_agent_ids.append(agent_id)
+        newly_created_by_index[index] = agent_id
         result.created.append(f"sub-agent[{index}] {sub_agent.name or '(unnamed)'}")
-    write_sub_agent_ids(candidate.multiagent_json_path, dict(enumerate(sub_agent_ids)))
+    if newly_created_by_index:
+        write_sub_agent_ids(candidate.multiagent_json_path, newly_created_by_index)
 
     multiagent_config = _build_multiagent_config(candidate, sub_agent_ids)
     coordinator_id = _create_agent(agents_client, candidate.agent, multiagent=multiagent_config)
@@ -242,12 +264,15 @@ def _update_single_agent(candidate: CandidateDeclaration, agents_client: httpx.C
     assert candidate.agent.agent_id is not None
     live_agent = api_client.get_agent(agents_client, candidate.agent.agent_id)
     if _live_declaration_differs(live_agent, candidate.agent):
+        current_version = api_client.require_field(
+            live_agent, "version", context=f"reading agent {candidate.agent.agent_id} before an update"
+        )
         _update_agent_with_retry(
             agents_client,
             candidate.agent.agent_id,
             candidate.agent,
             multiagent=None,
-            current_version=live_agent["version"],
+            current_version=current_version,
         )
         result.updated.append(f"agent {candidate.agent.name or '(unnamed)'}")
     else:
@@ -263,12 +288,15 @@ def _update_multi_agent(candidate: CandidateDeclaration, agents_client: httpx.Cl
         current_sub_agent_ids.append(sub_agent.agent_id)
         live_sub_agent = api_client.get_agent(agents_client, sub_agent.agent_id)
         if _live_declaration_differs(live_sub_agent, sub_agent):
+            current_version = api_client.require_field(
+                live_sub_agent, "version", context=f"reading sub-agent {sub_agent.agent_id} before an update"
+            )
             _update_agent_with_retry(
                 agents_client,
                 sub_agent.agent_id,
                 sub_agent,
                 multiagent=None,
-                current_version=live_sub_agent["version"],
+                current_version=current_version,
             )
             result.updated.append(f"sub-agent[{index}] {sub_agent.name or '(unnamed)'}")
             any_sub_agent_updated = True
@@ -283,12 +311,15 @@ def _update_multi_agent(candidate: CandidateDeclaration, agents_client: httpx.Cl
 
     if any_sub_agent_updated or coordinator_declaration_changed:
         multiagent_config = _build_multiagent_config(candidate, current_sub_agent_ids)
+        current_version = api_client.require_field(
+            live_coordinator, "version", context=f"reading coordinator {candidate.agent.agent_id} before an update"
+        )
         _update_agent_with_retry(
             agents_client,
             candidate.agent.agent_id,
             candidate.agent,
             multiagent=multiagent_config,
-            current_version=live_coordinator["version"],
+            current_version=current_version,
         )
         result.updated.append(f"agent (coordinator) {candidate.agent.name or '(unnamed)'}")
 

@@ -38,6 +38,27 @@ class AnthropicApiKeyMissingError(RuntimeError):
     type (not a bare RuntimeError) so callers/tests can assert on it precisely."""
 
 
+class MalformedApiResponseError(RuntimeError):
+    """Raised when a Claude Platform API response is missing a field this module
+    requires (e.g. `version` on an agent resource) -- a clear, actionable error
+    instead of a raw KeyError deep in sync logic. Low-likelihood (the field is
+    confirmed live-always-present on every real agent resource), but this keeps the
+    failure mode consistent with the rest of the codebase's fail-loud discipline
+    (`CandidateLoadError`, `AnthropicApiKeyMissingError`)."""
+
+
+def require_field(resource: dict[str, Any], field_name: str, *, context: str) -> Any:
+    """Read `resource[field_name]`, raising `MalformedApiResponseError` with a clear
+    message (naming the field and the calling context, never the resource's full
+    content -- avoids echoing anything sensitive back into an error message) if it's
+    missing, instead of letting a raw KeyError propagate."""
+    if field_name not in resource:
+        raise MalformedApiResponseError(
+            f"malformed API response while {context}: missing required field {field_name!r}"
+        )
+    return resource[field_name]
+
+
 def get_anthropic_api_key() -> str:
     """Read the Anthropic API key from the environment. Never hardcode, log, or
     commit this value -- see this repo's CLAUDE.md credential conventions and
