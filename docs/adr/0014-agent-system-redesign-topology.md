@@ -2,16 +2,56 @@
 
 - Status: **Proposed — pending human sign-off.** This is the Gate-0 decision for the
   agent-system-redesign epic (`docs/prd/agent-system-redesign.md` §7/§8). It is a
-  major, cross-cutting, hard-to-reverse decision (it changes the runtime the live
+  major, cross-cutting, hard-to-reverse decision (it decides the runtime the live
   subscriber-facing pipeline runs on) and therefore, per this repo's standing
   convention, is escalated to the human for final sign-off before **any**
   implementation begins. Two options are presented for the environment topology with a
   clear recommendation; the delivery-boundary shape and candidate versioning layout are
   recommended concretely. Nothing here is built, deployed, or merged yet.
+  **Decision 1's recommendation was reassessed on 2026-07-06 (fifth pass, below) in light of two
+  live-confirmed `cloud` findings and now recommends the HYBRID (`cloud` for candidate/eval,
+  `self_hosted` retained for production) rather than full cloud-for-everything — the human ratifies
+  the topology.**
 - Date: 2026-07-05 (revised 2026-07-06 against PRD **revision 2**; revised again 2026-07-06 —
-  **third pass** — to correct the agent-versioning premise, see the third-pass note below)
+  **third pass** — to correct the agent-versioning premise; **fifth pass**, 2026-07-06 — reassessed
+  Decision 1's recommendation to the hybrid on two live `cloud` findings, see the fifth-pass note
+  below. The fourth pass was the transport-only amendment in Decision 2a.)
 - Deciders: architect (Claude, recommendation); **human (final sign-off — pending)**
 
+> **Revision note (2026-07-06 — FIFTH pass — Decision 1's recommendation reassessed from full-cloud to
+> the hybrid, on two live-confirmed `cloud` findings from a Phase-5 candidate run).** A live candidate
+> run on a `cloud` environment surfaced two real constraints, both then empirically confirmed, and
+> both folded into Decision 1's actual reasoning (and the "What I verified live" section):
+> **Finding 1 — `web_search` transient 429:** a Phase-5 cloud run saw all five `web_search` calls fail
+> with a Brave-originated `HTTP 429`, but this was proven a **transient Brave-backend blip** (a
+> concurrent direct Messages-API `web_search` succeeded with headroom; two fresh single-`web_search`
+> cloud sessions ~47 s apart both succeeded cleanly). It routes through the same service on any
+> environment type and is a fallback-of-a-fallback in the skill, so it **does NOT weigh against
+> `cloud`** — flagged explicitly so it is not mistaken for a strike.
+> **Finding 2 — `cloud` egress safety-blocklist:** four curated `sources.md` domains
+> (`theverge.com`/`arstechnica.com`/`reddit.com`/`reuters.com`) are permanently blocked at `cloud`'s
+> safety layer (`403 hostname_blocked`; `web_fetch` → `url_not_allowed`) with **no config workaround**
+> (a `limited`-networking env explicitly allow-listing `theverge.com` still 403'd), whereas
+> `self_hosted` (customer AWS egress) is not subject to it. That is a real `cloud`-only production
+> content-coverage constraint. Weighing it honestly (the four are all Tier 4/7 of 47 sources; Tiers
+> 1–3 are reachable; the Phase-5 cloud brief still came out equivalent — bounded but real), **I now
+> recommend the hybrid (`cloud` candidate/eval, `self_hosted` production)** — which the prior passes
+> already carried as the named fallback — because the epic's entire primary value lands identically
+> under the hybrid while production is spared a permanent source-coverage ceiling. **Consequence for
+> rollout: Phase 7 (production cut-over to `cloud`) becomes a no-op / not-done and `deploy/managed-agent/cdk/`
+> + `microvm/` are retained; Phase 1 (delivery decoupling) still delivers its full value.** Full
+> cloud-for-everything remains fully specified as the leading alternative the human may ratify instead.
+> **This is the big topology call and requires the human's ratification — I present the reassessment,
+> I do not unilaterally flip it.** Sections touched by this pass: Decision 1 (heading, lead, points
+> 4/5, the honest-costs analysis, staging/retirement, rollout consequence), the "What I verified live"
+> section (the two findings + an egress-bullet refinement), the "Reconciling ADR-0008" image-rebuild
+> half (now retained for production under the hybrid), the "Alternatives considered" self-hosted/hybrid
+> entries (hybrid adopted; a new full-cloud entry as leading alternative), Consequences (topology +
+> source-coverage bullets, reversibility), and the sign-off items. **Not touched:** Decisions 2a
+> (delivery boundary), 2b (bearer auth), 2c (candidate versioning) — the delivery decoupling and
+> candidate mechanism are independent of the topology choice and land under either option. This is a
+> documentation/analysis pass; no code, skill, or `deploy/` file was edited.
+>
 > **Revision note (2026-07-06 — THIRD pass — corrects the agent-versioning premise, prompted by the
 > owner directly questioning it).** The prior (second) pass's Decision 2c, and the "What I verified
 > live" bullet it rested on, stated that **"agents are IMMUTABLE (create-then-archive), with no
@@ -177,7 +217,60 @@ I trust the live evidence and say so explicitly.
   **not** disabled by default here, and `unrestricted` is the accepted config shape
   (allow-list variants I tried were silently dropped to `null`). Working egress is what
   makes cloud-for-everything viable at all: the research skill's web-fetching and a
-  `curl` to the decoupled delivery endpoint both need it.
+  `curl` to the decoupled delivery endpoint both need it. **Refinement (2026-07-06, see the
+  two `cloud` retrieval findings below):** `unrestricted` egress works in general (any
+  domain not on Anthropic's blocklist, and the delivery-endpoint `curl` in particular), but
+  a live Phase-5 cloud run then surfaced that a *handful of specific curated sources* are
+  hard-blocked at the sandbox's safety layer regardless of networking mode — a real, bounded
+  `cloud`-only constraint folded into Decision 1 below. It does not change that egress works
+  broadly; it bounds *which* domains a `cloud` sandbox can reach.
+
+- **`cloud` web_search transient failure — a minor known-limitation, NOT a topology blocker
+  (live-confirmed 2026-07-06).** During a live Phase-5 candidate run on `cloud`, all five
+  `web_search` calls failed with a Brave-originated `HTTP 429 no_brave_error_type` — including
+  serialized calls ~90 s apart, which a per-second rate limit cannot explain (a 30/s limit
+  resets every second; the org's console limit is "30 searches/second" and is raisable via
+  Anthropic sales, but 30/s was not the cause). This was empirically established to be a
+  **transient Brave-backend blip**, not a reproducible `cloud`-path constraint: (a) a direct
+  Messages-API `web_search` succeeded cleanly at the same time (8 results, huge rate-limit
+  headroom, no web_search-specific limit even surfaced — so the account is not
+  quota-exhausted); and (b) **the decisive retest** — two fresh single-`web_search`
+  cloud-agent sessions ~47 s apart — **both succeeded with real results, no 429.** (Honest
+  caveat: two clean data points at today's backend state, not proof it can never fail — but
+  it directly refutes "the `cloud` web_search path is specially rate-limited.") **Bearing on
+  Decision 1: this does NOT weigh against `cloud`.** Transient search blips are possible on
+  *any* backend (self-hosted included — `web_search` routes through the same Anthropic/Brave
+  service regardless of environment type); and in this skill `web_search` is already a
+  fallback-of-a-fallback (feeds → same-outlet HTML → `web_search`), so an occasional transient
+  failure is low-impact and, if desired, mitigable by retry-robustness in the skill. This is
+  a minor operational note, not a differentiator.
+
+- **`cloud` egress safety-blocklist hard-blocks a handful of curated `sources.md` domains —
+  a REAL, unconditional `cloud`-only constraint (live-confirmed 2026-07-06).** The same
+  Phase-5 run surfaced that several `sources.md` domains — **`theverge.com`,
+  `arstechnica.com`, `reddit.com`, `reuters.com`** — are blocked at the `cloud` sandbox's
+  egress safety layer: a raw `curl` from inside the sandbox returns **`HTTP 403` with header
+  `x-block-reason: hostname_blocked`**, and the `web_fetch` tool returns **`url_not_allowed`**.
+  Other domains (TechCrunch, Anthropic's own site, `example.com`) work fine. This is
+  **not a networking-config problem and there is no config workaround on `cloud`:** the
+  decisive test created a **new** `cloud` environment with
+  `networking: {type: "limited", allowed_hosts: ["theverge.com","www.theverge.com"],
+  allow_package_managers: true}`, and raw `curl` to `theverge.com` **still** returned
+  `403 hostname_blocked` **and** `web_fetch` **still** returned `url_not_allowed` — the safety
+  blocklist is applied **unconditionally, independent of `networking` mode**. The official docs
+  (`platform.claude.com/docs/en/managed-agents/environments.md`) confirm the mechanism:
+  `unrestricted` networking = "full outbound access EXCEPT a general safety blocklist," and the
+  `networking` field "does not affect the allowed domains for the web_search or web_fetch
+  tools." Crucially, the docs describe this blocklist **only for `cloud` environments**;
+  `self_hosted` sandboxes run on the customer's own AWS network egress (this repo's current
+  production path) and are **not** subject to Anthropic's cloud safety blocklist. **This is a
+  genuine, concrete `cloud`-vs-`self_hosted` differentiator** — on `cloud`, this handful of
+  sources is permanently unreachable by any in-sandbox retrieval; on `self_hosted`, they are
+  reachable. Its bearing on the topology recommendation (with the source-tier impact quantified)
+  is worked through in Decision 1 below. *(Incidental correction to note here: environments
+  CAN be archived — `POST /v1/environments/{id}/archive` → 200 — and deleted; if any prior
+  probe note implied otherwise, this supersedes it. This ADR does not, in fact, claim
+  environments are un-archivable anywhere.)*
 
 - **The `cloud` environment config is far richer than the PRD summarized — confirmed.**
   It carries structured `packages` (`pip`/`npm`/`apt`/`cargo`/`gem`/`go`), `networking`,
@@ -250,18 +343,42 @@ I trust the live evidence and say so explicitly.
   structural fact — multi-agent lives inside one agent definition — is what the
   candidate layout needs.)
 
-## Decision 1 (recommended — pending sign-off): Hybrid — `cloud` for candidate/eval, `cloud` for production, and **retire** the self-hosted stack, staged behind validation
+## Decision 1 (recommended — pending sign-off): Hybrid — `cloud` for candidate/eval, retain `self_hosted` for production
 
-**Recommendation: adopt the `cloud` environment type for BOTH candidate/eval and
-production, and retire `deploy/managed-agent/cdk/` + `deploy/managed-agent/microvm/`
-(the self-hosted launcher Lambda, webhook, WAF, microVM image, and build/execution
-roles) — but stage the production cut-over behind validation, not as a hard swap
-(FR-14 / §8 Phase 7).** In effect this is "cloud-for-everything," reached by the
-hybrid door: eval moves to `cloud` first (zero production risk), the current
-configuration is re-expressed as candidate #1 and validated to produce an unchanged
-brief on `cloud`, and only then does production cut over.
+> **Recommendation reassessed 2026-07-06 in light of a newly-confirmed `cloud`-only constraint
+> (Finding 2, "What I verified live"). This is the biggest, hardest-to-reverse call in the epic and
+> is escalated for the human to ratify — I am presenting my updated recommendation with the new
+> evidence, NOT unilaterally flipping the decision.** The earlier passes of this ADR recommended
+> **full cloud-for-everything (staged)** with the hybrid as the explicit fallback. A live Phase-5
+> candidate run then surfaced a real, unconditional `cloud`-only egress constraint — Anthropic's
+> `cloud` safety blocklist permanently blocks a handful of curated `sources.md` domains
+> (`theverge.com`, `arstechnica.com`, `reddit.com`, `reuters.com`), with **no config workaround**,
+> whereas `self_hosted` (the customer's own AWS egress) is not subject to it. Weighing this honestly
+> (below), **I now recommend the more conservative hybrid: run candidates/eval on `cloud`, and keep
+> production on the existing `self_hosted` path** — which the prior passes already carried as the
+> named fallback. The core value of the epic (cheap, infra-free candidate iteration + the delivery
+> decoupling) lands **identically** under the hybrid; what changes is that production is spared a
+> permanent, unfixable source-coverage ceiling on the one surface where reaching every curated
+> source actually matters. The full-cloud option remains fully specified below as the alternative
+> the human may still choose (its trade-off is now explicit).
 
-The evidence makes this the strongest option:
+**Recommendation: adopt the `cloud` environment type for candidate/eval use, and RETAIN the existing
+`self_hosted` path (`deploy/managed-agent/cdk/` + `deploy/managed-agent/microvm/`) for production.**
+Eval/candidate work moves to `cloud` immediately at zero production risk (an infra-free, delivery-free
+runtime for arbitrary candidates); the live weekday brief keeps running on the battle-tested
+self-hosted microVM path, so it continues to reach **every** curated source. This captures the epic's
+entire primary goal — a pure-API-deployed, infra-free candidate mechanism decoupled from delivery —
+without moving the subscriber-facing production runtime onto a runtime with a permanent, config-
+unfixable source-coverage ceiling.
+
+*The full cloud-for-everything option (the prior passes' recommendation) is preserved as the leading
+alternative in "Alternatives considered" and remains a legitimate choice the human may ratify instead;
+the reasoning below establishes why `cloud` is the right runtime for candidates/eval unconditionally,
+and where — solely because of Finding 2 — production is the one surface I now recommend leaving on
+`self_hosted`.*
+
+The evidence establishes `cloud` as the correct runtime for candidate/eval work, and (absent Finding
+2) would have made cloud-for-everything the strongest option:
 
 1. **The original reason for self-hosted (ADR-0004) evaporates once delivery is
    decoupled.** ADR-0004 chose `self_hosted` *specifically* so the pipeline's own
@@ -306,38 +423,143 @@ The evidence makes this the strongest option:
    the full transcript regardless of environment type. So moving tool-execution into
    Anthropic's managed `cloud` sandbox exposes nothing that self-hosting protected. (If
    this were a private-data or regulated workload, this calculus would flip and
-   self-hosted or a hybrid would be warranted — it is not.)
+   self-hosted or a hybrid would be warranted on data-residency grounds — it is not. Note
+   this is separate from Finding 2's *source-reachability* asymmetry, which is a
+   content-quality concern, not a data-residency one, and is what actually tips the
+   production recommendation toward the hybrid below.)
 
-5. **No self-hosted-only capability this pipeline depends on is lost.** The PRD flagged
-   the docs' note that the `Memory` feature is "not available on `cloud`." **This
+5. **No self-hosted-only *platform feature* this pipeline depends on is lost — but see
+   Finding 2 for a self-hosted-only *reachability* advantage that does matter.** The PRD
+   flagged the docs' note that the `Memory` feature is "not available on `cloud`." **This
    pipeline does not use Managed Agents Memory** — cross-run "yesterday's brief"
    persistence is done via S3 (`brief_history.py`, ADR-0005), read at session start by
    the wrapper, entirely outside any platform Memory feature. So the one asymmetric
-   capability the PRD worried about is irrelevant here. (The reverse — a `cloud`-only
-   capability self-hosted lacks — does not bind us either; nothing here needs it.)
+   *platform capability* the PRD worried about is irrelevant here. (The reverse — a
+   `cloud`-only capability self-hosted lacks — does not bind us either; nothing here needs
+   it.) **However**, FR-13/AC-13 also asks whether the production pipeline *relies on
+   anything* `cloud` would lose, and the live Phase-5 run answered that with a genuine
+   one: `self_hosted`'s **unrestricted-by-Anthropic egress** reaches the four blocklisted
+   `sources.md` domains that `cloud` permanently cannot (Finding 2, worked through in the
+   honest-costs analysis below). That is not a "platform feature," but it is a concrete
+   self-hosted-only advantage the production content-gathering step does use — the crux of
+   the reassessed recommendation.
 
-**The one real cost of `cloud`, stated honestly:** the `cloud` sandbox's outbound
-network is Anthropic-managed and (per the config) `unrestricted` rather than governed by
-*our* IAM/VPC. Today, egress hardening is a documented "available future lever" that
-ADR-0006 deliberately did **not** pull (the research step needs broad public web access
-anyway, and least privilege is enforced at the IAM layer, which for content generation
-will now be **empty** of AWS rights). So we are not losing a control we were using. If
-future hardening of *what the sandbox can reach* is ever wanted, that is a `cloud`
-environment `networking` config concern, not a reason to keep a whole microVM fleet.
+### The honest costs of `cloud`, and why they now tip the *production* recommendation to the hybrid
 
-**Why staged, not a hard swap (FR-14).** Production emails real subscribers every
-weekday. The cut-over re-expresses today's exact configuration as candidate #1 on
-`cloud`, validates it produces an unchanged brief (content, structure, listening
-script), runs it in parallel/behind validation, and only then supersedes the live
-`self_hosted` deployment — mirroring the parallel-run discipline ADR-0006/0007 already
-established for the original migration. Retiring `cdk/` + `microvm/` happens **after**
-that validation, never before.
+Two live-confirmed findings (2026-07-06, "What I verified live") bear on the topology call. I weigh
+each honestly and state which way it cuts — because it matters that the human not read both as strikes
+against `cloud`.
 
-**What is NOT retired:** the `deploy/managed-agent/` directory does not vanish — its
-`skills/daily-ai-brief/`, its `deployment.json`/`agent.json` source-of-truth payloads,
-and its README runbook remain relevant (updated for the `cloud` topology). Only the
-self-hosted *infrastructure* subtrees (`cdk/` and `microvm/`) are retired once
-production has cut over.
+**Finding 1 (`web_search` transient 429) — does NOT weigh against `cloud`.** A Phase-5 cloud run saw
+all five `web_search` calls fail with a Brave-originated `HTTP 429`, but this was empirically
+established as a **transient Brave-backend blip**, not a `cloud`-path constraint: a direct Messages-API
+`web_search` succeeded at the same time with huge headroom, and — decisively — two fresh
+single-`web_search` cloud-agent sessions ~47 s apart both succeeded cleanly with no 429. `web_search`
+routes through the same Anthropic/Brave service on **any** environment type, so a transient blip is not
+a `cloud`-vs-`self_hosted` differentiator; and in this skill `web_search` is only a
+fallback-of-a-fallback (feeds → same-outlet HTML → `web_search`), so its occasional failure is
+low-impact and mitigable by skill-side retry-robustness. **I flag this explicitly so the human does not
+count it against `cloud`: it is a minor, environment-agnostic operational note, not a reason to prefer
+self-hosted.**
+
+**Finding 2 (`cloud` egress safety-blocklist) — a real, unconditional `cloud`-only constraint that
+DOES weigh against `cloud` for production.** Four `sources.md` domains — `theverge.com`,
+`arstechnica.com`, `reddit.com`, `reuters.com` — are permanently hard-blocked at the `cloud` sandbox's
+safety layer (`403 hostname_blocked` on raw `curl`; `url_not_allowed` on `web_fetch`), and the decisive
+test proved there is **no config workaround** (a `limited`-networking env explicitly allow-listing
+`theverge.com` still 403'd). `self_hosted` runs on the customer's own AWS egress and is **not** subject
+to this blocklist, so on `self_hosted` these four sources remain reachable. This is a genuine content-
+gathering asymmetry between the two runtimes — exactly the kind FR-13/AC-13 requires the ADR to weigh.
+
+**How much does losing those four sources actually cost the brief? — quantified, not hand-waved.** The
+skill's `sources.md` lists **47 bulleted source entries across 9 tiers**. The four blocked domains sit
+entirely in the **mid/lower tiers**:
+- **Tier 4 — Tech press:** The Verge, Ars Technica, Reuters (3 of 6 Tier-4 entries; TechCrunch, Axios,
+  and VentureBeat's category feed remain reachable).
+- **Tier 7 — Community:** Reddit (r/LocalLLaMA + r/MachineLearning) (1 of 3 Tier-7 entries; Hacker
+  News, GitHub Trending, HF Trending remain reachable).
+
+**None** of the four touches the brief's authoritative backbone — **Tier 1 (frontier labs — the
+primary sources), Tier 2 (papers), Tier 3 (benchmarks)** are **entirely reachable on `cloud`.** So the
+impact is real but **bounded**: the brief draws from ~30+ sources across the tier stack, and the loss
+is four mid/lower-tier press/community outlets whose stories are frequently *also* covered by reachable
+outlets (a Verge/Reuters scoop typically shows up via TechCrunch, the labs' own posts, or the Tier-6
+newsletters). Consistent with that, **the Phase-5 cloud brief came out structurally and qualitatively
+equivalent to production despite these four being blocked.** I neither overstate this (it is not
+"cloud can't produce the brief") nor dismiss it (it is a permanent, unfixable ceiling on which curated
+sources production can ever reach).
+
+**Where that lands the recommendation.** The distinction that matters is *which surface* pays this cost:
+- For **candidate/eval**, the loss is **immaterial** — candidates are compared *against each other* on
+  a level playing field, not judged on absolute source coverage, and every candidate on `cloud` faces
+  the identical blocklist. `cloud` is unambiguously the right runtime here (all of the reasoning above:
+  infra-free, delivery-free, pure-API deploy, dynamic skills). **No reason to keep eval on self-hosted.**
+- For **production**, the calculus differs. Production is the one surface where reaching *every* curated
+  source genuinely matters — it is the real daily brief to real subscribers, with no experimentation
+  upside to offset a permanent content ceiling. The **entire primary value of this epic** (cheap,
+  infra-free candidate iteration + delivery decoupling) is delivered **whether or not production moves
+  to `cloud`** — moving production is a *secondary* benefit (operational-surface reduction) that Finding
+  2 now shows carries a real, unfixable content cost. Since the hybrid **avoids that cost for free**
+  (production simply stays where it already reliably runs) **without sacrificing any of the epic's core
+  goal**, the balance now favors the hybrid for production. That is the reassessment: not "cloud is
+  bad," but "moving *production* to cloud trades a permanent source-coverage ceiling for an operational
+  saving that the epic does not need, so don't."
+
+**The full-cloud option is still legitimate — here is what would make its source loss acceptable.** If
+the human decides the operational-surface reduction (retiring the whole microVM stack) is worth more
+than reaching those four sources, cloud-for-everything remains a defensible choice, and the ADR keeps
+it fully specified (Decision 1's original recommendation, now the leading "Alternatives considered"
+entry). The blocked-domain loss would be acceptable if: the brief's authoritative backbone (Tiers 1–3,
+all reachable) is deemed sufficient; the skill's existing fallback chain (feeds → same-outlet HTML →
+`web_search`) is understood to already cover *most* of what the blocked outlets would carry via
+reachable outlets and the search tool (minus only what is *uniquely* on those four domains and
+nowhere else); and the Phase-5 "unchanged brief" validation is accepted as evidence the delta is
+tolerable in practice. That is a real, values-based trade the human may take — I simply no longer
+recommend it as the default now that the cost is concrete.
+
+**The other, previously-noted `cloud` cost (egress not IAM/VPC-governed) — unchanged and minor.** The
+`cloud` sandbox's outbound network is Anthropic-managed (`unrestricted`) rather than governed by *our*
+IAM/VPC. Egress hardening was a documented "available future lever" ADR-0006 deliberately did **not**
+pull (the research step needs broad public web access anyway, and least privilege is enforced at the
+IAM layer, which for content generation will now be **empty** of AWS rights). So we are not losing a
+control we were using. This point stands regardless of the hybrid-vs-full-cloud choice and is not, by
+itself, decisive either way.
+
+**Why staged / reversible, whichever way the human rules (FR-14).** Production emails real subscribers
+every weekday, so nothing about production changes as a hard swap under *either* option:
+- **Under the recommended hybrid**, production simply **stays on `self_hosted`** — there is no
+  production cut-over at all, so the largest regression risk (moving the live runtime) is avoided
+  outright. `deploy/managed-agent/cdk/` + `microvm/` are **retained, not retired.** (See the rollout
+  consequence below.)
+- **If the human chooses full cloud instead**, the cut-over is staged exactly as the prior passes
+  specified: re-express today's exact configuration as candidate #1 on `cloud`, validate it produces an
+  unchanged brief (content, structure, listening script), run it in parallel/behind validation, and
+  only then supersede the live `self_hosted` deployment — mirroring the parallel-run discipline
+  ADR-0006/0007 established for the original migration. Retiring `cdk/` + `microvm/` happens **after**
+  that validation, never before.
+
+**Rollout consequence of the reassessed (hybrid) recommendation.** If the hybrid is ratified,
+**Phase 7 (the conditional production cut-over to `cloud`) becomes a no-op / not-done, and production
+stays on `self_hosted`.** Critically, **this does not diminish the rest of the epic**: Phase 1 (the
+delivery decoupling — content generation loses all AWS delivery rights; delivery becomes the
+authenticated `deploy/delivery/` boundary that also derives the brief HTML deterministically) still
+delivers its full value, and Phases 2–6 (git-native candidate declarations, pure-API candidate deploy,
+dynamic skills, the source-usage record, the candidate/eval runs on `cloud`) all land unchanged. The
+hybrid keeps the microVM stack alive *purely to run production*, which is precisely what it already
+does today reliably — so the redesign ships its entire primary goal (candidates/eval on `cloud`,
+delivery decoupled) **without a risky production migration.** One consequence to note honestly: under
+the hybrid there are **two runtimes to reason about** (a `cloud` candidate runtime and a `self_hosted`
+production runtime that could, in principle, subtly diverge) — the "re-express current config as
+candidate #1 and validate an unchanged brief" step (Phase 5) still runs and is the guard against that
+drift, even though under the hybrid it validates the `cloud` *candidate* path rather than a production
+cut-over. Under full cloud, that drift risk collapses to one runtime — a genuine (but, given Finding 2,
+now outweighed) point in full cloud's favor, recorded in the "Alternatives considered" hybrid entry.
+
+**What is NOT retired (under either option):** the `deploy/managed-agent/` directory does not vanish —
+its `skills/daily-ai-brief/`, its `deployment.json`/`agent.json` source-of-truth payloads, and its
+README runbook remain relevant. Under the recommended hybrid, the self-hosted *infrastructure* subtrees
+(`cdk/` and `microvm/`) are **retained** (production runs on them). Under full cloud, those subtrees are
+retired **only after** the staged production cut-over validates.
 
 ## Decision 2a (recommended): the decoupled delivery boundary — a new standalone `deploy/delivery/` CDK stack, bearer-token authenticated, that derives the brief HTML deterministically and runs delivery as an async trigger-and-poll
 
@@ -833,19 +1055,28 @@ the exact failure ADR-0008 exists to prevent — results:
   ADR-0008 to drop the Desktop member from the lockstep, and the Reviewer must confirm no stale note
   anywhere tells a future maintainer to keep the dead Desktop copy in lockstep.
 
-- **The image-rebuild half of the amendment stops applying *if* the topology moves off image-baked
-  skills (Decision 1 / `cloud` or a standard worker).** This reconciliation is **orthogonal** to the
-  Desktop-fallback question above and turns on the topology choice, not on the fallback. On `cloud`
-  (and with the standard self-hosted worker), skills download **dynamically per session** from the
-  Skills API — the whole reason the amendment existed (a bespoke worker that never fetched skills at
-  runtime) disappears with the microVM image itself. A Skills-API version push **is sufficient** to
-  reach the session; there is no image to rebuild. Under the recommended Decision 1 (`cloud`), **this
-  ADR supersedes ADR-0008's 2026-07-04 image-rebuild amendment**: the Developer must mark that
-  amendment superseded-by-ADR-0014 for the cloud path and update the README §3a correction, so no
-  stale note tells a future maintainer to rebuild an image that no longer exists. *(If the human were
-  to keep production on `self_hosted` with the current custom worker, the image-rebuild step would
-  still apply for the production skill — the two-way-lockstep reconciliation above is unconditional,
-  but this image-rebuild reconciliation is contingent on the topology moving.)*
+- **The image-rebuild half of the amendment applies per-runtime — and under the reassessed (hybrid)
+  recommendation it STILL applies to production.** This reconciliation is **orthogonal** to the
+  Desktop-fallback question above and turns on the topology of each runtime, not on the fallback. On
+  `cloud` (and with the standard self-hosted worker), skills download **dynamically per session** from
+  the Skills API — the whole reason the amendment existed (this repo's bespoke worker that never
+  fetched skills at runtime) disappears with the microVM image itself; a Skills-API version push **is
+  sufficient** to reach the session, with no image to rebuild. How this lands depends on the topology
+  the human ratifies (Decision 1):
+  - **Under the recommended hybrid** (candidates/eval on `cloud`, **production retained on
+    `self_hosted` with the current custom worker**): candidate/eval skills reach the session via a
+    Skills-API push **with no image rebuild** (the amendment's failure mode is gone on the candidate
+    path — this is exactly FR-5), **but the production skill still lives in the image-baked microVM**,
+    so **ADR-0008's 2026-07-04 image-rebuild amendment remains in force for the *production* skill**
+    and must **not** be marked superseded. The Developer must keep the README §3a image-rebuild
+    guidance for production and scope the "no rebuild needed" relief to the candidate/`cloud` path only.
+  - **Under the full-cloud alternative** (production also on `cloud`): there is no microVM image
+    anywhere, so **this ADR supersedes ADR-0008's 2026-07-04 image-rebuild amendment entirely** — the
+    Developer marks that amendment superseded-by-ADR-0014 and updates the README §3a correction so no
+    stale note tells a future maintainer to rebuild an image that no longer exists.
+
+  (The two-way-lockstep reconciliation above is **unconditional** either way; only this image-rebuild
+  half is topology-contingent — and, under the recommended hybrid, it is **retained for production**.)
 
 If a candidate ships its **own** `skill/` content (per-candidate skills, above), that candidate's
 skill is a distinct Skills-API resource with its own version — it is **not** bound into the
@@ -853,10 +1084,13 @@ production skill's lockstep at all, which is cleaner: candidate skill experiment
 disturb the live brief's skill. The new **source-usage record (FR-8a)**, being skill-content-driven
 (Decision 2a), rides the same **two-way** production-skill lockstep as the rest of the skill content.
 
-Net: **the redesign strictly simplifies the ADR-0008 burden** — the dead Desktop fallback drops out
-of the lockstep unconditionally, and (on the recommended `cloud` topology) the image-rebuild step
-disappears — but the Developer must make both reconciliations explicit in ADR-0008 and the README
-rather than leave them implied.
+Net: **the redesign simplifies the ADR-0008 burden** — the dead Desktop fallback drops out of the
+lockstep **unconditionally**, and the image-rebuild step **disappears for the candidate/`cloud` path**
+(FR-5). Under the **recommended hybrid**, the image-rebuild step **remains in force for the retained
+`self_hosted` production skill** (it is not superseded); under the **full-cloud alternative**, it
+disappears everywhere. The Developer must make both reconciliations explicit in ADR-0008 and the
+README — and, critically, must scope the image-rebuild relief to the candidate/`cloud` path if the
+hybrid is ratified, rather than blanket-marking the amendment superseded.
 
 ## Migration / rollout sketch (consistent with PRD rev. 2 §8 phasing)
 
@@ -902,8 +1136,12 @@ record and the git-native versioning are added; the sketch ends with the redesig
 5. **Re-express the current production configuration as candidate #1 (validation baseline, FR-14).**
    Express today's live model/prompt/skill/params as `production-baseline/` and confirm a run on
    `cloud` produces an **unchanged** brief (content, structure, listening script), with the
-   delivery-derived HTML confirmed equivalent (FR-2a) — the safety baseline before any production
-   cut-over. It calls the new `deploy/delivery/` boundary for the AWS work.
+   delivery-derived HTML confirmed equivalent (FR-2a). This step runs **under either topology**: under
+   the full-cloud alternative it is the safety baseline before the production cut-over; under the
+   **recommended hybrid** it is the standing drift-guard between the `cloud` candidate runtime and the
+   `self_hosted` production runtime (and the place the four `cloud`-blocked sources would first show as
+   a candidate-vs-production delta, if at all). It calls the new `deploy/delivery/` boundary for the
+   AWS work.
 6. **Validate the redesigned system on its own terms — no eval-harness wiring (AC-1…AC-14).** Deploy
    a candidate via API only (AC-4); change its skill with no image rebuild (AC-5); trigger a
    candidate run with no microVM/delivery Lambda and confirm no subscriber email and no delivery path
@@ -916,41 +1154,65 @@ record and the git-native versioning are added; the sketch ends with the redesig
    retrievable via `git show <ref>:<path>` with no rollback and **no duplicate-of-git index present**
    (AC-12); confirm content generation holds no AWS delivery rights (AC-1) and delivery authenticates
    with no AWS identity on the content side (AC-2/AC-3).
-7. **(Conditional, staged) production cut-over.** If (and only if) the ADR + human sign-off chose to
-   move production runtime (e.g. to `cloud`): run the `cloud` production path in parallel/behind
-   validation; confirm the owner-facing brief and the 06:07 weekday send are unchanged (AC-14);
-   supersede the `self_hosted` deployment; **then** retire `deploy/managed-agent/cdk/` + `microvm/`.
-   Never a hard swap. If production stays on `self_hosted`, this phase is a no-op for production.
+7. **(Conditional, staged) production cut-over — a NO-OP under the reassessed (hybrid)
+   recommendation.** **Under the recommended hybrid this phase is not done**: production stays on
+   `self_hosted` (so it keeps reaching every curated source, Finding 2), `deploy/managed-agent/cdk/` +
+   `microvm/` are **retained**, and the redesign ships its full primary value (Phases 1–6) without a
+   production migration. **Only if the human ratifies full cloud instead** does this phase run: stage
+   the `cloud` production path in parallel/behind validation; confirm the owner-facing brief and the
+   06:07 weekday send are unchanged (AC-14); supersede the `self_hosted` deployment; **then** retire
+   `deploy/managed-agent/cdk/` + `microvm/`. Never a hard swap.
 
 ## Alternatives considered
 
-- **Option: retain `self_hosted` for everything (status quo topology).** Rejected as the
-  recommendation. Its sole original justification (ADR-0004: `boto3` reaching AWS via the
-  microVM IAM role) is eliminated by decoupling delivery. Keeping it means permanently
-  carrying a launcher Lambda, a public webhook + WAF + signing secret, a microVM image,
-  the `create-microvm-image` build cycle, and the `--platform`-pinning packaging fragility
-  (README §Prerequisites) — real, ongoing operational and security surface — to run a
-  once-a-day public-news job that needs none of it. It also **fails FR-4** (a candidate
+- **Option: retain `self_hosted` for everything (status quo topology).** Rejected. Its sole
+  original justification (ADR-0004: `boto3` reaching AWS via the microVM IAM role) is
+  eliminated by decoupling delivery, and keeping it *everywhere* means permanently carrying a
+  launcher Lambda, a public webhook + WAF + signing secret, a microVM image, the
+  `create-microvm-image` build cycle, and the `--platform`-pinning packaging fragility (README
+  §Prerequisites) **on the candidate/eval path too** — where it also **fails FR-4** (a candidate
   still needs an image rebuild) and **fails FR-6** (a candidate run still drags in AWS
-  infrastructure) unless that path is separately re-plumbed. Would only win if this
-  pipeline had a hard requirement `cloud` cannot meet (private
-  data, a self-hosted-only capability it uses, or an egress-control need that must be
-  IAM/VPC-governed) — **none of which is true here** (verified: no Memory dependency,
-  public data, egress hardening was never in use).
+  infrastructure). The recommended **hybrid retains self-hosted for *production only*** precisely
+  to avoid that, while moving candidates/eval to `cloud`. Note the "would only win if the pipeline
+  has a hard requirement `cloud` cannot meet" caveat is now **partially activated** by Finding 2:
+  `cloud`'s safety blocklist *does* make four curated sources unreachable, which is a genuine
+  self-hosted-only advantage — but it justifies self-hosted **for production, not for eval** (a
+  candidate faces the blocklist identically and is judged relatively), so it argues for the hybrid,
+  **not** for retaining self-hosted everywhere. (No Memory dependency, public data, egress hardening
+  never in use — the other retain-everywhere justifications remain absent.)
 
-- **Option: hybrid — `cloud` for candidate/eval, retain `self_hosted` for production.**
-  A legitimate, more conservative middle. Rejected as the recommendation but **the natural
-  fallback if the human is uneasy about moving production runtime.** It gets the big win
-  (cheap, infra-free candidate eval) immediately, while leaving the live send on the
-  battle-tested self-hosted path. Downsides: it keeps the entire microVM stack alive
-  purely for production (so none of the operational-surface reduction lands), and it
-  leaves **two** runtimes to reason about (a `cloud` candidate and a `self_hosted`
-  production could subtly diverge — the exact drift the "re-express current config as
-  candidate #1" validation is meant to catch). Because the validation in Phase 5 *already*
-  proves the `cloud` path reproduces the brief before any cut-over, the staged
-  cloud-for-everything recommendation captures the hybrid's safety **and** the full
-  simplification — so full `cloud` is preferred, with this hybrid as the explicit
-  de-risking fallback the human can choose.
+- **Option: full cloud-for-everything, staged (this ADR's earlier recommendation; now the leading
+  alternative).** `cloud` for **both** candidate/eval **and** production, retiring
+  `deploy/managed-agent/cdk/` + `microvm/` after a staged, validated production cut-over. This was
+  the recommendation in the ADR's prior passes and remains fully specified in Decision 1 as the
+  option the human may still ratify. Its case is strong: the single largest, permanent
+  operational-surface reduction (no launcher Lambda, webhook, WAF, signing secret, microVM image,
+  or build cycle — for production too), and it collapses the redesign to **one** runtime (no
+  cloud-vs-self-hosted drift risk to manage). **Why it is no longer the recommendation:** the
+  live-confirmed Finding 2 (`cloud`'s safety blocklist permanently and unfixably blocks
+  `theverge.com`/`arstechnica.com`/`reddit.com`/`reuters.com`) imposes a permanent source-coverage
+  ceiling on the *production* brief — the one surface where reaching every curated source matters
+  and where there is no experimentation upside to offset it. Since the epic's entire primary value
+  (infra-free candidate iteration + delivery decoupling) lands identically under the hybrid, moving
+  production to `cloud` now trades a real, permanent content cost for an operational saving the epic
+  does not need. Full cloud stays defensible if the human values the operational-surface reduction
+  and one-runtime simplicity above reaching those four mid/lower-tier sources (see Decision 1's
+  "what would make its source loss acceptable"); it is simply no longer the default.
+
+- **Option: hybrid — `cloud` for candidate/eval, retain `self_hosted` for production (ADOPTED as the
+  reassessed recommendation, 2026-07-06).** Chosen. It gets the epic's big win (cheap, infra-free,
+  delivery-free candidate/eval on `cloud`, plus the delivery decoupling) immediately, while leaving
+  the live weekday send on the battle-tested self-hosted path — which, crucially, is **not** subject
+  to `cloud`'s safety blocklist, so production keeps reaching **every** curated source (the Finding-2
+  reassessment above). Its honestly-stated downsides: it keeps the microVM stack alive purely for
+  production (so the operational-surface reduction does **not** land for production — only the
+  candidate/eval path and delivery decoupling simplify), and it leaves **two** runtimes to reason
+  about (a `cloud` candidate and a `self_hosted` production could subtly diverge — the "re-express
+  current config as candidate #1 and validate an unchanged brief" step, Phase 5, is the guard against
+  that drift). These downsides were, in the prior passes, judged to outweigh the hybrid; **Finding 2
+  reverses that judgment** — the permanent production source-coverage ceiling that full cloud imposes
+  is now the heavier cost, and the hybrid avoids it at no cost to the epic's core goal. The full-cloud
+  option above remains the explicit alternative the human may choose instead.
 
 - **Option: hybrid the other way — `cloud` for production, retain `self_hosted` for
   candidate/experimental runs.** Rejected outright: backwards. Candidate/experimental
@@ -1051,14 +1313,33 @@ Positive (if the human ratifies):
   the shipped brief.
 
 Negative / follow-ups (named plainly):
-- **This moves the live, subscriber-facing production runtime** — the single biggest risk.
-  Mitigated by Phase 5's "re-express current config as candidate #1 and validate an
-  unchanged brief" gate and a **staged, parallel** cut-over (never a hard swap, FR-14);
-  the security review must confirm content generation holds no delivery rights (AC-1/AC-7)
-  before cut-over. **The human should specifically weigh whether to take full
-  cloud-for-everything now or stop at the hybrid (cloud eval, self-hosted production) as a
-  more conservative first step** — both are supported by this ADR; the recommendation is
-  full cloud, staged.
+- **Topology choice: the reassessed recommendation (hybrid) does NOT move the production runtime;
+  only the alternative (full cloud) does.** Under the recommended **hybrid**, production stays on
+  `self_hosted`, so the single biggest regression risk — moving the live, subscriber-facing runtime —
+  is **avoided outright**, and Phase 7 (production cut-over) is a no-op. **If the human instead
+  ratifies full cloud**, that cut-over is the single biggest risk and is mitigated by Phase 5's
+  "re-express current config as candidate #1 and validate an unchanged brief" gate plus a **staged,
+  parallel** cut-over (never a hard swap, FR-14), with the security review confirming content
+  generation holds no delivery rights (AC-1/AC-7) before cut-over. Either way, **the delivery
+  decoupling (Phase 1) is independent of the topology choice** — content generation loses all AWS
+  delivery rights and delivery moves to the `deploy/delivery/` boundary regardless — so that safety
+  and simplification land under both options. The human's remaining call is narrowly: full
+  cloud-for-everything (retire the microVM stack, one runtime, but a permanent production
+  source-coverage ceiling) vs. the recommended hybrid (keep the microVM stack for production only,
+  two runtimes, but production reaches every curated source). **The recommendation is the hybrid**,
+  reassessed 2026-07-06 on Finding 2 (below); full cloud remains supported.
+- **The reassessed recommendation trades an operational-surface reduction for full production source
+  coverage (Finding 2) — and keeps two runtimes.** Recommending the hybrid means the microVM stack
+  (launcher Lambda, webhook, WAF, signing secret, microVM image, build cycle) is **retained purely to
+  run production** — so that operational-surface reduction does **not** land for production (it lands
+  only for the candidate/eval path, which goes to `cloud`), and there are **two** runtimes to reason
+  about (a `cloud` candidate runtime and a `self_hosted` production runtime that could subtly diverge;
+  the Phase-5 "unchanged brief" validation is the guard). This is the deliberate, honestly-stated cost
+  of not exposing the production brief to `cloud`'s permanent, config-unfixable safety blocklist on
+  four curated `sources.md` domains (`theverge.com`/`arstechnica.com`/`reddit.com`/`reuters.com`, all
+  Tier 4/7 — Tiers 1–3 are reachable on `cloud`). Finding 1 (the `web_search` 429) is **explicitly
+  NOT** a cost here — it was a transient Brave blip, environment-agnostic, and does not weigh against
+  `cloud`.
 - **Moving Markdown→HTML derivation to delivery is a regression risk, not a free refactor (FR-2a).**
   Today's body conversion is agent-improvised and undocumented, so faithfully reproducing "the
   standardized design" requires reverse-engineering the exact current `markdown` output — the
@@ -1090,9 +1371,11 @@ Negative / follow-ups (named plainly):
 - **Reversibility.** The candidate declarations (each with its stable `agent_id` recorded as a plain
   `candidate.json` field) and the delivery contract are all git-tracked and portable; every
   candidate's full live history is additionally recoverable from the Platform
-  (`GET /v1/agents/{id}/versions`); the `self_hosted` stack (if retained during the staged cut-over,
-  or reconstructable from git history if retired) is the fallback if `cloud` ever proves unsuitable in
-  production. Nothing here is a one-way door before the Phase-5 validation gate.
+  (`GET /v1/agents/{id}/versions`). Under the **recommended hybrid**, production never leaves the
+  `self_hosted` stack at all, so there is no production runtime to reverse — the strongest possible
+  reversibility posture. Under the full-cloud alternative, the `self_hosted` stack (retained during
+  the staged cut-over, or reconstructable from git history if retired) is the fallback if `cloud` ever
+  proves unsuitable in production. Nothing here is a one-way door before the Phase-5 validation gate.
 
 ## What was and wasn't confirmed (verification note)
 
@@ -1111,6 +1394,18 @@ tool_result, and `write` tool_use `input.content`); **skills DO version**
 **multi-agent as a first-class `multiagent` field on one agent resource**. *(One
 finding from this batch — "agents immutable, no agent-version primitive" — was **wrong**
 and is corrected below; see "Correction (third pass, 2026-07-06).")*
+
+**Also confirmed live (2026-07-06, a later Phase-5 candidate run + targeted retests; two `cloud`
+retrieval findings folded into Decision 1):** (a) **`cloud` `web_search` transient 429 is a Brave
+backend blip, not a `cloud` constraint** — a direct Messages-API `web_search` succeeded concurrently
+with headroom, and two fresh single-`web_search` cloud sessions ~47 s apart both succeeded cleanly;
+this does **not** weigh against `cloud`. (b) **`cloud`'s safety blocklist unconditionally blocks four
+curated `sources.md` domains** (`theverge.com`/`arstechnica.com`/`reddit.com`/`reuters.com`:
+`403 hostname_blocked` on raw `curl`, `url_not_allowed` on `web_fetch`), with **no config workaround**
+(a `limited`-networking env explicitly allow-listing `theverge.com` still 403'd), whereas
+`self_hosted` is not subject to it — a real `cloud`-only production content-coverage constraint that
+tips Decision 1's production recommendation to the hybrid. (c) Incidental: **environments CAN be
+archived/deleted** (`POST /v1/environments/{id}/archive` → 200).
 
 **Correction (third pass, 2026-07-06 — a prior finding was wrong).** The second pass
 recorded, in this very section, "**agents immutable** (405 on PATCH/PUT, archive-not-delete)
@@ -1153,15 +1448,35 @@ treat as settled):**
    surface a different terminal state; a tolerant terminal-status recognizer (as the repo's
    existing session pollers already use) should hedge this.
 4. **Whether the production research skill's web-fetching tooling works identically on
-   `cloud`.** Egress is confirmed working; the specific fetch/search tools the skill
-   relies on should be exercised on `cloud` during Phase 5's unchanged-brief validation
-   before production cut-over.
+   `cloud`. — PARTIALLY ANSWERED live 2026-07-06 (Finding 2); a `cloud`-only constraint was
+   found and is the reason the reassessed recommendation keeps production on `self_hosted`.**
+   General `cloud` egress is confirmed working, but exercising the skill's actual fetch tools on
+   `cloud` revealed that four curated `sources.md` domains
+   (`theverge.com`/`arstechnica.com`/`reddit.com`/`reuters.com`) are hard-blocked by `cloud`'s
+   safety blocklist with **no config workaround** — so on `cloud` those four are permanently
+   unreachable (folded into Decision 1). This is **not** a reason production cannot run on `cloud`
+   at all (the Phase-5 cloud brief came out equivalent despite the block), but it is why the
+   recommendation now leaves production on `self_hosted` (which is not subject to the blocklist).
+   Residual verification, still for the Developer: if the human nonetheless chooses full cloud for
+   production, confirm during Phase 5's unchanged-brief validation that the reachable-source subset
+   plus the skill's fallback chain (feeds → same-outlet HTML → `web_search`) still produces an
+   acceptable brief before any cut-over. (Finding 1's `web_search` 429 was separately confirmed a
+   transient blip, not a tooling constraint — see the "Also confirmed live" note above.)
 
 **Items needing the owner's explicit sign-off beyond the core recommendation:**
-- Ratify the environment topology: **full cloud-for-everything (staged)** vs. the
-  conservative **hybrid (cloud eval, self-hosted production)** fallback. (Decision 1.)
-- Confirm comfort with **retiring `deploy/managed-agent/cdk/` + `microvm/`** after the
-  staged production cut-over.
+- **Ratify the environment topology (reassessed 2026-07-06).** The recommendation is now the
+  **hybrid — `cloud` for candidate/eval, `self_hosted` retained for production** — reassessed on the
+  live-confirmed Finding 2 (`cloud`'s safety blocklist permanently blocks four curated `sources.md`
+  domains, no config workaround; `self_hosted` is not subject to it), which imposes a permanent
+  source-coverage ceiling on the production brief that the hybrid avoids at no cost to the epic's core
+  goal. **Full cloud-for-everything (staged)** remains fully specified and is the leading alternative
+  the human may ratify instead if the operational-surface reduction and single-runtime simplicity are
+  judged worth losing those four (Tier 4/7) sources. **This is the big topology call; please ratify
+  one.** (Decision 1; Finding 1 — the `web_search` 429 — does **not** weigh against `cloud` and should
+  not factor in.)
+- Confirm the retirement posture that follows: **under the recommended hybrid, `deploy/managed-agent/cdk/`
+  + `microvm/` are RETAINED** (production runs on them) and Phase 7 is a no-op; **only if full cloud is
+  chosen** are those subtrees retired, and then **only after** the staged production cut-over validates.
 - Confirm the **`deploy/delivery/` standalone stack + bearer-token auth** shape, **including that
   delivery now derives the brief HTML deterministically** (FR-2a) from the brief markdown — content
   generation no longer produces brief HTML, and the delivery-derived output is validated against a
@@ -1183,8 +1498,11 @@ treat as settled):**
   collapses to **two-way** (in-repo ↔ live Skills-API) because the **local Desktop fallback is
   dead** — **unconditionally, with no reactivation hedge** (this is already the owner's stated
   direction via rev.-2 feedback #2, so this item is confirming the ADR reflects it, not re-deciding
-  it); and, on the recommended `cloud` topology, the image-rebuild half of the 2026-07-04 amendment
-  is superseded (no image to rebuild).
+  it); the image-rebuild half of the 2026-07-04 amendment **disappears for the candidate/`cloud`
+  path** (FR-5). Under the **recommended hybrid** it **remains in force for the retained `self_hosted`
+  production skill** (not superseded — the production skill is still image-baked); under the full-cloud
+  alternative it is superseded everywhere (no image to rebuild). The image-rebuild relief must be
+  scoped to the candidate/`cloud` path if the hybrid is ratified.
 - Acknowledge the new **per-brief source-usage record** (FR-8a, issue #28): an additive,
   skill-content-driven sibling of `candidates.json`, emitted every run, not changing the shipped
   brief (Decision 2a).
