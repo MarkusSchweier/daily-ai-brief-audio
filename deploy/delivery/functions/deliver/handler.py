@@ -22,6 +22,17 @@ in `handler()` below:
      same function sent itself via `lambda.invoke(InvocationType="Event", ...)`) --
      does the actual multi-minute work: derive HTML (FR-2a), synthesize audio,
      `send_all()`, archive, and writes the outcome back to the tracking row.
+  4. **`GET /recent-briefs`** (API Gateway HTTP API request, ADR-0014 Decision 2d) --
+     a SYNCHRONOUS read route (no async trigger/poll -- reading a few small S3
+     objects is comfortably within API Gateway's 30s integration ceiling), gated by
+     its OWN SEPARATE read-only bearer secret (`recent_briefs_auth.py`,
+     `RECENT_BRIEFS_READ_BEARER_SECRET_ARN` -- deliberately NOT the same secret
+     `delivery_auth.py` checks). This is what lets a `cloud` candidate read the same
+     recent priors production reads from S3, reaching eval-vs-production parity,
+     WITHOUT ever holding an AWS credential or the delivery/send bearer token --
+     see `recent_briefs_auth.py`'s module docstring for the auth-separation
+     rationale (a candidate holding only the read token must be structurally
+     unable to reach `POST /deliver`).
 
 A single function (not a separate trigger Lambda + worker Lambda) is a deliberate
 choice (ADR-0014 Decision 2a): it keeps ALL delivery logic -- and the ONE IAM role
@@ -61,7 +72,14 @@ from botocore.exceptions import ClientError
 
 import delivery_auth
 import delivery_core
-from brief_history import archive_candidates_file, archive_source_usage_file, archive_todays_brief
+import recent_briefs_auth
+from brief_history import (
+    DEFAULT_RECENT_BRIEFS_COUNT,
+    archive_candidates_file,
+    archive_source_usage_file,
+    archive_todays_brief,
+    read_recent_prior_briefs,
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -89,6 +107,19 @@ def _today_local_date() -> str:
 # accepted -- a version bump here is a deliberate, reviewed code change, mirroring
 # feedback_token.py's own `_SCHEME_VERSION` discipline.
 SUPPORTED_CONTRACT_VERSION = 1
+
+# GET /recent-briefs's own response-contract version (ADR-0014 Decision 2d's
+# "contractVersion discipline, consistent with Decision 2a" -- a future change to
+# THIS read contract is a reviewable code change, not invisible drift). Independent
+# of SUPPORTED_CONTRACT_VERSION above, which versions the DIFFERENT POST /deliver
+# request contract.
+RECENT_BRIEFS_CONTRACT_VERSION = 1
+# A caller-supplied `count` is clamped to this ceiling (ADR-0014 Decision 2d: "so a
+# caller cannot request an unbounded listing") -- never a hard 400, since an
+# over-large or malformed count is a caller mistake this endpoint should degrade
+# gracefully from, not crash on (CLAUDE.md: never lose the brief -- or, here, the
+# read -- over a glitch).
+MAX_RECENT_BRIEFS_COUNT = 7
 
 # The private marker distinguishing a self-invoke worker-leg payload from an API
 # Gateway request event -- API Gateway HTTP API events never carry this key.
@@ -119,6 +150,18 @@ def _is_worker_invocation(event: dict[str, Any]) -> bool:
     return event.get(_WORKER_INVOCATION_MARKER) is True and not _is_api_gateway_event(event)
 
 
+def _is_recent_briefs_request(event: dict[str, Any]) -> bool:
+    """True only for a genuine `GET /recent-briefs` API Gateway request --
+    distinguished from `GET /deliver/{deliveryId}` (the OTHER route sharing the GET
+    method) by path, since method alone can no longer disambiguate the two GET
+    routes this Lambda now serves (ADR-0014 Decision 2d). Checked ONLY on a real
+    API Gateway event -- the worker-invocation dispatch in `handler()` already runs
+    first, so this never sees a self-invoke payload."""
+    raw_path = event.get("rawPath", "")
+    route_key = (event.get("requestContext", {}) or {}).get("routeKey", "")
+    return raw_path == "/recent-briefs" or route_key.endswith(" /recent-briefs")
+
+
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if _is_worker_invocation(event):
         dynamodb = boto3.resource("dynamodb")
@@ -137,6 +180,20 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             dynamodb_client=dynamodb_client,
             secretsmanager_client=secretsmanager_client,
         )
+
+    # GET /recent-briefs is checked BEFORE the delivery bearer-auth gate below --
+    # it is authenticated by its OWN, SEPARATE read-only secret
+    # (`recent_briefs_auth.py`), never by `delivery_auth`'s delivery/send secret.
+    # This is the auth-separation property ADR-0014 Decision 2d requires: a
+    # candidate holding only the read token must be structurally unable to reach
+    # `POST /deliver` / `GET /deliver/{deliveryId}` -- and, symmetrically, the
+    # delivery/send token must not authenticate here either. See
+    # `test_recent_briefs_auth_separation.py` for the non-interchangeability proof.
+    if _is_recent_briefs_request(event):
+        if not recent_briefs_auth.is_authorized(event):
+            return recent_briefs_auth.unauthorized_response()
+        s3_client = boto3.client("s3")
+        return _handle_recent_briefs(event, s3_client)
 
     if not delivery_auth.is_authorized(event):
         return delivery_auth.unauthorized_response()
@@ -269,6 +326,70 @@ def _handle_poll(event: dict[str, Any], table) -> dict[str, Any]:
     elif status == "failed" and "error" in item:
         body["error"] = item["error"]
 
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(body),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Leg 4: GET /recent-briefs -- the SYNCHRONOUS recent-priors read route
+# (ADR-0014 Decision 2d). Gated (in handler()) by recent_briefs_auth's OWN,
+# SEPARATE secret -- never delivery_auth's. No async trigger/poll: reading a
+# handful of small brief.md objects from S3 is cheap and comfortably within API
+# Gateway's 30s integration ceiling, unlike POST /deliver's minutes-long Polly/SES
+# work.
+# ---------------------------------------------------------------------------
+
+
+def _parse_recent_briefs_count(raw_count: str | None) -> int:
+    """Resolve the `count` query parameter to a safe, in-range int: missing or
+    non-integer -> the default (`DEFAULT_RECENT_BRIEFS_COUNT`, matching
+    production's own default); anything <= 0 -> the default; anything above
+    `MAX_RECENT_BRIEFS_COUNT` -> clamped to the max. Never raises and never
+    causes a 500 -- a malformed/oversized count is a caller mistake this
+    endpoint degrades gracefully from (ADR-0014 Decision 2d)."""
+    if raw_count is None:
+        return DEFAULT_RECENT_BRIEFS_COUNT
+    try:
+        count = int(raw_count)
+    except (TypeError, ValueError):
+        return DEFAULT_RECENT_BRIEFS_COUNT
+    if count <= 0:
+        return DEFAULT_RECENT_BRIEFS_COUNT
+    return min(count, MAX_RECENT_BRIEFS_COUNT)
+
+
+def _handle_recent_briefs(event: dict[str, Any], s3_client) -> dict[str, Any]:
+    """`GET /recent-briefs?count=<n>` -- reads the last `count` prior briefs via
+    the ALREADY-PRESENT `brief_history.read_recent_prior_briefs()` (this app's own
+    hand-duplicated copy, same one `POST /deliver`'s archival leg already uses) and
+    returns them most-recent-first.
+
+    `today` is computed the same way the rest of this pipeline derives its local
+    calendar date -- `_today_local_date()` (PIPELINE_TIMEZONE, default
+    Europe/Berlin) -- so a candidate reading recent priors gets exactly the same
+    "strictly before today" window production's own read-recent-briefs step would
+    on the same calendar day.
+
+    An empty result (no priors exist yet -- a cold-start store, or the very first
+    run) is still a `200` with `"briefs": []`, never a 404 -- mirroring
+    `read_recent_prior_briefs()`'s own graceful-degradation contract exactly (a
+    missing/young store is the normal case, not an error; ADR-0014 Decision 2d /
+    ADR-0005's "the read must tolerate an empty listing"). A transient S3
+    listing/read failure degrades the same way, since
+    `read_recent_prior_briefs()` itself already logs-and-skips rather than
+    raising -- this route can never 500 because of a prior-briefs read glitch."""
+    query_params = event.get("queryStringParameters") or {}
+    count = _parse_recent_briefs_count(query_params.get("count"))
+
+    prior_briefs = read_recent_prior_briefs(s3_client, _today_local_date(), count=count)
+
+    body = {
+        "contractVersion": RECENT_BRIEFS_CONTRACT_VERSION,
+        "briefs": [{"date": prior.date, "markdown": prior.markdown} for prior in prior_briefs],
+    }
     return {
         "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
