@@ -316,3 +316,47 @@ def test_is_worker_invocation_detects_the_private_marker():
 def test_is_api_gateway_event_detects_request_context():
     assert handler_module._is_api_gateway_event({"requestContext": {"http": {"method": "POST"}}}) is True
     assert handler_module._is_api_gateway_event({"_delivery_worker": True, "deliveryId": "x", "body": {}}) is False
+
+
+def test_is_worker_invocation_is_false_when_both_markers_are_present():
+    """REVIEWER-FOUND GAP, FIXED: `_is_api_gateway_event()` was defined but never
+    actually wired into `_is_worker_invocation()`'s check -- the dispatch relied
+    IMPLICITLY on "a real API Gateway event can never also carry
+    `_delivery_worker`" (true and safe today) rather than defending against it
+    explicitly. A payload carrying BOTH `_delivery_worker: True` AND a
+    `requestContext` key (which should never occur in practice, but is exactly
+    the case defense-in-depth exists for -- e.g. a future API Gateway
+    integration change, or a refactor that starts echoing extra fields into the
+    request context) must NOT be dispatched as a worker invocation -- an
+    authenticated API Gateway request must always go through the bearer-auth
+    gate, never bypass it via a spoofed/coincidental `_delivery_worker` key."""
+    ambiguous_event = {
+        "_delivery_worker": True,
+        "deliveryId": "some-id",
+        "body": {},
+        "requestContext": {"http": {"method": "POST"}},
+    }
+
+    assert handler_module._is_worker_invocation(ambiguous_event) is False
+
+
+def test_handler_routes_an_ambiguous_event_through_the_bearer_auth_gate_not_the_worker_leg(monkeypatch):
+    """End-to-end proof (not just the predicate unit test above): `handler()`
+    itself, given the same ambiguous event, must go through
+    `delivery_auth.is_authorized()` -- never straight to
+    `_handle_worker_invocation()` bypassing auth entirely."""
+    monkeypatch.setattr(handler_module.delivery_auth, "is_authorized", lambda event: False)
+
+    ambiguous_event = {
+        "_delivery_worker": True,
+        "deliveryId": "some-id",
+        "body": {},
+        "requestContext": {"http": {"method": "POST"}},
+        "headers": {},
+    }
+
+    result = handler_module.handler(ambiguous_event, None)
+
+    # 401 (the auth gate rejecting it), NOT a worker-invocation response shape
+    # (which would have {"deliveryId": ..., "status": ...} and no statusCode).
+    assert result["statusCode"] == 401

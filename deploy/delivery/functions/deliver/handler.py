@@ -95,16 +95,28 @@ SUPPORTED_CONTRACT_VERSION = 1
 _WORKER_INVOCATION_MARKER = "_delivery_worker"
 
 
-def _is_worker_invocation(event: dict[str, Any]) -> bool:
-    return event.get(_WORKER_INVOCATION_MARKER) is True
-
-
 def _is_api_gateway_event(event: dict[str, Any]) -> bool:
     """API Gateway HTTP API (payload format 2.0) events always carry a
     `requestContext.http.method` -- used to distinguish a real HTTP request from
     the worker-leg self-invoke payload, which has neither `requestContext` nor
     `_delivery_worker` confused with each other."""
     return "requestContext" in event
+
+
+def _is_worker_invocation(event: dict[str, Any]) -> bool:
+    """True only for a genuine self-invoke worker-leg payload -- REQUIRES both
+    the private `_delivery_worker` marker AND the absence of `requestContext`
+    (reviewer-found gap, fixed: `_is_api_gateway_event()` was defined but never
+    actually called anywhere, leaving `handler()`'s dispatch relying IMPLICITLY
+    on "a real API Gateway payload-format-2.0 event can never carry a top-level
+    `_delivery_worker` key" -- true and safe today, but not defended against a
+    future refactor or API Gateway integration change silently breaking that
+    invariant). This is defense-in-depth, not a behavior change for any request
+    this Lambda can receive today: a genuine self-invoke payload never has
+    `requestContext`, and a genuine API Gateway event never has
+    `_delivery_worker`, so requiring BOTH conditions here changes nothing for
+    real traffic, but closes the gap if that ever stops being true."""
+    return event.get(_WORKER_INVOCATION_MARKER) is True and not _is_api_gateway_event(event)
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

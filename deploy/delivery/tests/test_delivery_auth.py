@@ -72,3 +72,45 @@ def test_is_authorized_uses_configured_secret_when_not_overridden(monkeypatch):
 
     event_wrong = {"headers": {"Authorization": "Bearer wrong-secret"}}
     assert delivery_auth.is_authorized(event_wrong) is False
+
+
+# ---------------------------------------------------------------------------
+# Malformed/extra whitespace in the Authorization header (reviewer-noted,
+# not-blocking follow-up): confirmed safe today -- every variant below falls
+# through to a hmac.compare_digest mismatch (never authorizes), but there was
+# no test pinning that behavior explicitly before this.
+# ---------------------------------------------------------------------------
+
+
+def test_unauthorized_with_double_space_between_bearer_and_token():
+    """`"Bearer  secret123"` (two spaces): `_extract_bearer()`'s
+    `value.split(" ", 1)` yields `" secret123"` (a leading space folded into
+    the extracted token), which correctly fails to match the real secret."""
+    event = {"headers": {"Authorization": "Bearer  secret123"}}
+    assert delivery_auth.is_authorized(event, secret="secret123") is False
+
+
+def test_unauthorized_with_leading_and_trailing_whitespace_on_the_whole_header():
+    """`"  Bearer secret123  "`: the leading whitespace breaks the
+    `parts[0].lower() == "bearer"` scheme check entirely (the header no longer
+    starts with the literal `Bearer` token), so no bearer value is extracted at
+    all -- correctly unauthorized, not a partial/lenient match."""
+    event = {"headers": {"Authorization": "  Bearer secret123  "}}
+    assert delivery_auth.is_authorized(event, secret="secret123") is False
+
+
+def test_unauthorized_with_tab_character_instead_of_space():
+    """A tab (not a literal space) between `Bearer` and the token: `split(" ", 1)`
+    never finds a plain space to split on, so `parts` has only one element and
+    the length check fails -- correctly unauthorized."""
+    event = {"headers": {"Authorization": "Bearer\tsecret123"}}
+    assert delivery_auth.is_authorized(event, secret="secret123") is False
+
+
+def test_unauthorized_with_trailing_whitespace_appended_to_the_token_itself():
+    """`"Bearer secret123  "` (trailing spaces after an otherwise-correct
+    token): the extracted value includes the trailing whitespace verbatim, so
+    it no longer equals the real secret exactly -- correctly unauthorized, not
+    a lenient/stripped match."""
+    event = {"headers": {"Authorization": "Bearer secret123  "}}
+    assert delivery_auth.is_authorized(event, secret="secret123") is False
