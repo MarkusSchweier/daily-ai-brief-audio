@@ -586,6 +586,10 @@ def test_fetch_catted_file_contents_recovers_multiple_distinct_cat_results():
         'cat "unterminated',  # opening quote with no matching close -- rejected
         'cat "embedded " quote"',  # an embedded quote inside the quotes -- rejected
         'cat ""',  # empty quoted path -- rejected
+        "cat '/path with space' /other",  # single-quoted path PLUS a second arg -- still rejected
+        "cat 'unterminated",  # opening single quote with no matching close -- rejected
+        "cat 'embedded ' quote'",  # an embedded single quote inside the quotes -- rejected
+        "cat ''",  # empty single-quoted path -- rejected
     ],
 )
 def test_parse_plain_cat_command_rejects_non_simple_forms(command):
@@ -621,6 +625,30 @@ def test_parse_plain_cat_command_accepts_a_double_quoted_path_without_spaces():
     `candidates.json`/`source-usage.json` too) must ALSO resolve to the bare,
     unquoted path -- not a dict key still carrying literal quote characters."""
     assert trigger._parse_plain_cat_command('cat "/workspace/listening-script.txt"') == "/workspace/listening-script.txt"
+
+
+def test_parse_plain_cat_command_accepts_a_single_quoted_path_with_spaces():
+    """Regression test for a REAL gap the reviewer found in the double-quote-only
+    fix above (agent-system-redesign epic, Phase 5 follow-up) -- see
+    `_parse_plain_cat_command()`'s own "CORRECTED AGAIN" docstring note. Nothing
+    constrains a real agent to double-quoting its `cat` invocations --
+    `cat 'path with spaces'` (single-quoted) is equally idiomatic bash, and the
+    double-quote-only version of this parser reproduced the IDENTICAL
+    silent-drop bug for it (a single-quoted remainder fell through to the
+    unquoted-form check, which rejects any bare space). Confirmed, directly:
+    this command FAILS against the double-quote-only fix (returns None) and
+    PASSES against this follow-up fix."""
+    assert (
+        trigger._parse_plain_cat_command("cat '/workspace/AI Brief - 2026-07-06.md'")
+        == "/workspace/AI Brief - 2026-07-06.md"
+    )
+
+
+def test_parse_plain_cat_command_accepts_a_single_quoted_path_without_spaces():
+    """A single-quoted path with NO spaces inside must ALSO resolve to the bare,
+    unquoted path -- not a dict key still carrying literal quote characters --
+    mirroring the equivalent double-quote test above."""
+    assert trigger._parse_plain_cat_command("cat '/workspace/listening-script.txt'") == "/workspace/listening-script.txt"
 
 
 def test_extract_tool_result_text_reads_the_confirmed_content_list_shape():

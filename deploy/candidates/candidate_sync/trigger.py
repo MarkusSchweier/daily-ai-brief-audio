@@ -415,9 +415,9 @@ def fetch_catted_file_contents(events: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def _parse_plain_cat_command(command: str) -> str | None:
-    """Return the path argument of a plain `cat <path>` (or `cat "<path>"`)
-    command, or None if `command` is not (a whitespace-trimmed) exactly one of
-    those two simple forms. Deliberately strict -- see
+    """Return the path argument of a plain `cat <path>`, `cat "<path>"`, or
+    `cat '<path>'` command, or None if `command` is not (a whitespace-trimmed)
+    exactly one of those three simple forms. Deliberately strict -- see
     `fetch_catted_file_contents()`'s docstring for why.
 
     CORRECTED (agent-system-redesign epic, Phase 5, a real gap found on the real
@@ -437,12 +437,29 @@ def _parse_plain_cat_command(command: str) -> str | None:
     (`'"/workspace/listening-script.txt"'` instead of
     `'/workspace/listening-script.txt'`) -- a confusing, partial failure mode,
     not a clean rejection. Fixed by recognizing ONE additional, still-simple,
-    still-unambiguous form: a remainder that is ENTIRELY wrapped in a single
-    pair of double quotes with no unescaped quote or shell metacharacter inside
-    -- the exact form a real agent naturally produces for a path containing
-    spaces -- while continuing to reject anything genuinely ambiguous (multiple
-    quoted/unquoted arguments, pipes, redirects, unquoted spaces, escaped
-    quotes) exactly as before."""
+    still-unambiguous form (at the time): a remainder that is ENTIRELY wrapped in
+    a single pair of double quotes with no unescaped quote or shell
+    metacharacter inside -- the exact form the real agent run happened to
+    produce -- while continuing to reject anything genuinely ambiguous
+    (multiple quoted/unquoted arguments, pipes, redirects, unquoted spaces,
+    escaped quotes) exactly as before.
+
+    CORRECTED AGAIN (reviewer follow-up, Phase 5): the double-quote-only fix
+    above reproduced the IDENTICAL silent-drop bug for the equally idiomatic
+    `cat 'path with spaces'` (single-quoted) form -- nothing in
+    `task-prompt.md`'s example constrains the agent to double quotes
+    specifically, and single-quoting a path is just as common, portable bash
+    practice. The double-quote-only version's fall-through structure meant a
+    single-quoted remainder (starting with `'`, not `"`) skipped the
+    quoted-path branch entirely and landed in the unquoted-form check below,
+    which rejects any bare space -- silently dropping the file again, via a
+    different quote character, with zero diagnostic. Fixed by mirroring the
+    exact same quoted-path recognition for single quotes: a remainder entirely
+    wrapped in one pair of single quotes, with no unescaped quote or shell
+    metacharacter inside, resolves to its unquoted inner path -- identical
+    rejection rules (unterminated quote, embedded quote, metacharacter inside)
+    apply to both quote characters, kept as parallel, independently-readable
+    branches rather than a single generalized-but-harder-to-verify helper."""
     if not command.startswith("cat "):
         return None
     remainder = command[len("cat ") :].strip()
@@ -451,9 +468,9 @@ def _parse_plain_cat_command(command: str) -> str | None:
     if remainder.startswith('"'):
         # ANY remainder starting with a quote must satisfy the quoted-path form
         # below, or be rejected outright -- it must NOT silently fall through to
-        # the unquoted-form check (a real gap the original version of this
-        # branch had: an unterminated leading quote with no space/metacharacter
-        # inside would otherwise fall through and be returned verbatim, quote
+        # the unquoted-form check (a real gap an earlier version of this branch
+        # had: an unterminated leading quote with no space/metacharacter inside
+        # would otherwise fall through and be returned verbatim, quote
         # character and all).
         if not (remainder.endswith('"') and len(remainder) >= 2):
             return None
@@ -462,6 +479,16 @@ def _parse_plain_cat_command(command: str) -> str | None:
         # path inside the quotes (an embedded `"` or shell metacharacter means
         # this isn't the plain single-quoted-path form this parser recognizes).
         if not inner or any(ch in inner for ch in ('"', "|", ">", "<", "&", ";")):
+            return None
+        return inner
+    if remainder.startswith("'"):
+        # Mirrors the double-quote branch above exactly, for the equally
+        # idiomatic single-quoted form (`cat 'path with spaces'`) -- see the
+        # "CORRECTED AGAIN" docstring note for why this branch exists at all.
+        if not (remainder.endswith("'") and len(remainder) >= 2):
+            return None
+        inner = remainder[1:-1]
+        if not inner or any(ch in inner for ch in ("'", "|", ">", "<", "&", ";")):
             return None
         return inner
     # Unquoted form: reject anything with shell metacharacters/pipes/redirects/

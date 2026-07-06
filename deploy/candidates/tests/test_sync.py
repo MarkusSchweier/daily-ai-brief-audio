@@ -544,6 +544,79 @@ def test_update_is_a_full_no_op_against_the_REAL_live_nested_model_shape(single_
     assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
 
 
+def test_update_is_a_full_no_op_using_the_real_confirmed_live_tools_and_mcp_servers_shapes(single_agent_dir):
+    """Reviewer follow-up (Phase 5): confirms `tools`/`mcp_servers`/`skills` do NOT
+    share the `model`-field read-shape-vs-write-shape mismatch above -- checked
+    directly against the REAL API, not assumed from the fixture's own synthetic
+    placeholder values (which happen to already match what `to_agent_body()`
+    sends, so they could never have caught a real mismatch either way).
+
+    CONFIRMED LIVE (2026-07-06): a live, field-by-field diff of a fresh
+    `GET /v1/agents/{id}` against `to_agent_body()`'s own output was performed for
+    BOTH `production-baseline` (the newly-created Phase 5 candidate) AND,
+    independently and read-only, the real live production agent
+    (`agent_01EswBTose8dnTAUDbGvzdLq`) -- confirming `tools`, `mcp_servers`, and
+    `skills` are each structurally IDENTICAL on read vs. write for both agents.
+    This test pins that confirmed result using the REAL live-observed values
+    (the actual production agent's `tools`/`mcp_servers`/`skills` shape, not a
+    synthetic placeholder), so a future accidental change to
+    `_normalize_live_field_for_comparison()` that started ALSO normalizing one of
+    these three fields (masking a genuine future divergence, or introducing a
+    spurious no-op where a real change should be detected) would be caught here."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    agent_json = json.loads((single_agent_dir / "agent.json").read_text())
+    model = (single_agent_dir / "model.txt").read_text().strip()
+    system_prompt = (single_agent_dir / "system-prompt.md").read_text()
+    parameters = json.loads((single_agent_dir / "parameters.json").read_text())
+
+    # The REAL, live-confirmed shape of the production agent's own tools/
+    # mcp_servers/skills fields (captured 2026-07-06 via a real GET
+    # /v1/agents/agent_01EswBTose8dnTAUDbGvzdLq) -- overriding the fixture's own
+    # bare-bones synthetic tools/mcp_servers with these real, richer values so
+    # this test genuinely exercises the real shape, not a placeholder that
+    # happens to already match.
+    real_tools = [
+        {
+            "type": "agent_toolset_20260401",
+            "default_config": {"enabled": True, "permission_policy": {"type": "always_allow"}},
+            "configs": [],
+        }
+    ]
+    real_mcp_servers: list = []
+    real_skills = [{"type": "custom", "skill_id": "skill_01H2qu83NwnJ5zqcbrqsCcJ6", "version": "1783340601977967"}]
+
+    (single_agent_dir / "agent.json").write_text(
+        json.dumps({**agent_json, "tools": real_tools, "mcp_servers": real_mcp_servers})
+    )
+    (single_agent_dir / "skills.json").write_text(json.dumps(real_skills))
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _agent_response(
+            "agent_ALREADY_SYNCED",
+            version=1,
+            name=agent_json["name"],
+            description=agent_json["description"],
+            model={"id": model, "speed": "standard"},  # the confirmed live model shape too
+            system=system_prompt,
+            tools=real_tools,
+            mcp_servers=real_mcp_servers,
+            skills=real_skills,
+            parameters=parameters,
+        ),
+    )
+    skills_client = FakeHttpxClient()
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.no_op is True
+    assert not result.created
+    assert not result.updated
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
 # --- 409-then-retry -----------------------------------------------------------------
 
 

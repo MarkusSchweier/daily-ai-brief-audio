@@ -359,13 +359,13 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any) -> An
 
     CORRECTED (agent-system-redesign epic, Phase 5, found on the FIRST real
     production-baseline sync -- not assumed, not caught by the mocked test suite):
-    `model` is the one field this repo's write-side (`to_agent_body()`) and
-    read-side (a live GET) disagree on in SHAPE, not just value. `to_agent_body()`
-    sends `model` as a plain string (`"claude-sonnet-5"`, per `model.txt`), which
-    `POST /v1/agents` accepts -- but a live `GET /v1/agents/{id}` echoes `model`
-    back as a NESTED OBJECT, `{"id": "claude-sonnet-5", "speed": "standard"}`
-    (confirmed live on BOTH the newly-created `production-baseline` candidate
-    AND, independently, the real live production `daily-ai-brief-agent`
+    `model` is a field this repo's write-side (`to_agent_body()`) and read-side (a
+    live GET) disagree on in SHAPE, not just value. `to_agent_body()` sends `model`
+    as a plain string (`"claude-sonnet-5"`, per `model.txt`), which `POST
+    /v1/agents` accepts -- but a live `GET /v1/agents/{id}` echoes `model` back as
+    a NESTED OBJECT, `{"id": "claude-sonnet-5", "speed": "standard"}` (confirmed
+    live on BOTH the newly-created `production-baseline` candidate AND,
+    independently, the real live production `daily-ai-brief-agent`
     (`agent_01EswBTose8dnTAUDbGvzdLq`) -- so this is a universal API behavior, not
     a fluke of one agent). Comparing the raw values directly
     (`{"id": "claude-sonnet-5", ...} != "claude-sonnet-5"`) is therefore ALWAYS
@@ -384,7 +384,28 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any) -> An
     `_live_declaration_differs()` below is between two plain model-id strings on
     BOTH sides -- correcting the comparison, not the request body `to_agent_body()`
     sends (that string-only shape is what the write side of the API actually
-    requires; only the READ side nests it)."""
+    requires; only the READ side nests it).
+
+    CHECKED, NOT ASSUMED (reviewer follow-up, Phase 5): whether `tools`,
+    `mcp_servers`, or `skills` -- each a richer, nested shape than `model` where a
+    live GET could plausibly echo back filled-in defaults, reordered keys, or
+    extra fields the write side never sent -- have the SAME class of read-shape-
+    vs-write-shape mismatch was an open question this docstring's earlier revision
+    left unchecked (its "model is THE ONE FIELD" phrasing overclaimed a guarantee
+    that was never actually verified for these three). A live, field-by-field
+    diff of a fresh `GET /v1/agents/{id}` against `to_agent_body()`'s own output
+    was performed for BOTH `production-baseline` (the newly-created candidate)
+    AND, independently and read-only, the real live production agent
+    (`agent_01EswBTose8dnTAUDbGvzdLq`) -- confirming `tools`, `mcp_servers`, and
+    `skills` are each structurally IDENTICAL on read vs. write for both agents (no
+    reordering, no filled-in defaults, no extra/missing fields). `model` remains
+    the only field confirmed to need normalization; this function's `if` branch is
+    therefore still correctly scoped to `model` alone, not a sign of an
+    incomplete fix -- see `tests/test_sync.py`'s
+    `test_update_is_a_full_no_op_using_the_real_confirmed_live_tools_and_mcp_servers_shapes`
+    for the regression test pinning this confirmed-identical shape, using the
+    REAL live-observed `tools`/`mcp_servers` values captured during this
+    check (not synthetic placeholders)."""
     if field_name == "model" and isinstance(live_value, dict):
         return live_value.get("id", live_value)
     return live_value

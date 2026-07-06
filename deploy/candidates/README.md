@@ -835,6 +835,52 @@ regression test for each (`test_update_is_a_full_no_op_against_the_REAL_live_nes
 `test_parse_plain_cat_command_accepts_a_double_quoted_path_with_spaces` +
 three related rejection-case tests).
 
+**Two reviewer follow-ups on these same three bugs, both resolved with a live
+check, not a guess:**
+
+- **Does the `model`-shape mismatch extend to `tools`/`mcp_servers`/`skills`?**
+  The original fix's docstring called `model` "the ONE field" the write-side and
+  read-side disagree on in shape — an overclaim, since that was only ever
+  confirmed for `model` itself. `tools` in particular is exactly the kind of
+  richer, nested shape (with `default_config`/`configs`/`permission_policy`)
+  where a live GET could plausibly echo back filled-in defaults or reordered
+  keys. Checked directly, not assumed: a live, field-by-field diff of a fresh
+  `GET /v1/agents/{id}` against `to_agent_body()`'s own output, performed for
+  BOTH `production-baseline` AND, independently and read-only, the real live
+  production agent (`agent_01EswBTose8dnTAUDbGvzdLq`) — confirmed `tools`,
+  `mcp_servers`, and `skills` are each structurally IDENTICAL on read vs. write
+  for both agents. No further normalization was needed; `model` remains the
+  only field requiring it. The docstring on
+  `_normalize_live_field_for_comparison()` now states precisely what was
+  checked rather than the earlier "the one field" overclaim, and a new
+  regression test,
+  `test_update_is_a_full_no_op_using_the_real_confirmed_live_tools_and_mcp_servers_shapes`,
+  pins this confirmed-identical shape using the REAL live-observed
+  `tools`/`mcp_servers`/`skills` values (not the fixture's own placeholder
+  values, which happened to already match either way and so could never have
+  caught a real mismatch).
+- **The quoted-`cat`-path fix only handled double quotes — single quotes
+  reproduce the identical silent-drop bug.** `_parse_plain_cat_command()`'s
+  double-quote branch checked `remainder.startswith('"')` specifically;
+  `cat 'path with spaces'` (single-quoted, equally idiomatic bash, and nothing
+  in `task-prompt.md`'s example constrains the agent to double quotes)
+  fell through to the unquoted-form branch, which rejects any bare space,
+  silently returning `None` — reproducing, via a different quote character,
+  the exact "silently drops the brief" failure the double-quote fix was
+  written to close. Fixed by mirroring the double-quote branch exactly for
+  single quotes (the same unterminated-quote/embedded-quote/metacharacter
+  rejection rules, just with `'` instead of `"`, kept as a parallel,
+  independently-readable branch rather than a single generalized helper). Two
+  new acceptance tests
+  (`test_parse_plain_cat_command_accepts_a_single_quoted_path_with_spaces`,
+  `...without_spaces`) plus four new rejection-case entries confirm this,
+  each confirmed to fail against the double-quote-only fix and pass against
+  this follow-up.
+
+Both follow-ups were confirmed, directly, to fail against the pre-follow-up
+code and pass against the fix; the full `deploy/candidates` suite (82 tests)
+and `deploy/delivery` suite (164 tests) both remain fully green.
+
 ### 3. The real triggered run
 
 Once the fixes above were in place, `production-baseline`'s real, full run
