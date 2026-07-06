@@ -107,6 +107,31 @@ def _read_skill_name_from_front_matter(skill_source_dir: Path) -> str:
     raise _SkillSourceError(f"{skill_md_path}'s front matter has no 'name:' field")
 
 
+def _iter_skill_source_files(skill_source_dir: Path):
+    """Yield every regular file under `skill_source_dir`, sorted for determinism,
+    EXCLUDING `.DS_Store` and, deliberately, any symlink -- shared by
+    `_compute_skill_content_hash()` and `_zip_skill_source()` so both agree on
+    exactly which files constitute "this skill's content."
+
+    SECURITY HARDENING (security-engineer, Low severity -- not exploitable today,
+    since only the repo owner authors these directories, but cheap to close): a
+    symlink inside `skill/` could otherwise point OUTSIDE `skill_source_dir`
+    (e.g. `skill/evil -> /etc/passwd` or a sibling directory), and
+    `Path.rglob("*")` + `path.is_file()` (the ORIGINAL implementation) follows
+    symlinks by default, both hashing and zipping whatever the link resolves to --
+    letting a symlink change what's hashed/zipped without that content actually
+    living inside the git-tracked `skill/` directory. `path.is_symlink()` is
+    checked explicitly and any symlink is skipped entirely (rather than merely
+    resolved-and-containment-checked), the simplest correct fix: this repo's
+    skill directories are plain files (`SKILL.md`, `sources.md`, ...), so there is
+    no legitimate reason for a symlink to appear inside one."""
+    for path in sorted(skill_source_dir.rglob("*")):
+        if path.is_symlink():
+            continue
+        if path.is_file() and path.name != ".DS_Store":
+            yield path
+
+
 def _compute_skill_content_hash(skill_source_dir: Path) -> str:
     """A stable SHA-256 hash over a candidate-owned `skill/` directory's file
     contents (path + bytes, sorted for determinism) -- lets the sync script detect
@@ -120,10 +145,9 @@ def _compute_skill_content_hash(skill_source_dir: Path) -> str:
     import hashlib
 
     hasher = hashlib.sha256()
-    for path in sorted(skill_source_dir.rglob("*")):
-        if path.is_file() and path.name != ".DS_Store":
-            hasher.update(str(path.relative_to(skill_source_dir)).encode("utf-8"))
-            hasher.update(path.read_bytes())
+    for path in _iter_skill_source_files(skill_source_dir):
+        hasher.update(str(path.relative_to(skill_source_dir)).encode("utf-8"))
+        hasher.update(path.read_bytes())
     return hasher.hexdigest()
 
 
@@ -153,15 +177,19 @@ def _zip_skill_source(skill_source_dir: Path, dest_zip_path: Path) -> Path:
     README note that no real Skill resource was created during that phase's
     development.) This one function is therefore now used for BOTH
     `create_skill()` and `create_skill_version()` -- there is no genuine
-    difference between the two endpoints' zip-shape requirements after all."""
+    difference between the two endpoints' zip-shape requirements after all.
+
+    Uses `_iter_skill_source_files()` (shared with `_compute_skill_content_hash()`)
+    so both agree on exactly which files are zipped/hashed -- including skipping
+    symlinks, so a symlink inside `skill/` cannot smuggle in content from outside
+    `skill_source_dir` (security hardening; see that function's docstring)."""
     import zipfile
 
     skill_name = _read_skill_name_from_front_matter(skill_source_dir)
     with zipfile.ZipFile(dest_zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(skill_source_dir.rglob("*")):
-            if path.is_file() and path.name != ".DS_Store":
-                arcname = Path(skill_name) / path.relative_to(skill_source_dir)
-                zf.write(path, arcname=str(arcname))
+        for path in _iter_skill_source_files(skill_source_dir):
+            arcname = Path(skill_name) / path.relative_to(skill_source_dir)
+            zf.write(path, arcname=str(arcname))
     return dest_zip_path
 
 
@@ -264,12 +292,22 @@ def _push_updated_candidate_skill_if_changed(
     place too, per Decision 2c: a skill-content change reaches a running candidate
     only once the referencing agent is ALSO updated to point at the new version).
     False if there was nothing to push (no `skill/` directory, no pinned skill yet
-    -- this only applies post-first-sync, so that shouldn't normally happen -- or
-    the content hash is unchanged, including the degenerate case where no
-    `content_hash` was ever recorded AND the freshly-computed hash also happens to
-    equal `None` -- which cannot occur in practice, since
-    `_compute_skill_content_hash()` always returns a real hex digest; this is just
-    saying the comparison is a plain equality check with no special-casing)."""
+    -- this only applies post-first-sync, so that shouldn't normally happen --
+    the content hash is unchanged, OR no `content_hash` was ever recorded at all --
+    see below for why that last case is deliberately "skip," not "changed").
+
+    CORRECTED (reviewer, README/code mismatch): a missing `content_hash` (e.g. a
+    candidate first synced before this field existed) must be treated as "cannot
+    determine, skip" -- NOT "changed" -- per this module's own stated design (and
+    README.md's "Skill-content changes on an update sync" section): pushing a
+    surprise new skill version the next time an already-synced, unedited candidate
+    happens to be re-synced would be wrong. The ORIGINAL code
+    (`if current_hash == pinned_entry.get("content_hash"): return False`) did not
+    actually implement this: `.get(...)` returns `None` when the field is absent,
+    and a real SHA-256 hex digest can never equal `None`, so the comparison was
+    ALWAYS unequal on a missing hash -- silently pushing a version every time,
+    exactly the surprise-push behavior this design exists to avoid. Fixed with an
+    explicit early check below."""
     if candidate.skill_source_dir is None:
         return False
 
@@ -278,8 +316,15 @@ def _push_updated_candidate_skill_if_changed(
     if pinned_entry is None:
         return False
 
+    recorded_hash = pinned_entry.get("content_hash")
+    if recorded_hash is None:
+        # No content_hash recorded at all -- cannot determine whether skill/ changed
+        # since we have no prior hash to compare against. Deliberately "skip," not
+        # "changed" (see the corrected docstring above).
+        return False
+
     current_hash = _compute_skill_content_hash(candidate.skill_source_dir)
-    if current_hash == pinned_entry.get("content_hash"):
+    if current_hash == recorded_hash:
         return False
 
     skill_id = pinned_entry["skill_id"]

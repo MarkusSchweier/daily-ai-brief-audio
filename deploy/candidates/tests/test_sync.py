@@ -29,7 +29,7 @@ import shutil
 import httpx
 import pytest
 
-from candidate_sync.sync import _compute_skill_content_hash, sync_candidate
+from candidate_sync.sync import _compute_skill_content_hash, _iter_skill_source_files, _zip_skill_source, sync_candidate
 
 from conftest import FIXTURES_DIR
 from fake_httpx_client import FakeHttpxClient, FakeResponse
@@ -365,6 +365,57 @@ def test_update_is_a_no_op_when_skill_content_hash_is_unchanged(single_agent_new
     assert skills_client.calls == []
     # Only the one read-only GET (to detect "unchanged") was made against the agent.
     assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
+def test_update_skips_skill_push_when_content_hash_was_never_recorded(single_agent_new_skill_dir):
+    """Regression test for the reviewer-found README/code mismatch: a pinned skill
+    entry with NO `content_hash` field at all (e.g. a candidate first synced before
+    this field existed) must be treated as "cannot determine, skip" -- NOT
+    "changed" -- so it does NOT trigger a surprise skill-version push. The
+    ORIGINAL code compared `current_hash == pinned_entry.get("content_hash")`,
+    which is `current_hash == None` when the field is absent -- ALWAYS unequal for
+    a real hash, so it silently pushed a version every time. This test would have
+    FAILED against that code (skills_client would have received an unscripted
+    POST /v1/skills/{id}/versions call and raised)."""
+    _mark_synced(single_agent_new_skill_dir, agent_id="agent_ALREADY_SYNCED")
+    # Deliberately NO content_hash field at all -- distinct from the no-op test
+    # above, which has a content_hash that happens to match.
+    skills_json = [{"type": "custom", "skill_id": "skill_EXISTING", "version": 1783096569199829}]
+    (single_agent_new_skill_dir / "skills.json").write_text(json.dumps(skills_json))
+
+    agent_json = json.loads((single_agent_new_skill_dir / "agent.json").read_text())
+    model = (single_agent_new_skill_dir / "model.txt").read_text().strip()
+    system_prompt = (single_agent_new_skill_dir / "system-prompt.md").read_text()
+    parameters = json.loads((single_agent_new_skill_dir / "parameters.json").read_text())
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _agent_response(
+            "agent_ALREADY_SYNCED",
+            version=1,
+            name=agent_json["name"],
+            description=agent_json["description"],
+            model=model,
+            system=system_prompt,
+            tools=agent_json["tools"],
+            mcp_servers=agent_json["mcp_servers"],
+            skills=[{"type": "custom", "skill_id": "skill_EXISTING", "version": 1783096569199829}],
+            parameters=parameters,
+        ),
+    )
+    skills_client = FakeHttpxClient()  # deliberately given NO scripted response -- must not be called at all
+
+    result = sync_candidate(single_agent_new_skill_dir, agents_client=agents_client, skills_client=skills_client)
+
+    assert result.no_op is True
+    assert not result.skill_versions_pushed
+    assert not result.updated
+    assert skills_client.calls == []
+    # skills.json is left completely untouched -- no content_hash was written in
+    # (that would happen only on an ACTUAL push, which correctly did not occur).
+    assert json.loads((single_agent_new_skill_dir / "skills.json").read_text()) == skills_json
 
 
 # --- Update-in-place: single-agent -------------------------------------------------
@@ -760,6 +811,72 @@ def test_first_sync_single_agent_failure_leaves_no_agent_id_written(single_agent
         sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
 
     assert "agent_id" not in json.loads((single_agent_dir / "candidate.json").read_text())
+
+
+# --- Symlink hardening (security-engineer, Low severity) --------------------------
+# _iter_skill_source_files() (shared by _compute_skill_content_hash() and
+# _zip_skill_source()) must skip symlinks entirely, so a symlink inside skill/
+# cannot smuggle in content from OUTSIDE skill_source_dir into either the hash or
+# the pushed zip.
+
+
+def test_iter_skill_source_files_skips_a_symlink_pointing_outside_the_skill_dir(tmp_path):
+    outside_secret = tmp_path / "outside-secret.txt"
+    outside_secret.write_text("this must never be hashed or zipped")
+
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: symlink-test\n---\nreal content\n")
+    (skill_dir / "evil-link.txt").symlink_to(outside_secret)
+
+    files = list(_iter_skill_source_files(skill_dir))
+
+    assert [f.name for f in files] == ["SKILL.md"]
+    assert not any(f.is_symlink() for f in files)
+
+
+def test_compute_skill_content_hash_ignores_a_symlinked_file(tmp_path):
+    """The hash of a skill/ directory with a symlink pointing at attacker-
+    controlled content must be IDENTICAL to the hash of the same directory with
+    the symlink simply absent -- proving the symlink's target content never
+    entered the hash at all (not merely that the hash "changed," which alone
+    wouldn't prove exclusion)."""
+    outside_secret = tmp_path / "outside-secret.txt"
+    outside_secret.write_text("attacker-controlled content")
+
+    skill_dir_with_symlink = tmp_path / "skill-with-symlink"
+    skill_dir_with_symlink.mkdir()
+    (skill_dir_with_symlink / "SKILL.md").write_text("---\nname: symlink-test\n---\nreal content\n")
+    (skill_dir_with_symlink / "evil-link.txt").symlink_to(outside_secret)
+
+    skill_dir_without_symlink = tmp_path / "skill-without-symlink"
+    skill_dir_without_symlink.mkdir()
+    (skill_dir_without_symlink / "SKILL.md").write_text("---\nname: symlink-test\n---\nreal content\n")
+
+    assert _compute_skill_content_hash(skill_dir_with_symlink) == _compute_skill_content_hash(skill_dir_without_symlink)
+
+
+def test_zip_skill_source_excludes_a_symlinked_file(tmp_path):
+    """The zip _zip_skill_source() builds must NOT contain the symlink's target
+    content -- confirms the exclusion holds for the actual zip that gets pushed to
+    the Skills API, not just the hash."""
+    import zipfile
+
+    outside_secret = tmp_path / "outside-secret.txt"
+    outside_secret.write_text("this must never be zipped")
+
+    skill_dir = tmp_path / "skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: symlink-test\n---\nreal content\n")
+    (skill_dir / "evil-link.txt").symlink_to(outside_secret)
+
+    zip_path = _zip_skill_source(skill_dir, tmp_path / "skill.zip")
+
+    with zipfile.ZipFile(zip_path) as zf:
+        names = zf.namelist()
+
+    assert names == ["symlink-test/SKILL.md"]
+    assert not any("evil-link" in name for name in names)
 
 
 # --- Helpers -------------------------------------------------------------------------
