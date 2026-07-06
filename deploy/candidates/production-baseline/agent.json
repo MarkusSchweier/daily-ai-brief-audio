@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-production-baseline-candidate",
+  "description": "Phase 5 (agent-system-redesign epic) validation baseline: re-expresses the REAL, live production daily-ai-brief-agent's model/system-prompt/skill/tools configuration as a candidate on the decoupled cloud topology, adapted to drop all delivery/AWS responsibilities (content generation only -- research + write, no narration/email/archival). This is a SEPARATE agent resource from the real live production agent (agent_01EswBTose8dnTAUDbGvzdLq) -- syncing or triggering this candidate can NEVER mutate or invoke the real scheduled agent. See candidate.json for the full validation-scope description.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

@@ -9,15 +9,22 @@ exactly like sync.py.
 
 Usage:
     export ANTHROPIC_API_KEY=$(cat ~/.anthropic-managed-agents/ant-api-key.txt)
-    python3 trigger.py <path-to-candidate-directory> ["<task prompt override>"]
+    python3 trigger.py <path-to-candidate-directory> ["<task prompt override>"] [--timeout SECONDS]
 
     # e.g., against the real smoke-test-example candidate (already synced -- has a
     # real agent_id -- see README.md's "Phase 3 live validation" section):
     python3 trigger.py smoke-test-example
 
+    # A real content-generation candidate's research/writing run takes meaningfully
+    # longer than the trivial smoke test -- override the default 600s poll timeout
+    # (see Phase 5 live validation in README.md for why 20 minutes was chosen there):
+    python3 trigger.py production-baseline --timeout 1200
+
 If no task-prompt override is given, the candidate's own `task-prompt.md` is used
 (the same file `sync.py`/`candidate_sync.loader` reads for the agent's declared
-per-run task).
+per-run task). `--timeout` overrides `candidate_sync.trigger.DEFAULT_POLL_TIMEOUT_SECONDS`
+(600s) -- raise it for any candidate whose task is a genuine research/writing job,
+not a trivial smoke test.
 
 Prints: the deployment id, the session id, the final status, and every file
 successfully recovered via `cat` from the session's event stream (per
@@ -67,6 +74,18 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Optional task prompt to use instead of the candidate's own task-prompt.md",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=trigger.DEFAULT_POLL_TIMEOUT_SECONDS,
+        help=(
+            "Poll timeout in seconds (default: "
+            f"{trigger.DEFAULT_POLL_TIMEOUT_SECONDS:.0f}s / "
+            f"{trigger.DEFAULT_POLL_TIMEOUT_SECONDS / 60:.0f}min). Raise this for a "
+            "real research/writing candidate task, which takes meaningfully longer "
+            "than a trivial smoke test."
+        ),
+    )
     args = parser.parse_args(argv)
 
     candidate_dir = Path(args.candidate_dir).resolve()
@@ -106,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 environment_id=environment_id,
                 task_prompt=task_prompt,
                 deployment_name=deployment_name,
+                poll_timeout_seconds=args.timeout,
             )
     except (trigger.CandidateRunFailedError, trigger.CandidateRunTimeoutError) as e:
         print(f"error: {e}", file=sys.stderr)
