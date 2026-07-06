@@ -415,15 +415,59 @@ def fetch_catted_file_contents(events: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def _parse_plain_cat_command(command: str) -> str | None:
-    """Return the path argument of a plain `cat <path>` command, or None if
-    `command` is not (a whitespace-trimmed) exactly that simple form. Deliberately
-    strict -- see `fetch_catted_file_contents()`'s docstring for why."""
+    """Return the path argument of a plain `cat <path>` (or `cat "<path>"`)
+    command, or None if `command` is not (a whitespace-trimmed) exactly one of
+    those two simple forms. Deliberately strict -- see
+    `fetch_catted_file_contents()`'s docstring for why.
+
+    CORRECTED (agent-system-redesign epic, Phase 5, a real gap found on the real
+    `production-baseline` trigger -- not a synthetic edge case): the brief
+    Markdown file this repo's own skill output contract names,
+    `AI Brief - YYYY-MM-DD.md`, contains LITERAL SPACES in its own filename (not
+    just shell quoting) -- `SKILL.md`'s own documented output path. A real agent
+    run correctly double-quoted its `cat` invocation for this and every other
+    path this candidate wrote (`cat "/workspace/AI Brief - 2026-07-06.md"`,
+    `cat "/workspace/listening-script.txt"`, etc.) -- entirely reasonable,
+    portable shell practice -- but the ORIGINAL version of this function rejected
+    ANY remainder containing a bare space character outright, with no
+    quote-aware exception. This silently dropped the brief file ENTIRELY (its
+    filename's spaces are real content, not just quoting, so no unquoting could
+    ever produce a space-free path) and mis-parsed three other quoted paths into
+    dict keys that STILL carried their literal surrounding quote characters
+    (`'"/workspace/listening-script.txt"'` instead of
+    `'/workspace/listening-script.txt'`) -- a confusing, partial failure mode,
+    not a clean rejection. Fixed by recognizing ONE additional, still-simple,
+    still-unambiguous form: a remainder that is ENTIRELY wrapped in a single
+    pair of double quotes with no unescaped quote or shell metacharacter inside
+    -- the exact form a real agent naturally produces for a path containing
+    spaces -- while continuing to reject anything genuinely ambiguous (multiple
+    quoted/unquoted arguments, pipes, redirects, unquoted spaces, escaped
+    quotes) exactly as before."""
     if not command.startswith("cat "):
         return None
     remainder = command[len("cat ") :].strip()
-    # Reject anything with shell metacharacters/pipes/redirects/multiple args --
-    # those aren't the simple form this module is built to recognize.
-    if not remainder or any(ch in remainder for ch in ("|", ">", "<", "&", ";", " ")):
+    if not remainder:
+        return None
+    if remainder.startswith('"'):
+        # ANY remainder starting with a quote must satisfy the quoted-path form
+        # below, or be rejected outright -- it must NOT silently fall through to
+        # the unquoted-form check (a real gap the original version of this
+        # branch had: an unterminated leading quote with no space/metacharacter
+        # inside would otherwise fall through and be returned verbatim, quote
+        # character and all).
+        if not (remainder.endswith('"') and len(remainder) >= 2):
+            return None
+        inner = remainder[1:-1]
+        # Reject anything that still isn't a single, simple, unescaped-quote-free
+        # path inside the quotes (an embedded `"` or shell metacharacter means
+        # this isn't the plain single-quoted-path form this parser recognizes).
+        if not inner or any(ch in inner for ch in ('"', "|", ">", "<", "&", ";")):
+            return None
+        return inner
+    # Unquoted form: reject anything with shell metacharacters/pipes/redirects/
+    # multiple args/unquoted spaces -- those aren't the simple form this module
+    # is built to recognize.
+    if any(ch in remainder for ch in ("|", ">", "<", "&", ";", " ")):
         return None
     return remainder
 

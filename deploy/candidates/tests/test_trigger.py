@@ -582,6 +582,10 @@ def test_fetch_catted_file_contents_recovers_multiple_distinct_cat_results():
         "cat /path1 /path2",  # multiple files -- rejected (contains a space)
         "cat",  # no path at all
         "tail -f /path",  # not a cat command
+        'cat "/path with space" /other',  # a quoted path PLUS a second arg -- still rejected
+        'cat "unterminated',  # opening quote with no matching close -- rejected
+        'cat "embedded " quote"',  # an embedded quote inside the quotes -- rejected
+        'cat ""',  # empty quoted path -- rejected
     ],
 )
 def test_parse_plain_cat_command_rejects_non_simple_forms(command):
@@ -590,6 +594,33 @@ def test_parse_plain_cat_command_rejects_non_simple_forms(command):
 
 def test_parse_plain_cat_command_accepts_the_simple_form():
     assert trigger._parse_plain_cat_command("cat /workspace/smoke-test-output.txt") == "/workspace/smoke-test-output.txt"
+
+
+def test_parse_plain_cat_command_accepts_a_double_quoted_path_with_spaces():
+    """Regression test for a REAL gap this phase's production-baseline trigger
+    found (agent-system-redesign epic, Phase 5) -- see
+    `_parse_plain_cat_command()`'s own "CORRECTED" docstring note for the full
+    story. The brief file this repo's own skill output contract names,
+    `AI Brief - YYYY-MM-DD.md`, has LITERAL SPACES in its filename -- a real
+    agent run correctly double-quoted its `cat` invocation for it
+    (`cat "/workspace/AI Brief - 2026-07-06.md"`), which the pre-fix parser
+    rejected outright (any bare space in the remainder was disqualifying, with
+    no quote-aware exception), silently dropping the brief entirely -- the most
+    important single artifact a candidate produces. Confirmed, directly: this
+    exact real command (verbatim, from the real captured transcript) FAILS
+    against the pre-fix code (returns None) and PASSES against the fix."""
+    assert (
+        trigger._parse_plain_cat_command('cat "/workspace/AI Brief - 2026-07-06.md"')
+        == "/workspace/AI Brief - 2026-07-06.md"
+    )
+
+
+def test_parse_plain_cat_command_accepts_a_double_quoted_path_without_spaces():
+    """A quoted path with NO spaces inside (e.g. a real agent quoting every path
+    uniformly, as `production-baseline`'s run did for `listening-script.txt`/
+    `candidates.json`/`source-usage.json` too) must ALSO resolve to the bare,
+    unquoted path -- not a dict key still carrying literal quote characters."""
+    assert trigger._parse_plain_cat_command('cat "/workspace/listening-script.txt"') == "/workspace/listening-script.txt"
 
 
 def test_extract_tool_result_text_reads_the_confirmed_content_list_shape():
