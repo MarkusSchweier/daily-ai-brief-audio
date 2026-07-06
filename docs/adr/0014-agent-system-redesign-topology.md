@@ -1344,11 +1344,11 @@ the read step is expressed in the candidate's declaration another way, is left t
 
 ### Correction (2026-07-06): how the read token actually reaches a `cloud` candidate — env-vars-on-environment do NOT work; recommend a short-lived signed read token injected per run
 
-> **Status: this sub-decision is RECOMMENDED, pending the human's sign-off** — it changes how every future
-> candidate/eval run obtains the read capability, so it affects the (deferred) eval epic and is flagged for
-> the human alongside Decision 2d's other items. The interim mechanism (a static read token injected at
-> trigger time, rotated after exposure) **is fine to keep using until the human ratifies** — see "Is the
-> interim approach OK to keep using?" below.
+> **Status: ACCEPTED — ratified by the human 2026-07-06.** The human chose the short-lived HMAC-signed
+> read-token mechanism recommended below AND chose to build it immediately (rather than defer it to the
+> eval epic or keep the static-token-plus-rotation interim). The static-token interim is therefore
+> superseded once the signed-token mechanism ships; it remains a valid fallback only if the build is ever
+> rolled back.
 
 **What was originally specified, and why it does not work.** Decision 2d (and Decision 2b) originally said
 the read/delivery bearer token would reach the `cloud` sandbox as an **environment variable set in the
