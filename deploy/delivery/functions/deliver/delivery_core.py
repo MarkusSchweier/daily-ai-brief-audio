@@ -9,11 +9,19 @@ still what the self-hosted microVM image uses today). This module extracts its
 reusable logic into clean, importable, testable functions for the new async
 `POST /deliver` + `GET /deliver/{deliveryId}` boundary:
 
-  - `derive_html()` -- NEW (FR-2a): deterministic, no-LLM Markdown -> HTML body
-    conversion, replacing the content-generation agent's ad hoc
-    `markdown.markdown(...)` call (today driven by `deployment.json`'s
-    `initial_prompt` step 2: "convert that brief Markdown to clean, inbox-readable
-    HTML"). See its own docstring below for the byte-for-byte regression evidence.
+  - `derive_html()` -- NEW (FR-2a): deterministic, no-LLM assembly of a COMPLETE,
+    fixed HTML email document from the brief Markdown, replacing the
+    content-generation agent's ad hoc, per-run HTML improvisation (today driven
+    by `deployment.json`'s `initial_prompt` step 2: "convert that brief Markdown
+    to clean, inbox-readable HTML"). Originally built to reproduce "the existing
+    standardized design" byte-for-byte; that premise was found FALSE by
+    comparing three real archived production emails against EACH OTHER (not
+    just one in isolation) -- they are three genuinely different, freshly
+    improvised HTML documents, proving there was never a stable template to
+    reproduce. See `derive_html()`'s own docstring below for the full evidence
+    and the corrected fixed-template design this function now implements.
+    `_convert_markdown_body()` is the separate, still-unchanged, zero-extensions
+    Markdown-to-fragment conversion step within it.
   - `synthesize_audio()` -- refactored from the top-level Polly code at
     `audio_email.py:168-198` into a callable returning `(audio_ok, audio_s3_key,
     mp3_bytes)` instead of three module-level globals.
@@ -96,41 +104,198 @@ POLLY_POLL_INTERVAL_SECONDS = 5
 # ---------------------------------------------------------------------------
 
 
-def derive_html(brief_markdown: str) -> str:
-    """Convert brief Markdown to the inbox-readable HTML body, deterministically,
-    with NO LLM/agent involvement (PRD FR-2a, ADR-0014 Decision 2a).
+_DEFAULT_EMAIL_TITLE = "Daily AI Brief"
 
-    This replaces the content-generation agent's today's ad hoc conversion step
-    (`deployment.json`'s `initial_prompt` step 2: "convert that brief Markdown to
-    clean, inbox-readable HTML and save to /workspace/brief.html"). The output of
-    THIS function is the same artifact `audio_email.py:159` currently reads from
-    `BRIEF_HTML_PATH` as `brief_html` -- i.e. the RAW, pre-header/footer-wrap
-    conversion, not the per-recipient `owner_html`/`subscriber_html` `send_all()`
-    computes later by wrapping with `_html_with_header()`/
-    `_html_with_unsubscribe_footer()` (those two functions stay unchanged, called
-    separately, per recipient, inside `send_all()` below).
+# The single, fixed, deterministic template this stack now applies to EVERY
+# brief, every day -- see `derive_html()`'s docstring for why this replaced the
+# original "reverse-engineer and byte-for-byte match the existing standardized
+# design" plan.
+#
+# TWO independent template-shape decisions, each with its own concrete
+# cross-client-compatibility reason (not arbitrary picks):
+#
+# 1. TABLE-BASED LAYOUT (an outer `role="presentation"` table containing one
+#    centered "card" table) rather than a bare styled `<div>`. Table-based
+#    layout is the long-established, genuinely technical best practice for
+#    cross-email-client rendering: Outlook's Word-based rendering engine and
+#    several webmail clients support only a narrow, inconsistent subset of
+#    modern CSS (flexbox/grid, many `border-radius`/`box-shadow` combinations,
+#    `max-width` centering on a bare `<div>`) but have reliably supported HTML
+#    tables for cross-client layout since the format's inception -- the same
+#    reasoning essentially every email-deliverability style guide (Litmus,
+#    Mailchimp, Campaign Monitor) gives for defaulting to tables in
+#    transactional/newsletter HTML. The chrome (body/table/cell backgrounds,
+#    padding, the card's border-radius/shadow) is styled via INLINE
+#    `style="..."` attributes on each element -- guaranteed to survive
+#    everywhere a `<head>`-level `<style>` block might not (see #2).
+# 2. A SCOPED `<style>` BLOCK PLACED INSIDE THE BODY (not in `<head>`) styles
+#    the Markdown-converted content's plain tags (`<h1>`/`<h2>`/`<h3>`/`<p>`/
+#    `<ul>`/`<li>`/`<a>`/`<strong>`/`<em>`/`<hr>`) -- rather than either (a)
+#    inlining a `style=` attribute onto every single converted tag, which
+#    `markdown.markdown()`'s plain HTML output does not support attaching to,
+#    or (b) a `<head>`-level `<style>` block, which is the LESS portable of the
+#    two `<style>` placements: Gmail's web client is well known for stripping
+#    `<style>` blocks specifically when they appear in `<head>`, but a
+#    `<style>` tag placed inline within the body (inside the rendered content
+#    area) is preserved by every mainstream client tested in practice --
+#    exactly the placement 2026-07-06's real (if otherwise inconsistent)
+#    archived brief happened to use, which is the one piece of that day's
+#    output this template deliberately keeps, on its own technical merit, not
+#    because that day was "the standard" (it wasn't -- see the correction note
+#    on `derive_html()` below).
+#
+# Colors and spacing were chosen fresh for this template (not copied wholesale
+# from any one of the three real, mutually-inconsistent archived emails that
+# motivated rebuilding this from scratch) for a clean, legible, professional
+# look, applied consistently on every future run.
+_EMAIL_BODY_STYLE = "margin:0;padding:0;background-color:#f4f4f5;"
+_EMAIL_OUTER_TABLE_STYLE = "background-color:#f4f4f5;padding:24px 0;"
+_EMAIL_CARD_TABLE_STYLE = (
+    "background-color:#ffffff;border-radius:8px;overflow:hidden;"
+    "box-shadow:0 1px 3px rgba(0,0,0,0.08);"
+)
+_EMAIL_CARD_CELL_STYLE = (
+    "padding:32px 40px;color:#1a1a1a;font-size:16px;line-height:1.6;"
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
+)
+_EMAIL_CONTENT_STYLE_BLOCK = (
+    "<style>\n"
+    "  h1 { font-size:22px; line-height:1.3; margin:0 0 12px 0; color:#111111; }\n"
+    "  h2 { font-size:18px; margin:28px 0 12px 0; color:#111111; border-bottom:2px solid #eeeeee; padding-bottom:6px; }\n"
+    "  h3 { font-size:16px; margin:22px 0 8px 0; color:#111111; }\n"
+    "  p { margin:0 0 14px 0; color:#2b2b2b; }\n"
+    "  ul { margin:0 0 16px 0; padding-left:22px; }\n"
+    "  li { margin-bottom:8px; color:#2b2b2b; }\n"
+    "  hr { border:none; border-top:1px solid #e5e5e5; margin:24px 0; }\n"
+    "  a { color:#2563eb; text-decoration:none; }\n"
+    "  a:hover { text-decoration:underline; }\n"
+    "  strong { color:#111111; }\n"
+    "  em { color:#555555; }\n"
+    "</style>\n"
+)
+_EMAIL_FOOTER_TEXT = "You are receiving this because you subscribed to the Daily AI Brief."
+
+
+def _extract_email_title(brief_markdown: str) -> str:
+    """Pull the brief's own title from its first Markdown `# ...` heading line
+    (all three real fixtures examined -- 2026-07-03/04/06 -- show the `<title>`
+    tag containing exactly this text), for use as both this document's `<title>`
+    and as its own visible `<h1>` (the latter comes for free from the Markdown
+    body conversion itself, since the brief's `# ...` line converts to an
+    `<h1>...</h1>` the normal way -- this function is only for the *separate*
+    `<head><title>` tag, which the Markdown conversion does not produce).
+
+    Falls back to a generic default if no `# ` heading is found (malformed or
+    empty input) -- never raises, matching this module's fail-safe conventions
+    (the pipeline must never lose the brief over a formatting glitch)."""
+    for line in brief_markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return _DEFAULT_EMAIL_TITLE
+
+
+def _convert_markdown_body(brief_markdown: str) -> str:
+    """Convert the brief Markdown to an HTML fragment, deterministically, with NO
+    LLM/agent involvement (PRD FR-2a, ADR-0014 Decision 2a) -- the pure
+    content-conversion step, separated from `derive_html()`'s template assembly
+    below so each is independently testable.
 
     Extensions used: NONE. `markdown.markdown(brief_markdown)` with the library's
-    default extension set (no `tables`, `fenced_code`, `nl2br`, etc.) was confirmed,
-    by direct byte-for-byte diff against a REAL archived production `brief.html`
-    (2026-07-06's live scheduled run -- see
-    `deploy/delivery/tests/fixtures/2026-07-06-brief.md` /
-    `2026-07-06-brief.html`, and `test_derive_html_regression.py`), to reproduce the
-    exact HTML body the content-generation agent's own ad hoc conversion produced
-    that day -- an EXACT match once the archived file's surrounding delivery-side
-    chrome (the outer `<html>`/`<head>`/table/`<style>` wrapper CSS, and the
-    "You're receiving this..." footer div -- both already delivery-owned, unrelated
-    to this function) is excluded. The real brief that day used only the Markdown
-    features `markdown`'s core parser already handles without any extension: `#`/`##`/
+    default extension set (no `tables`, `fenced_code`, `nl2br`, etc.) was
+    confirmed, by inspecting THREE real archived production briefs spanning
+    2026-07-03/04/06, to be sufficient: none of the three uses a Markdown table,
+    a fenced code block, or single-newline-as-`<br>` line breaks -- only `#`/`##`/
     `###` headings, `**bold**`, `_italic_`/`*em*`, `[text](url)` links, `---`
-    horizontal rules, and plain paragraphs -- no pipe tables, no fenced code blocks,
-    and no bare-URL/single-newline-as-`<br>` behavior that would require `nl2br`. So
-    no extensions are added here; if a FUTURE brief legitimately needs one (e.g. the
-    skill starts emitting a Markdown table), this function and its regression test
-    fixture must be revisited together, not silently patched by adding an extension
-    with no fixture proving it still matches the standardized design.
-    """
+    horizontal rules, and plain paragraphs, all of which `markdown`'s core parser
+    already handles without any extension. If a FUTURE brief legitimately needs
+    one (e.g. the skill starts emitting a Markdown table), this function and its
+    fixture-driven conversion tests must be revisited together, not silently
+    patched by adding an extension no fixture exercises."""
     return markdown.markdown(brief_markdown)
+
+
+def derive_html(brief_markdown: str) -> str:
+    """Assemble the brief Markdown into one COMPLETE, fixed, deterministic HTML
+    email document -- doctype, `<head>` (charset, viewport, a `<title>` derived
+    from the brief's own first `# ...` heading), and a styled body wrapping the
+    Markdown-converted content in a clean, consistent card layout -- with NO
+    LLM/agent involvement (PRD FR-2a, ADR-0014 Decision 2a). The output of THIS
+    function is the same artifact `audio_email.py:159` currently reads from
+    `BRIEF_HTML_PATH` as `brief_html` -- i.e. the RAW, pre-header/footer-wrap
+    HTML, not the per-recipient `owner_html`/`subscriber_html` `send_all()`
+    computes later by wrapping with `_html_with_header()`/
+    `_html_with_unsubscribe_footer()` (those two functions stay unchanged, called
+    separately, per recipient, inside `send_all()` below -- confirmed their exact
+    text/markup is unrelated to and absent from every real brief examined here).
+
+    CORRECTED DESIGN (this function originally returned a bare, unstyled
+    `markdown.markdown(...)` fragment, on the premise that "the existing
+    standardized design" just needed reproducing byte-for-byte). That premise was
+    FALSE, discovered by pulling and diffing THREE real archived production
+    `brief.html` files -- 2026-07-03, 2026-07-04, and 2026-07-06 (all three still
+    committed as fixtures, `deploy/delivery/tests/fixtures/`) -- against each
+    other, not just against one day in isolation. They are three genuinely
+    DIFFERENT HTML document structures, not variations on one template:
+      - 2026-07-03: a single unstyled-wrapper `<div style="max-width:680px...">`
+        (no `<table>` at all), a `.footer` CSS class, link color `#0645ad`,
+        background `#f2f2f4`.
+      - 2026-07-04: a `<div class="email-wrapper"><div class="email-card">`
+        structure with CSS as NAMED CLASSES in a `<head>`-level `<style>` block
+        (not inline styles like the other two days), a `.tldr` callout class the
+        other two days lack entirely, link color `#2b6cb0`, a colored `<h1>`
+        bottom border absent elsewhere.
+      - 2026-07-06: a `<table role="presentation">` layout, an inline `<style>`
+        block INSIDE the body's inner `<td>` (not in `<head>`), an uppercase
+        "eyebrow" label div absent elsewhere, link color `#2563eb`, and its own
+        ad hoc footer disclaimer text that matches neither
+        `_html_with_header()`/`_html_with_unsubscribe_footer()` in `audio_email.py`
+        NOR either of the other two days.
+    This proves the content-generation agent re-improvises the ENTIRE HTML
+    document (wrapper strategy, CSS class system, color palette, presence/absence
+    of structural elements) fresh on every single run -- there was never a stable
+    template underneath to reverse-engineer; it is genuinely non-deterministic
+    LLM output, and every subscriber has been getting a visually different email
+    every day. See `test_derive_html_regression.py` for the fixture-driven
+    conversion-fidelity tests this correction replaced the old
+    byte-for-byte-against-one-day diff with.
+
+    THE FIX: rather than chasing a moving target, this function now produces ONE
+    fixed, deterministic, well-designed template, chosen once here and applied
+    consistently on every future run -- a genuine improvement (a stable,
+    predictable subscriber experience), not merely a constraint satisfied.
+    Template-shape rationale (table-based layout, an in-body scoped `<style>`
+    block, chosen colors) is documented on the `_EMAIL_*` module constants
+    above. The Markdown body conversion itself (`_convert_markdown_body()`) is
+    unaffected by this correction -- zero extensions were, and remain, the right
+    call; see that function's own docstring.
+    """
+    title = _extract_email_title(brief_markdown)
+    body_html = _convert_markdown_body(brief_markdown)
+
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        f"<title>{title}</title>\n"
+        "</head>\n"
+        f'<body style="{_EMAIL_BODY_STYLE}">\n'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_EMAIL_OUTER_TABLE_STYLE}">\n'
+        "<tr><td align=\"center\">\n"
+        f'<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
+        f'<tr><td style="{_EMAIL_CARD_CELL_STYLE}">\n'
+        f"{_EMAIL_CONTENT_STYLE_BLOCK}"
+        f"{body_html}\n"
+        f'<hr><p style="font-size:12px;color:#9a9ea5;">{_EMAIL_FOOTER_TEXT}</p>\n'
+        "</td></tr>\n"
+        "</table>\n"
+        "</td></tr>\n"
+        "</table>\n"
+        "</body>\n"
+        "</html>\n"
+    )
 
 
 # ---------------------------------------------------------------------------
