@@ -325,3 +325,16 @@ def test_insert_before_body_close_tag_is_case_insensitive():
     result = delivery_core._insert_before_body_close_tag(document, "X")
 
     assert result == "<html><BODY>ORIGINALX</BODY></html>"
+
+
+def test_derive_html_escapes_special_characters_in_the_title():
+    """Reviewer LOW: the <title> path must HTML-escape special chars (& < >) like the
+    body conversion already does, so a brief heading containing them yields valid HTML
+    rather than a broken/injected title tag."""
+    markdown_with_specials = "# Tom & Jerry <news> report\n\nBody paragraph."
+
+    html_out = delivery_core.derive_html(markdown_with_specials)
+
+    assert "<title>Tom &amp; Jerry &lt;news&gt; report</title>" in html_out
+    # And the raw, unescaped form must NOT appear in the title.
+    assert "<title>Tom & Jerry <news>" not in html_out

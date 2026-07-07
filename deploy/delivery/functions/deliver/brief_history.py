@@ -206,6 +206,14 @@ def archive_todays_brief(
             print("BRIEF_ARCHIVE_FAILED:", pointer_key, repr(e))
 
 
+# NOTE (ADR-0015 D2): in THIS delivery-Lambda copy, the two `*_file` helpers below
+# (which read from the Lambda's local `working_folder`) are NOT on the decoupled path --
+# `handler.py` archives candidates/source-usage via `archive_candidates_content` /
+# `archive_source_usage_content` (from the request body), because in the decoupled model
+# those files live in the MicroVM, not this Lambda's filesystem. The `*_file` helpers are
+# retained only for hand-duplication parity with the managed-agent copy
+# (`deploy/managed-agent/pipeline/brief_history.py`), where `audio_email.py` (the current
+# in-VM path) still uses them. Do NOT wire a `*_file` helper into the delivery handler.
 def archive_candidates_file(
     s3_client,
     today: str,

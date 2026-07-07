@@ -75,6 +75,7 @@ already follows for `feedback_token.py` and `review_auth.py`.
 
 from __future__ import annotations
 
+import html
 import re
 import time
 import urllib.parse
@@ -324,7 +325,12 @@ def derive_html(brief_markdown: str) -> str:
     `_html_with_header()`/`_html_with_unsubscribe_footer()`'s own docstrings
     below for the composition-correctness fix this same bug also required.
     """
-    title = _extract_email_title(brief_markdown)
+    # HTML-escape the title before interpolating it into the <title> tag: the body
+    # conversion via markdown.markdown() already entity-escapes special characters, but
+    # this separate <title> path did not, so a brief heading containing &/</> would
+    # produce malformed HTML (reviewer LOW). Not a security issue (the heading is
+    # agent-generated, not attacker-controlled), but a real correctness gap.
+    title = html.escape(_extract_email_title(brief_markdown))
     body_html = _convert_markdown_body(brief_markdown)
 
     return (

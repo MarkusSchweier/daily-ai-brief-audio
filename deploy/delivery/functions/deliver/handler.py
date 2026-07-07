@@ -286,6 +286,9 @@ def _validate_request_body(payload: dict[str, Any]) -> str | None:
         idempotency_key = metadata.get("idempotency_key")
         if idempotency_key is not None and not _is_valid_idempotency_key(idempotency_key):
             return "metadata.idempotency_key must be a short string of [A-Za-z0-9._-]"
+        brief_date = metadata.get("brief_date")
+        if brief_date is not None and not _is_valid_brief_date(brief_date):
+            return "metadata.brief_date must be an ISO date (YYYY-MM-DD)"
     return None
 
 
@@ -294,9 +297,21 @@ def _validate_request_body(payload: dict[str, Any]) -> str | None:
 # supplies the run's `brief_date` (e.g. "2026-07-06"), which fits comfortably.
 _IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
+# `brief_date` is interpolated DIRECTLY into S3 archive key paths (briefs/<date>/...,
+# brief_history.py) -- so it MUST be a strict ISO date, never a caller-controlled string
+# that could contain `/` or `..` and write outside the intended briefs/<date>/ folder
+# (path-traversal / archive-namespace pollution -- security review MEDIUM-1). Only
+# reachable by a bearer-holder (the trusted production client), but that becomes the
+# content-gen VM post-cut-over, so this is validated the same way `idempotency_key` is.
+_BRIEF_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
 
 def _is_valid_idempotency_key(value: Any) -> bool:
     return isinstance(value, str) and bool(_IDEMPOTENCY_KEY_RE.match(value))
+
+
+def _is_valid_brief_date(value: Any) -> bool:
+    return isinstance(value, str) and bool(_BRIEF_DATE_RE.match(value))
 
 
 def _handle_trigger(event: dict[str, Any], table, lambda_client) -> dict[str, Any]:
@@ -644,6 +659,19 @@ def _handle_worker_invocation(
     except Exception as e:  # noqa: BLE001 - a delivery failure must be recorded, never crash silently
         logger.error("DELIVERY_FAILED delivery_id=%s error=%r", delivery_id, e)
         _mark_failed(table, delivery_id, "delivery_failed")
+        # Release the idempotency claim so a GENUINELY-failed delivery is re-drivable
+        # (ADR-0015 D8: "a failed production delivery is a visible, RE-DRIVABLE event").
+        # Without this the idem#<brief_date> row would pin the key to this dead `failed`
+        # delivery, and a same-day retry would `idempotentReplay` the failure forever
+        # (with no automated re-drive -- only manual DynamoDB deletion). This is safe
+        # because every path on which `_run_delivery` raises is either PRE-send
+        # (e.g. derive_html) or an explicit "nobody was sent" total-failure (the
+        # sent_count==0 guard below) -- `send_all()` itself never raises, so a raise here
+        # never corresponds to a PARTIAL send that a re-drive could double-send. A future
+        # change that adds a raising step AFTER a partial send must revisit this.
+        idempotency_key = ((body or {}).get("metadata") or {}).get("idempotency_key")
+        if idempotency_key:
+            _release_idempotency_claim(table, idempotency_key)
         return {"deliveryId": delivery_id, "status": "failed"}
 
 
@@ -741,6 +769,22 @@ def _run_delivery(
     # send, which already completed above.
     candidates_archived = archive_candidates_content(s3_client, brief_date, content=candidates_content)
     source_usage_archived = archive_source_usage_content(s3_client, brief_date, content=source_usage_content)
+
+    # A total send failure -- NOBODY, not even the owner, received the brief (e.g. a
+    # complete SES outage, bad credentials, or a FromAddress misconfiguration) -- must be
+    # a HARD FAILURE, never reported as `succeeded` (ADR-0015 D8: "never silently
+    # swallowed"). Otherwise an entire invisible-outage day would exit 0 and log
+    # DELIVERY_SUCCEEDED (reviewer MEDIUM). Raising here marks the delivery `failed` and
+    # releases the idempotency claim (worker except above), so a same-day re-drive is
+    # possible -- SAFE precisely because sent_count==0 means nobody got it, so a re-drive
+    # cannot double-send. A PARTIAL failure (owner ok, some subscribers failed, or vice
+    # versa) is deliberately NOT raised: it stays `succeeded` with failed_count>0 in the
+    # summary (re-driving a partial send WOULD double-send). Archival already ran above,
+    # so the four artifacts are preserved for the re-drive.
+    if sent_count == 0:
+        raise RuntimeError(
+            f"DELIVERY_ALL_SENDS_FAILED nobody received the brief (sent_count=0 failed_count={failed_count})"
+        )
 
     return {
         "html_derived": True,
