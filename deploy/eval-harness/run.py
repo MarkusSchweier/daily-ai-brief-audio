@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -69,7 +70,7 @@ from eval_core.judges import (  # noqa: E402
     judge_factual_accuracy,
     judge_length_format,
 )
-from eval_core.judges.base import JUDGE_MODEL, JudgeResult  # noqa: E402
+from eval_core.judges.base import JudgeResult  # noqa: E402
 from eval_core.record import (  # noqa: E402
     V1_CRITERIA,
     CostBreakdownRecord,
@@ -81,6 +82,23 @@ from eval_core.record import (  # noqa: E402
 from harness import cost, dedup_priors, local_config, run_store  # noqa: E402
 
 _ENVIRONMENT_JSON_PATH = CANDIDATES_DIR / "environment.json"
+
+# The repo's lockstep copy of the daily-ai-brief skill's curated source list
+# (ADR-0008 two-way lockstep: in-repo copy <-> live Skills-API resource) --
+# judge methodology v2 (2026-07-07) gives this to the factual-accuracy judge so
+# it knows which outlets the brief's OWN research draws from. Read fresh at
+# trigger time (not cached at import time) so a live edit to sources.md is
+# picked up without restarting anything -- this module does no other file I/O
+# outside its own package/candidates trees, but this ONE cross-reference into
+# deploy/managed-agent/ is the harness's only READ of that tree (never a write).
+_SOURCES_MD_PATH = HARNESS_DIR.parent / "managed-agent" / "skills" / "daily-ai-brief" / "sources.md"
+
+# Matches the eval brief's OWN date out of its artifact filename
+# (`AI Brief - YYYY-MM-DD.md`) -- the dedup judge's feed fix
+# (harness/dedup_priors.py) needs this to filter prior briefs strictly relative
+# to the brief actually being evaluated, not the delivery endpoint's own
+# wall-clock "today" (see that module's docstring).
+_BRIEF_FILENAME_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 # The candidate slug this repo treats as "the current production configuration"
 # (D4: "production-config marker for production-baseline"). A candidate's own
@@ -177,6 +195,45 @@ def _extract_named_artifacts(artifacts: dict[str, str]) -> tuple[str | None, str
     return brief_markdown, listening_script, candidates_json_raw, source_usage_raw
 
 
+def _extract_brief_date(artifacts: dict[str, str]) -> str | None:
+    """Parse the eval brief's OWN date ("YYYY-MM-DD") out of its artifact
+    filename (`AI Brief - YYYY-MM-DD.md`) -- matched via the SAME basename
+    predicate `_extract_named_artifacts()` uses for the brief's content, but kept
+    as its own small function (rather than folded into that function's return
+    tuple) so `_extract_named_artifacts()`'s existing callers/tests are
+    undisturbed by this addition.
+
+    Used exclusively by the dedup judge's v2 feed fix
+    (`harness.dedup_priors.fetch_recent_prior_briefs()`) to filter prior briefs
+    strictly relative to the brief actually being evaluated -- see that module's
+    docstring. Returns None if no brief artifact was found, or its filename
+    didn't carry a recognizable date (the caller treats this as "skip the dedup
+    priors fetch, let the judge degrade to insufficient_data," never a run
+    failure)."""
+    for filename in artifacts:
+        basename = PurePosixPath(filename).name
+        if basename.startswith("AI Brief") and basename.endswith(".md"):
+            match = _BRIEF_FILENAME_DATE_RE.search(basename)
+            if match:
+                return match.group(1)
+    return None
+
+
+def _load_sources_md() -> str:
+    """Read the daily-ai-brief skill's curated source list (the repo's in-lockstep
+    copy, ADR-0008) -- judge methodology v2 gives this to the factual-accuracy
+    judge so it knows which outlets the brief's own research draws from. Fails
+    loud (a missing file means the judge would silently score with zero source
+    context, which is worse than refusing to run) rather than degrading to an
+    empty string."""
+    if not _SOURCES_MD_PATH.is_file():
+        raise SystemExit(
+            f"error: {_SOURCES_MD_PATH} is missing -- cannot brief the factual-accuracy judge "
+            "on the curated source list"
+        )
+    return _SOURCES_MD_PATH.read_text(encoding="utf-8")
+
+
 # --- Judge dispatch ------------------------------------------------------------------
 
 
@@ -196,67 +253,129 @@ def _run_selected_judges(
     *,
     brief_markdown: str,
     candidates_json: list[dict] | None,
-    prior_briefs_markdown: list[str],
+    sources_md: str,
+    prior_briefs: list[dict[str, str]],
 ) -> dict[str, JudgeResult]:
     """Run only the judges in `criteria` (PRD §4.1: "which eval criteria... a
     subset -- no need to test all every run"). A criterion absent from `criteria`
     is simply absent from the returned dict -- the record schema already treats a
     missing criterion as "blank/untested" (D4: "the full set of criteria... blank
     for criteria a run didn't test"), distinct from `insufficient_data=True` (which
-    means "tested, but the judge couldn't score it")."""
+    means "tested, but the judge couldn't score it").
+
+    `sources_md` (judge methodology v2) is only used by factual_accuracy;
+    `prior_briefs` (v2's dedup feed fix -- `{"date", "markdown"}` dicts, already
+    filtered strictly relative to this brief's own date) is only used by dedup --
+    both are accepted unconditionally so the caller doesn't need to conditionally
+    build them per-criterion."""
     results: dict[str, JudgeResult] = {}
     if "content_selection" in criteria:
         results["content_selection"] = judge_content_selection(
             client, candidates_json=candidates_json, brief_markdown=brief_markdown
         )
     if "factual_accuracy" in criteria:
-        results["factual_accuracy"] = judge_factual_accuracy(client, brief_markdown=brief_markdown)
+        results["factual_accuracy"] = judge_factual_accuracy(
+            client, brief_markdown=brief_markdown, sources_md=sources_md
+        )
     if "length_format" in criteria:
         results["length_format"] = judge_length_format(client, brief_markdown=brief_markdown)
     if "dedup" in criteria:
-        results["dedup"] = judge_dedup(client, brief_markdown=brief_markdown, prior_briefs_markdown=prior_briefs_markdown)
+        results["dedup"] = judge_dedup(client, brief_markdown=brief_markdown, priors=prior_briefs)
     return results
 
 
 def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str, Any]]:
-    return {
-        criterion: {
+    """Build one repetition's `scores.json` (ADR-0016 D4). ADDITIVE (judge
+    methodology v2): the original `{score, rationale, evidence,
+    insufficient_data}` shape is unchanged; `findings`/`selection_disagreements`
+    are included ONLY when a judge's result actually carries one (a v1-shaped
+    judge, or a v2 judge's degrade path that never called the API, simply omits
+    the key -- never an empty-list placeholder that would look like "the judge
+    checked nothing")."""
+    out: dict[str, dict[str, Any]] = {}
+    for criterion, result in judge_results.items():
+        entry: dict[str, Any] = {
             "score": result.score,
             "rationale": result.rationale,
             "evidence": result.evidence,
             "insufficient_data": result.insufficient_data,
         }
-        for criterion, result in judge_results.items()
-    }
+        if result.findings is not None:
+            entry["findings"] = result.findings
+        if result.selection_disagreements is not None:
+            entry["selection_disagreements"] = result.selection_disagreements
+        out[criterion] = entry
+    return out
 
 
 def _price_judge_results(
     judge_results: dict[str, JudgeResult], *, pricing_table: dict[str, Any], on_date: date
 ) -> dict[str, Any]:
     """Build one repetition's `judge-cost.json` (review-fix: ADR-0016 reviewer
-    Medium, "judge cost accounting") -- prices EVERY judge call's captured usage
-    against `pricing.json`'s `JUDGE_MODEL` entry via `cost.price_usage()`, kept
-    entirely SEPARATE from `harness.cost.mine_session_cost()`'s pipeline cost (this
-    function never touches `SessionCostBreakdown`/`cost.json`). Raises
+    Medium, "judge cost accounting"; judge methodology v2 amends this for
+    per-judge model config + web-search cost).
+
+    Prices EVERY judge call's captured TOKEN usage against ITS OWN recorded
+    model (`result.model` -- judge methodology v2's per-judge config means this
+    is no longer a single shared constant) via `cost.price_usage()`, kept
+    entirely SEPARATE from `harness.cost.mine_session_cost()`'s pipeline cost
+    (this function never touches `SessionCostBreakdown`/`cost.json`). Raises
     `cost.UnknownModelPriceError` (fails loud, per the task's explicit
-    requirement) if `JUDGE_MODEL` has no pricing.json entry -- this SHOULD never
-    happen in practice (pricing.json's `claude-haiku-4-5` family already lists the
-    bare `claude-haiku-4-5` judge model id as one of its own aliases), but is not
-    silently tolerated if it ever drifts."""
+    requirement) if any judge's model has no `pricing.json` entry -- this SHOULD
+    never happen in practice (every `JUDGE_MODELS` entry has a corresponding
+    `pricing.json` family), but is not silently tolerated if it ever drifts.
+
+    ALSO prices each judge's `search_count` (web-search tool invocations) via
+    `cost.price_web_searches()` -- a SEPARATE, flat, per-call cost axis from
+    token usage (kept in its own `search_cost_usd`/`total_search_cost_usd`
+    fields, never summed into `cost_usd`/`total_cost_usd`, per the task's
+    "keep it clearly separated from token cost" requirement).
+    `grand_total_cost_usd` is provided as the one convenience sum of both axes
+    for a caller that just wants "how much did judging cost, all-in."""
     total_usage = cost.ThreadUsage()
     per_criterion: dict[str, Any] = {}
-    total_cost_usd = 0.0
+    total_token_cost_usd = 0.0
+    total_search_count = 0
+    models_used: set[str] = set()
 
     for criterion, result in judge_results.items():
         usage = result.usage
-        criterion_cost = cost.price_usage(usage, model=JUDGE_MODEL, pricing_table=pricing_table, on_date=on_date)
-        total_cost_usd += criterion_cost
+        model = result.model
+        models_used.add(model)
+
+        criterion_token_cost = cost.price_usage(usage, model=model, pricing_table=pricing_table, on_date=on_date)
+        search_count = result.search_count
+        # search_count is the ACTUAL number of billed searches, captured from the
+        # API response's usage.server_tool_use.web_search_requests by
+        # base._extract_search_count() (defaulting to 0 when the response carries
+        # no server_tool_use at all -- e.g. a tool-less judge). It is NOT the
+        # judge's declared max_uses cap; that cap only bounds it from above.
+        # price_web_searches() returns 0.0 for search_count<=0, so a zero is
+        # priced correctly, never silently dropped. (Comment corrected per the
+        # 2026-07-07 security review's L-2 note -- the code was always right.)
+        criterion_search_cost = cost.price_web_searches(search_count, pricing_table=pricing_table)
+
+        total_token_cost_usd += criterion_token_cost
+        total_search_count += search_count
         total_usage = total_usage + cost.ThreadUsage.from_dict(usage)
-        per_criterion[criterion] = {"usage": usage, "cost_usd": round(criterion_cost, 4)}
+        per_criterion[criterion] = {
+            "model": model,
+            "usage": usage,
+            "cost_usd": round(criterion_token_cost, 4),
+            "search_count": search_count,
+            "search_cost_usd": round(criterion_search_cost, 4),
+        }
+
+    total_search_cost_usd = cost.price_web_searches(total_search_count, pricing_table=pricing_table)
+    total_token_cost_usd = round(total_token_cost_usd, 4)
+    total_search_cost_usd = round(total_search_cost_usd, 4)
 
     return {
-        "model": JUDGE_MODEL,
-        "total_cost_usd": round(total_cost_usd, 4),
+        "models": sorted(models_used),
+        "total_cost_usd": total_token_cost_usd,
+        "total_search_count": total_search_count,
+        "total_search_cost_usd": total_search_cost_usd,
+        "grand_total_cost_usd": round(total_token_cost_usd + total_search_cost_usd, 4),
         "total_usage": total_usage.to_dict(),
         "per_criterion": per_criterion,
     }
@@ -428,6 +547,12 @@ def main(argv: list[str] | None = None) -> int:
     pricing_table = cost.load_pricing_table()
     anthropic_client = _build_anthropic_client(api_key)
 
+    # Judge methodology v2: the curated source list is static content, read ONCE
+    # per run.py invocation (not per repetition) -- only when factual_accuracy is
+    # actually selected, so a run that never tests it never even requires
+    # sources.md to exist.
+    sources_md = _load_sources_md() if "factual_accuracy" in criteria else ""
+
     records: list[EvalRecord] = []
     judge_cost_totals: list[float] = []
     any_repetition_failed = False
@@ -469,22 +594,35 @@ def main(argv: list[str] | None = None) -> int:
         brief_markdown, listening_script, candidates_json_raw, _source_usage_raw = _extract_named_artifacts(artifacts)
         candidates_json = json.loads(candidates_json_raw) if candidates_json_raw else None
 
-        prior_briefs_markdown: list[str] = []
+        prior_briefs: list[dict[str, str]] = []
         if "dedup" in criteria and brief_markdown:
-            # Same local_config resolution as the task-prompt substitution above --
-            # missing key stays a soft degrade here (no priors, judge reports
-            # insufficient_data), never a run failure.
-            prior_briefs_markdown = dedup_priors.fetch_recent_prior_briefs_markdown(
-                signing_key=local_config.resolve_recent_briefs_signing_key() or "",
-                delivery_base_url=local_config.resolve_delivery_base_url(),
-            )
+            brief_date = _extract_brief_date(artifacts)
+            if brief_date is None:
+                print(
+                    f"DEDUP_PRIORS_SKIPPED: repetition {index}: could not parse a brief date from the "
+                    "artifact filenames -- dedup will degrade to insufficient_data",
+                    file=sys.stderr,
+                )
+            else:
+                # Same local_config resolution as the task-prompt substitution above --
+                # missing key stays a soft degrade here (no priors, judge reports
+                # insufficient_data), never a run failure. brief_date drives the v2
+                # feed fix (harness/dedup_priors.py): priors are filtered strictly
+                # relative to THIS brief's own date, not the delivery endpoint's own
+                # wall-clock "today".
+                prior_briefs = dedup_priors.fetch_recent_prior_briefs(
+                    brief_date=brief_date,
+                    signing_key=local_config.resolve_recent_briefs_signing_key() or "",
+                    delivery_base_url=local_config.resolve_delivery_base_url(),
+                )
 
         judge_results = _run_selected_judges(
             anthropic_client,
             criteria,
             brief_markdown=brief_markdown or "",
             candidates_json=candidates_json,
-            prior_briefs_markdown=prior_briefs_markdown,
+            sources_md=sources_md,
+            prior_briefs=prior_briefs,
         )
         run_store.write_scores(run_dir, index, _scores_to_dict(judge_results))
 

@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["/private/tmp/claude-501/-Users-markus-Claude-Projects-daily-ai-brief-audio/5294b056-bf06-40c4-8a41-1cb0fa9e13d6/scratchpad/eval_ui_mock_server.py", "8899"],
       "port": 8899
+    },
+    {
+      "name": "eval-harness-ui",
+      "runtimeExecutable": "deploy/eval-harness/.venv/bin/python",
+      "runtimeArgs": ["deploy/eval-harness/ui.py"],
+      "port": 5151
     }
   ]
 }

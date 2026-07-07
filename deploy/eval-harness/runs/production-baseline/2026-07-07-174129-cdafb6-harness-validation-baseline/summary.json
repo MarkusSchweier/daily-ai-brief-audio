@@ -21,10 +21,10 @@
     "factual_accuracy": {
       "criterion": "factual_accuracy",
       "n": 1,
-      "mean": 2,
+      "mean": 5,
       "stdev": null,
-      "min": 2,
-      "max": 2
+      "min": 5,
+      "max": 5
     },
     "length_format": {
       "criterion": "length_format",
@@ -39,7 +39,7 @@
   "cost_stdev_usd": null,
   "judge_cost": {
     "n": 1,
-    "mean_cost_usd": 0.0438,
+    "mean_cost_usd": 2.4245,
     "stdev_cost_usd": null
   }
 }

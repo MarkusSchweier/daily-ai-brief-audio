@@ -121,6 +121,60 @@
             {% endfor %}
           </tbody>
         </table>
+
+        {# Judge methodology v2: optional structured arrays, additive to the score
+           table above. Plain {{ }} interpolation throughout (autoescaped, NEVER
+           `| safe`) -- this is judge-authored text about brief/web content, never
+           assumed inert, mirroring this template's existing XSS discipline. #}
+        {% for criterion, score in rep.scores.items() %}
+          {% if score.findings %}
+            <h5>{{ criterion }} — findings</h5>
+            <table>
+              <thead>
+                <tr>
+                  {% if "claim" in score.findings[0] %}
+                    <th>Claim</th><th>Verdict</th><th>Source checked</th><th>Note</th>
+                  {% else %}
+                    <th>Story</th><th>Duplicate of</th><th>Labelled as follow-up</th><th>Justified</th><th>Note</th>
+                  {% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for finding in score.findings %}
+                  <tr>
+                    {% if "claim" in finding %}
+                      <td>{{ finding.claim }}</td>
+                      <td>{{ finding.verdict }}</td>
+                      <td>{{ finding.source_checked }}</td>
+                      <td>{{ finding.note }}</td>
+                    {% else %}
+                      <td>{{ finding.story }}</td>
+                      <td>{{ finding.duplicate_of_date }}</td>
+                      <td>{{ "yes" if finding.labelled_as_followup else "no" }}</td>
+                      <td>{{ "yes" if finding.justified else "no" }}</td>
+                      <td>{{ finding.note }}</td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+          {% if score.selection_disagreements %}
+            <h5>{{ criterion }} — selection disagreements</h5>
+            <table>
+              <thead><tr><th>Story</th><th>Judge view</th><th>Rationale</th></tr></thead>
+              <tbody>
+                {% for disagreement in score.selection_disagreements %}
+                  <tr>
+                    <td>{{ disagreement.story }}</td>
+                    <td>{{ disagreement.judge_view }}</td>
+                    <td>{{ disagreement.rationale }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        {% endfor %}
       {% endif %}
 
       {% if rep.cost %}
@@ -140,20 +194,39 @@
       {% endif %}
 
       {% if rep.judge_cost %}
+        {# Judge methodology v2 added per-criterion model/search_count/
+           search_cost_usd and top-level models/total_search_count/
+           total_search_cost_usd/grand_total_cost_usd -- ALL accessed via
+           `.get(key, default)` (a real dict method, not a Jinja-only construct)
+           so a run recorded under the OLD (pre-v2) judge-cost.json shape (several
+           committed runs/ predate this change) still renders without erroring,
+           just without the new columns' real values. #}
         <h4 title="Kept separate from pipeline cost above -- never folded in">Judge cost (separate from pipeline cost)</h4>
         <table>
-          <thead><tr><th>Criterion</th><th>Cost</th></tr></thead>
+          <thead><tr><th>Criterion</th><th>Model</th><th>Token cost</th><th>Searches</th><th>Search cost</th></tr></thead>
           <tbody>
             {% for criterion, entry in rep.judge_cost.per_criterion.items() %}
               <tr>
                 <td>{{ criterion }}</td>
-                <td>${{ "%.4f" | format(entry.cost_usd) }}</td>
+                <td>{{ entry.get("model", "—") }}</td>
+                <td>${{ "%.4f" | format(entry.get("cost_usd", 0) or 0) }}</td>
+                <td>{{ entry.get("search_count", "—") }}</td>
+                <td>${{ "%.4f" | format(entry.get("search_cost_usd", 0) or 0) }}</td>
               </tr>
             {% endfor %}
             <tr>
-              <td><strong>Total ({{ rep.judge_cost.model }})</strong></td>
-              <td><strong>${{ "%.4f" | format(rep.judge_cost.total_cost_usd) }}</strong></td>
+              <td><strong>Total ({{ rep.judge_cost.get("models", [rep.judge_cost.get("model")] if rep.judge_cost.get("model") else []) | join(", ") }})</strong></td>
+              <td></td>
+              <td><strong>${{ "%.4f" | format(rep.judge_cost.get("total_cost_usd", 0) or 0) }}</strong></td>
+              <td><strong>{{ rep.judge_cost.get("total_search_count", "—") }}</strong></td>
+              <td><strong>${{ "%.4f" | format(rep.judge_cost.get("total_search_cost_usd", 0) or 0) }}</strong></td>
             </tr>
+            {% if "grand_total_cost_usd" in rep.judge_cost %}
+              <tr>
+                <td colspan="4"><strong>Grand total (token + search)</strong></td>
+                <td><strong>${{ "%.4f" | format(rep.judge_cost.grand_total_cost_usd) }}</strong></td>
+              </tr>
+            {% endif %}
           </tbody>
         </table>
       {% endif %}

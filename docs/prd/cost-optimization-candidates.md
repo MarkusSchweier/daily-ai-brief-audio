@@ -188,7 +188,13 @@ discipline) — not automatic from a good eval result.
 - **No change to the `daily-ai-brief` skill content.** Decomposition candidates reference the
   unchanged skill, scoped by prompt (preserves the wording-contrast discipline).
 - **No re-litigation of the eval v1 criteria** (content selection, factual accuracy, length/format,
-  dedup) beyond letting a run test a **subset** of them.
+  dedup) beyond letting a run test a **subset** of them. *(Amended 2026-07-07: this non-goal was
+  lifted by the owner for judge **METHODOLOGY** specifically — the criteria SET stays the same four
+  above, unchanged, but real committed runs exposed genuine judge-quality defects (knowledge-cutoff
+  bias in `factual_accuracy`; same-day dedup contamination), so the owner directed a same-day judge
+  methodology v2 rework of HOW three of the four are judged — see
+  `docs/adr/0016-eval-harness-reintegration.md`'s dated amendment and `deploy/eval-harness/README.md`'s
+  judges section. `length_format` stayed unchanged, and no criterion was added or removed.)*
 - **Source-list trimming** (GitHub issue #28) stays separate/orthogonal (applies under any candidate).
 
 ## 8. Dependencies

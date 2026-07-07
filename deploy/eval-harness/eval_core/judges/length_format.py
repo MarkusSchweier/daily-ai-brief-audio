@@ -7,15 +7,25 @@ sections. Flags under- or over-shoot.
 
 PORTED, UNCHANGED (ADR-0016 Phase 1, 2026-07-07) from
 `deploy/eval/eval_core/judges/length_format.py`.
+
+UNCHANGED by judge methodology v2 (2026-07-07, owner-directed, docs/adr/0016
+amendment), per the owner's explicit instruction -- this judge's PROMPT and
+approach stay exactly as they were (a length/format check needs no live web
+research, and its v1 approach was never implicated by either live-run finding
+that motivated the v2 rework). The ONE thing that changes is its MODEL: it now
+resolves `claude-opus-4-8` from `base.JUDGE_MODELS` (the same "judges must be
+stronger than what they judge" principle applied uniformly to all four judges),
+not the previous shared `claude-haiku-4-5`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from .base import JSON_RESPONSE_INSTRUCTION, JudgeResult, run_judge
+from .base import JSON_RESPONSE_INSTRUCTION, JUDGE_MODELS, JudgeResult, run_judge
 
 CRITERION = "length_format"
+_MODEL = JUDGE_MODELS[CRITERION]
 
 # The skill's own stated target (SKILL.md's Output Contract + "Rank & select" section),
 # restated here so the judge's rubric is explicit and doesn't require it to re-derive
@@ -43,7 +53,7 @@ _SYSTEM_PROMPT = (
 
 def judge_length_format(client: Any, *, brief_markdown: str) -> JudgeResult:
     user_prompt = f"BRIEF:\n{brief_markdown}\n\nJudge length/format compliance against the stated target per your system instructions."
-    return run_judge(client, criterion=CRITERION, system_prompt=_SYSTEM_PROMPT, user_prompt=user_prompt)
+    return run_judge(client, criterion=CRITERION, system_prompt=_SYSTEM_PROMPT, user_prompt=user_prompt, model=_MODEL)
 
 
 __all__ = ["judge_length_format", "CRITERION"]

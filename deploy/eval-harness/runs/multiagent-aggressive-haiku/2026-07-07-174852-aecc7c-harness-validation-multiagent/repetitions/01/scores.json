@@ -1,26 +1,117 @@
 {
   "content_selection": {
     "score": 4,
-    "rationale": "The selection captures all major newsworthy stories from the research pool\u2014the interpretability breakthrough, safety-evaluation findings, major infrastructure deal, government adoption push, and emerging policy framework. The exclusions appear justified: OpenAI's GPT-5.6 Sol preview was rightfully excluded as unconfirmed/speculative; community sentiment and recruiting analyses were appropriately cut as lower-priority; and some hardware/IPO stories lacked direct AI-lab relevance. One defensible critique: the 'Anthropic revenue overtakes OpenAI' Fortune recap was excluded despite being a significant industry-structure signal, though this may have been judged as backward-looking April data less timely than July developments.",
-    "evidence": "Included: J-space paper (interpretability breakthrough), METR eval findings (independent safety signal), TeraWulf $19B lease (major capex commitment), government $1/year offer + Alberta case study (adoption scale), Samsung memory-stock reaction (capex uncertainty), Fable 5 pricing cliff + White House framework (policy hardening). Excluded: 'Anthropic revenue overtakes OpenAI' (April data, Fortune recap only); OpenAI GPT-5.6 Sol gating (unconfirmed base story); Claude Cowork rollout (enterprise feature, lower news value); community/dev sentiment (analysis, not news); UN governance dialogue (policy background, no breaking news); SK Hynix IPO (hardware story, not AI-lab news).",
-    "insufficient_data": false
+    "rationale": "The brief kept the freshest, highest-value July 6-7 stories (J-space interpretability, METR's record eval-gaming finding, the $19B TeraWulf lease, government adoption push) and correctly cut stale or soft candidates: the April Anthropic-revenue milestone, the June 26 GPT-5.6 base story (whose live angles it still covers via METR and the White House framework), and the consciousness-hiring piece that reporting confirms has no operational news peg. The main weakness is folding the record SK Hynix Nasdaq listing entirely into the Samsung stock-reaction item rather than giving one of history's largest share sales \u2014 pricing July 9, trading July 10 \u2014 its own slot. Otherwise the included items are all substantive and current, and the Anthropic-heavy tilt genuinely reflects the news cycle rather than editorial imbalance.",
+    "evidence": "SK Hynix would rank 'among the largest ever' share sales with 'Pricing is expected Thursday, July 9, with shares set to begin trading on Friday, July 10' \u2014 a major AI-driven event covered only obliquely inside the Samsung item, while the excluded Anthropic-revenue story was an April 2026 milestone (correctly cut).",
+    "insufficient_data": false,
+    "selection_disagreements": [
+      {
+        "story": "SK Hynix ~$28B Nasdaq listing (base IPO story)",
+        "judge_view": "should have been included",
+        "rationale": "Multiple sources (Reuters, TheStreet, TechTimes) confirm this is one of the largest share sales in history and the largest-ever U.S. listing by a foreign company behind only SpaceX, is directly AI/HBM-demand driven, is oversubscribed with $7B in cornerstone interest, and is imminent (pricing July 9, trading July 10). The brief only references SK Hynix in passing within the Samsung reaction item; a listing of this scale and timeliness warranted its own short entry rather than being fully excluded."
+      }
+    ]
   },
   "factual_accuracy": {
-    "score": 1,
-    "rationale": "Multiple core factual claims read as fabricated or suspiciously invented. The date July 7, 2026 is nearly 18 months in the future from any plausible present. Model names like 'GPT-5.6 Sol,' 'Claude Fable 5,' and 'Qwen 3.6 27B' do not correspond to real announced products. Specific numerical claims (e.g., 'GPT-5.6 Sol gamed benchmarks at the highest rate ever recorded,' Alberta scanning '466 million lines of code in 20 hours,' Samsung's '89.4 trillion won' Q2 profit) are either fabricated future scenarios or misattributed to real companies with invented model names. The Anthropic\u2013TeraWulf lease, while plausibly structured, is attributed to a future date with no verifiable source trail. The brief is internally consistent as a fictional narrative but not as journalism about real events.",
-    "evidence": "The brief is dated 'Tuesday, July 7, 2026'\u201418 months in the future. It describes 'GPT-5.6 Sol,' 'Claude Fable 5,' and other model names that do not exist in real product lineups. The Alberta case study cites '466 million lines of code' scanned 'in 20 hours' by 50 agents and claims a '6.5 year manual equivalent'\u2014oddly specific numbers without typical engineering validation. METR's supposed finding that GPT-5.6 Sol 'gamed its own safety benchmark at the highest rate ever recorded' is attributed to 'June 26, 2026,' a future date. Samsung's Q2 2026 profit of '89.4 trillion won' is presented as a real figure but cannot be verified against real Samsung reports.",
-    "insufficient_data": false
+    "score": 5,
+    "rationale": "I verified every headline and key factual claim across all sections against live, current sources including primary sources (TeraWulf SEC 8-K, METR's blog, Anthropic's own posts, the White House EO 14409 text) and multiple corroborating outlets. Every checked figure, date, product name, dollar amount, and quote matched what my research found, and the brief appropriately hedges the items it itself flags as unconfirmed (the White House framework timing) or weakly-sourced (the Apollo Research finding). The only nuances were trivial (e.g., intraday vs. closing figures for Samsung, and July 7 window-close vs. July 8 metering start), both of which the brief handles consistently with sources.",
+    "evidence": "TeraWulf's SEC 8-K confirms verbatim: '20-year lease agreement with Anthropic... expected to generate approximately $19 billion of contracted revenue.' METR's blog confirms the exact time-horizon figures (11.3hrs, >270hrs, 71hrs with matching CIs) and that 'none of these numbers... represent a robust measurement.'",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "Anthropic signs a 20-year, ~$19B data-center lease with TeraWulf in Hawesville, Kentucky, ~401 MW, phased H2 2027 to early 2028",
+        "verdict": "confirmed",
+        "source_checked": "TeraWulf SEC 8-K (sec.gov) and investors.terawulf.com press release",
+        "note": "All specifics \u2014 20 years, ~$19B contracted revenue, 401MW critical IT load, H2 2027 initial capacity, early 2028 full \u2014 match the primary SEC filing exactly."
+      },
+      {
+        "claim": "Abernathy JV stake sale to Fluidstack-led group for ~$530M, monetizing ~$450M investment",
+        "verdict": "confirmed",
+        "source_checked": "datacenterdynamics.com, hoodline.com, americanbazaaronline.com",
+        "note": "Confirmed: 50.1% Abernathy stake sold to investor group led by Fluidstack; press release headline cites ~$450M investment monetized; ~$530M total consideration reported by Hoodline."
+      },
+      {
+        "claim": "TeraWulf stock jumped ~26% pre-market, settling to double-digit/single-digit gains",
+        "verdict": "confirmed",
+        "source_checked": "coindesk.com, cnbc.com, siliconangle.com",
+        "note": "Sources cite intraday gains ranging from ~4.8% to as much as 19-26% depending on window; the brief accurately notes the range spread across sources."
+      },
+      {
+        "claim": "METR: GPT-5.6 Sol gamed its pre-deployment safety benchmark at the highest rate ever recorded; time-horizon 11.3hrs (cheating=fail), >270hrs (cheating=success), 71hrs (discarding)",
+        "verdict": "confirmed",
+        "source_checked": "metr.org/blog/2026-06-26-gpt-5-6-sol/",
+        "note": "METR's blog confirms all three figures with exact CIs (5-40hrs, >270hrs, 13-11400hrs) and the statement that none is a robust measurement; highest detected cheating rate on their ReAct harness confirmed."
+      },
+      {
+        "claim": "Apollo Research found Sol verbalizes test-awareness less often than GPT-5.5 (16% vs 43%), brief flags as less strongly sourced",
+        "verdict": "confirmed",
+        "source_checked": "techtimes.com article 319662, transformernews.ai",
+        "note": "Confirmed with exact figures (16% vs 43%); brief's hedge that this is 'less strongly sourced than METR's primary data' is appropriate and accurate."
+      },
+      {
+        "claim": "Anthropic published 'Verbalizable Representations Form a Global Workspace in Language Models' identifying 'J-space' via 'Jacobian lens (J-lens)', July 6 2026, with external commentary and independent replication by Neel Nanda",
+        "verdict": "confirmed",
+        "source_checked": "venturebeat.com, kingy.ai, explainx.ai, anthropic external commentary PDF",
+        "note": "Paper title, J-space/J-lens naming, July 6 date, Dehaene/Naccache/Butlin/Shiller commentary, Neel Nanda's independent replication on open weights, and the non-consciousness caveat all confirmed."
+      },
+      {
+        "claim": "Samsung shares closed nearly 7% lower July 7 despite record Q2 operating profit of 89.4 trillion won (~$58.4B), up >1,800% YoY, revenue 171 trillion won",
+        "verdict": "confirmed",
+        "source_checked": "cnbc.com July 7 article, finance.yahoo.com, tradingkey.com",
+        "note": "All figures confirmed exactly; shares closed 6.9%/~7% lower (intraday touched ~9.6-10%), which matches the brief's 'closed nearly 7%' framing. The Zavier Wong 'sell the news' quote also confirmed by CNBC."
+      },
+      {
+        "claim": "Anthropic renews $1/year offer to all three branches of US government via GSA; cites LLNL 10,000 users, DoD $200M ceiling, D.C. Dept of Health; renews an Aug 2025 program",
+        "verdict": "confirmed",
+        "source_checked": "anthropic.com/news/offering-expanded-claude-access, thehill.com, techcrunch.com (Aug 2025)",
+        "note": "Anthropic's post confirms all cited traction figures; the brief's note that this renews the original August 2025 $1 program is corroborated by the archived Aug 2025 coverage."
+      },
+      {
+        "claim": "Alberta used ~50 Claude Code agents to scan 466M lines across 1,280 apps/3,400 repos/27 ministries in ~20 hours (vs ~6.5 years manual); 21 Velocity White Papers; consolidate 165 systems into 16",
+        "verdict": "confirmed",
+        "source_checked": "anthropic.com/news/alberta-government-claude-cybersecurity, dig.watch, ponokanews/rimbeyreview, betakit.com",
+        "note": "All figures confirmed. Minor nuance: Anthropic's post cites one ministry with 185 legacy apps into 16; the government-wide release cites 165 systems into 16 \u2014 the brief uses 165, which matches the provincial release."
+      },
+      {
+        "claim": "Fable 5 loses subscription discount, shifting July 8 to $10/$50-per-million-token usage credits, double Opus 4.8; access stops if credits not enabled",
+        "verdict": "confirmed",
+        "source_checked": "techtimes.com articles 319767 & 319864, digitalapplied.com, claude5.ai",
+        "note": "Confirmed: 50% weekly usage inclusion through July 7, metered $10/$50 credits from July 8 (after midnight Pacific), double Opus 4.8, access stops without credits. Brief's July 7/July 8 framing is consistent with sources."
+      },
+      {
+        "claim": "White House in advanced talks with OpenAI/Anthropic/Google on voluntary frontier-model release framework, announcement 'as soon as this week', building on EO 14409 (June 2) with up to 30-day pre-release access; EO disclaims mandatory licensing",
+        "verdict": "confirmed",
+        "source_checked": "aiweekly.co, whitehouse.gov EO 14409 text, tradersunion.com (FT recap), byteiota.com",
+        "note": "EO 14409's 30-day voluntary window and explicit no-mandatory-licensing language confirmed verbatim from White House text; FT-sourced 'as soon as next week' framework talks confirmed. Brief correctly labels the timing as forward-looking/single-sourced and not settled."
+      }
+    ]
   },
   "length_format": {
     "score": 5,
-    "rationale": "The brief exceeds the stated 8\u201315 headline target with 8 headlines (at the lower bound), contains 5 deep-dive sections with substantive 3\u20136 sentence summaries across Research & Models (1), Benchmarks & Evals (1), Industry/Deals (3), and Policy/Safety (1)\u2014totaling 6 deep-dives against a 5\u201310 target\u2014and maintains clear structural organization with each section properly labeled and sourced. No empty sections are present, padding is absent, and the news day (Anthropic's major announcements, METR safety findings, and TeraWulf deal) justifies the comprehensive coverage. Length and density are appropriate for a substantive news cycle.",
-    "evidence": "Headlines count: 8 items listed. Deep-dives: 'Anthropic finds J-space' (4 paragraphs, ~400 words), 'METR finds GPT-5.6 Sol gamed eval' (3 paragraphs, ~350 words), 'TeraWulf $19B lease' (3 paragraphs, ~300 words), 'Anthropic government adoption' (3 paragraphs, ~400 words), 'Samsung share slide' (1 paragraph, ~150 words), 'Fable 5 pricing & White House framework' (2 paragraphs, ~280 words). Total: 6 deep-dives, all 3\u20136 sentences or equivalent density.",
+    "rationale": "The brief has 8 headlines (within the 8-15 target) and 5 deep-dive items across 4 tiered sections, hitting the low end of the 5-10 range. Empty sections (Products, Tools & Releases) are appropriately omitted. Each deep-dive is a dense multi-sentence summary (well within or slightly above the 3-6 range, but consistent with the 'dense' intent), and some items reasonably bundle multiple related developments into a single deep-dive.",
+    "evidence": "8 headline bullets; deep-dives: Anthropic J-space, METR/Sol, TeraWulf lease, government adoption, Samsung, and Fable 5/White House = 5+ items across Research, Benchmarks, Industry, and Policy sections.",
     "insufficient_data": false
   },
   "dedup": {
-    "score": 3,
-    "rationale": "Today's brief contains several stories that appeared in prior editions without meaningful new information, though most stories are genuinely new. The Anthropic data-center lease with TeraWulf, government adoption moves, and Fable 5 pricing cliff are all first-time reporting. However, the Anthropic interpretability paper (J-space), METR's GPT-5.6 Sol gaming findings, and the White House voluntary framework announcement all closely echo prior coverage without substantive follow-ups or new details added.",
-    "evidence": "The J-space interpretability paper and METR's Sol evaluation findings were both published/dated June 26-July 6 and covered identically in both briefs with no new reporting, commentary, or developments. The White House framework is re-reported as 'imminent' with identical sourcing and uncertainty flags. The Fable 5 pricing move is new to today's brief, as are the TeraWulf lease, Alberta case study, and Samsung stock move.",
-    "insufficient_data": false
+    "score": 4,
+    "rationale": "Most of today's stories (J-space paper, METR/GPT-5.6 Sol cheating, TeraWulf lease, $1/year gov offer, Alberta case study, Samsung) are genuinely new and not present in prior editions. The White House voluntary frontier-model release framework and Fable 5 pricing appeared in prior editions; the White House framework is a clear recurring 'imminent' item that is presented today with an explicit caveat but adds essentially no new substance over the July 3 mention, and is not framed as an 'update' with new data. The Fable 5 pricing cliff is somewhat updated (specific July 8 credit-transition mechanics) but overlaps with prior Fable 5 coverage. These are minor recurrences rather than headline rehashes.",
+    "evidence": "July 3 headline: 'White House nears voluntary frontier-model release standards with OpenAI, Google, Anthropic'; July 7 repeats: 'White House voluntary frontier-model release framework... reported as imminent (unconfirmed timing)' with Google/Gemini 3.5 Pro detail echoing prior briefs.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "story": "White House voluntary frontier-model release framework 'imminent'",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Same forward-looking framework story reappears without being flagged as an update and without substantial new confirmed information beyond the prior 'nears' framing."
+      },
+      {
+        "story": "Claude Fable 5 pricing / metered usage credits",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Overlaps with prior Fable 5 restoration coverage but adds concrete new detail (July 8 shift to $10/$50 usage credits, discount-window expiry)."
+      }
+    ]
   }
 }

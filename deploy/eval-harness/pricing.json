@@ -18,7 +18,26 @@
     "~5x each model's own base input rate on every tier below -- noted as a sanity",
     "observation, NOT stored/derived as a multiplier (output_per_million_usd is",
     "pinned explicitly per tier, not computed, for maximum accuracy per the ADR's",
-    "'prices must be pinned, not formula-derived' stance)."
+    "'prices must be pinned, not formula-derived' stance).",
+    "",
+    "Judge methodology v2 (2026-07-07, owner-directed, docs/adr/0016 amendment):",
+    "'claude-opus-4-8' was added -- ALL FOUR judges now default to Opus 4.8 (a judge",
+    "must be a stronger model than what it judges), verified live against the pricing",
+    "page the same day: $5/$25 per MTok in/out, standard (non-introductory) pricing,",
+    "no effective_until. Its cache multipliers ($6.25/$10/$0.50) reproduce the SAME",
+    "uniform 1.25/2.0/0.1-of-base-input ratios as every other family, so no",
+    "per-model cache_multipliers override was needed. Note the pricing page's own",
+    "tokenizer caveat: Opus 4.7+ (incl. 4.8) and Sonnet 5 use a newer tokenizer that",
+    "produces ~30% MORE tokens for the same text than Haiku 4.5's tokenizer -- part",
+    "of why an Opus judge costs more per call than a token-count comparison alone",
+    "would suggest, not a pricing.json concern but worth knowing when reading a",
+    "judge-cost.json total. The 'web_search' block below is a SEPARATE, flat,",
+    "per-call (not per-token, not per-model) rate Anthropic bills web-search tool",
+    "invocations at -- confirmed live the same day against the web-search-tool docs",
+    "page ('$10 per 1,000 searches' = $0.01/search); web fetch is NOT priced here",
+    "because it is billed at token cost only, no separate per-call fee (confirmed",
+    "live against the web-fetch-tool docs page: 'available at no additional cost...",
+    "you only pay standard token costs')."
   ],
   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
   "captured_on": "2026-07-07",
@@ -26,6 +45,11 @@
     "write_5m": 1.25,
     "write_1h": 2.0,
     "read": 0.1
+  },
+  "web_search": {
+    "cost_per_1000_searches_usd": 10.0,
+    "source_url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool",
+    "captured_on": "2026-07-07"
   },
   "models": {
     "claude-sonnet-5": {
@@ -35,16 +59,16 @@
           "label": "introductory",
           "effective_from": null,
           "effective_until": "2026-08-31",
-          "input_per_million_usd": 2.00,
-          "output_per_million_usd": 10.00,
+          "input_per_million_usd": 2.0,
+          "output_per_million_usd": 10.0,
           "captured_on": "2026-07-07"
         },
         {
           "label": "standard",
           "effective_from": "2026-09-01",
           "effective_until": null,
-          "input_per_million_usd": 3.00,
-          "output_per_million_usd": 15.00,
+          "input_per_million_usd": 3.0,
+          "output_per_million_usd": 15.0,
           "captured_on": "2026-07-07"
         }
       ]
@@ -56,8 +80,21 @@
           "label": "standard",
           "effective_from": null,
           "effective_until": null,
-          "input_per_million_usd": 1.00,
-          "output_per_million_usd": 5.00,
+          "input_per_million_usd": 1.0,
+          "output_per_million_usd": 5.0,
+          "captured_on": "2026-07-07"
+        }
+      ]
+    },
+    "claude-opus-4-8": {
+      "aliases": ["claude-opus-4-8"],
+      "tiers": [
+        {
+          "label": "standard",
+          "effective_from": null,
+          "effective_until": null,
+          "input_per_million_usd": 5.0,
+          "output_per_million_usd": 25.0,
           "captured_on": "2026-07-07"
         }
       ]

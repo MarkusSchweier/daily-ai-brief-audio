@@ -1,26 +1,131 @@
 {
   "content_selection": {
-    "score": 2,
-    "rationale": "The brief includes several low-value or speculative stories while excluding genuinely significant news. Notably, Claude Sonnet 5's launch at $2/M input tokens (marked excluded) is a major product release that directly competes with the Fable 5 billing story included in the brief\u2014omitting it creates an incomplete market picture. The GPT-5.6 story relies on unconfirmed availability timing ('likely this week') and unrot.co/Build Fast with AI (aggregators, not primary sources), making it speculative. Conversely, Meta's Watermelon model claiming GPT-5.5 parity and Zuckerberg's admission on slower agent progress (excluded) is substantive competitive intelligence. The JadePuffer autonomous ransomware story (excluded) represents genuine AI safety/security news warranting inclusion in a daily brief. The brief also includes Google's Antigravity token-processing detail, which while interesting, is less pressing than multiple excluded stories of clearer business/policy significance.",
-    "evidence": "Included: GPT-5.6 with qualifier 'likely this week (July 7\u201314, 2026)' sourced to unrot.co and Build Fast with AI (aggregators). Excluded: 'Claude Sonnet 5 launches at $2/M input tokens (intro pricing through August) (Anthropic)' \u2014 a direct product launch from the vendor. Excluded: 'Meta's Watermelon model claimed to match GPT-5.5 on benchmarks; Zuckerberg admits agents progressing slower than expected' and 'JadePuffer: first fully autonomous AI-run ransomware operation documented by Sysdig.'",
-    "insufficient_data": false
+    "score": 3,
+    "rationale": "The core selections are defensible\u2014the White House frontier-model framework, Anthropic's revenue crossover, the Anthropic-Samsung chip talks, and the UN Geneva dialogue are all genuinely significant and correctly featured. However, the brief dropped two fresh, high-impact stories that broke this exact week: SK Hynix's ~$28B Nasdaq listing (the largest-ever US IPO by a foreign company, AI-memory driven, pricing/trading July 9-10) and JadePuffer, the first documented fully AI-agent-driven end-to-end ransomware operation. Meanwhile the brief skews heavily toward Anthropic and enterprise-tokenomics angles (4+ overlapping items), creating thematic redundancy while a whole 'safety incident' beat and the week's biggest AI-finance event went uncovered. This is a competent but imbalanced selection with two clear misses.",
+    "evidence": "SK Hynix was actively in-market this week: 'trading under the ticker SKHY beginning Friday, July 10' and 'the largest-ever U.S. listing by a foreign company, behind only SpaceX'; JadePuffer was 'the first documented case of agentic ransomware' per Sysdig\u2014yet both were excluded while the brief ran a Microsoft $2.5B deployment-company item and multiple overlapping tokenomics angles.",
+    "insufficient_data": false,
+    "selection_disagreements": [
+      {
+        "story": "SK Hynix $28B Nasdaq IPO among largest ever, on AI memory-chip demand",
+        "judge_view": "should have been included",
+        "rationale": "Web search confirmed this is the largest-ever US IPO by a foreign company (second only to SpaceX's $85.7B), explicitly AI-driven via high-bandwidth memory demand, oversubscribed with $7B cornerstone interest, and actively pricing July 9 / trading July 10\u2014i.e., breaking precisely during the brief's window. It's a distinct AI-infrastructure/finance story, more newsworthy and timely than the included Microsoft $2.5B deployment-company item, and adds diversity to an Anthropic-heavy brief."
+      },
+      {
+        "story": "JadePuffer: first fully autonomous AI-run ransomware operation documented by Sysdig",
+        "judge_view": "should have been included",
+        "rationale": "Multiple security outlets (Sysdig, BleepingComputer, Infosecurity, Cybernews) confirm this is the first documented end-to-end LLM-agent-driven ransomware operation\u2014a genuinely novel AI safety/security milestone. The brief's 'Policy, Safety & Society' section contained only governance items and no actual safety incident; this was the most concrete, widely-covered AI-risk story available and should have been featured."
+      }
+    ]
   },
   "factual_accuracy": {
-    "score": 1,
-    "rationale": "This brief is dated July 7, 2026\u2014a future date nearly two years from the current time (early 2025). The entire document describes events and announcements as occurring in July 2026, which is impossible to verify or confirm. While individual claims are internally consistent and plausibly constructed (specific dollar amounts, model names, chip specs, pricing tiers), they are fundamentally unverifiable future projections or fabrications. The brief presents speculation and invented details as established fact\u2014e.g., Anthropic's $30B revenue, GPT-5.6 Sol/Terra/Luna models with specific pricing, Samsung 2nm chip talks, Microsoft's $2.5B AI deployment company, and detailed UN governance meetings\u2014none of which can be confirmed against any actual source. The sourcing conventions (FT, Bloomberg, Fortune, The Information) are authentic publication names, but the specific URLs and articles cited do not exist. This appears to be either a fictional scenario or a test of hallucination detection.",
-    "evidence": "The brief is dated 'Tuesday, July 7, 2026' and describes events as happening 'today,' 'this week,' and recent past, all of which are temporally impossible from the perspective of early 2025. Claims like 'Anthropic has overtaken OpenAI in annualized revenue, hitting $30B+ run rate' and 'GPT-5.6 Sol/Terra/Luna pricing confirmed' are presented as established fact but cannot be verified against any existing news source, and the cited URLs (e.g., 'unrot.co/blogs/today-top-10-ai-news-july-6-2026') are future dates.",
-    "insufficient_data": false
+    "score": 5,
+    "rationale": "I verified every major factual claim across all sections via live sources, and each one was confirmed with striking precision: the GPT-5.6 Sol/Terra/Luna pricing matches OpenAI's own blog exactly, the Fable 5 $10/$50 metered billing and July 7 cutoff match Anthropic's docs and multiple trackers, the Anthropic $30B vs OpenAI ~$25B revenue crossover (including the gross-vs-net accounting dispute) is well-corroborated, and the Microsoft Frontier Company ($2.5B, 6,000 engineers), Anthropic-Samsung 2nm talks, White House EO 14409 framework, and UN Geneva Dialogue all check out. The brief appropriately hedges uncertain items (labeling Samsung talks 'preliminary/early-stage' per The Information rather than overstating them, and flagging GPT-5.6 GA timing as 'likely/expected'). The only minor discrepancy is a '169 countries' figure for the UN Dialogue where sources reference 193 Member States, but delegate attendance can plausibly differ and this doesn't undermine any substantive claim.",
+    "evidence": "Brief: 'GPT-5.6... confirmed pricing ($5/$30 per million tokens for Sol; $2.50/$15 for Terra; $1/$6 for Luna)' \u2014 matches OpenAI's own blog verbatim: 'Sol is $5 input / $30 output; Terra is $2.50 input / $15 output; and Luna is $1 input / $6 output.'",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "GPT-5.6 Sol/Terra/Luna pricing: $5/$30, $2.50/$15, $1/$6 per Mtok; limited to ~20 government-vetted orgs via API/Codex, not ChatGPT",
+        "verdict": "confirmed",
+        "source_checked": "openai.com/index/previewing-gpt-5-6-sol/ and help.openai.com",
+        "note": "OpenAI's own blog states these exact prices; VentureBeat/letsdatascience confirm ~20 organizations shared with the US government and no ChatGPT access during preview."
+      },
+      {
+        "claim": "Fable 5 exits subscription July 7; moves to metered usage credits at $10/$50 per Mtok, double Opus 4.8; Batch API $5/$25, caching ~$1/Mtok",
+        "verdict": "confirmed",
+        "source_checked": "digitalapplied.com, techtimes.com, claudefa.st, Anthropic pricing docs",
+        "note": "Multiple sources and Anthropic's pricing page confirm $10/$50 (double Opus 4.8's $5/$25), the July 7 switch, 50%-of-weekly-limits window, batch halving to $5/$25, and cache reads at $1/Mtok."
+      },
+      {
+        "claim": "Anthropic hit $30B+ annualized run rate vs OpenAI ~$25B; over 1,000 enterprise customers >$1M/yr (double from February); OpenAI disputes figure as gross vs net",
+        "verdict": "confirmed",
+        "source_checked": "venturebeat.com, sherwood.news, forbes.com, the-ai-corner.com",
+        "note": "All confirmed, including the specific OpenAI internal argument that the $30B is overstated by ~$8B due to gross-vs-net cloud revenue accounting; the 1,000+ customer doubling in under two months is widely reported."
+      },
+      {
+        "claim": "Anthropic in preliminary/early-stage talks with Samsung to manufacture custom 2nm AI chips; hired Clive Chan (ex-OpenAI chip lead)",
+        "verdict": "confirmed",
+        "source_checked": "theinformation.com, techcrunch.com, thelec.net, trendforce.com",
+        "note": "Confirmed as early-stage per The Information; brief correctly characterizes it as 'preliminary' rather than 'final-stage' as some Korean outlets (BigGo) claimed; Clive Chan hire confirmed."
+      },
+      {
+        "claim": "White House nearing completion of voluntary frontier-model pre-release framework; up to 30-day review, NSA classified benchmarking, advisory not gatekeeping; announcement expected week of July 7",
+        "verdict": "confirmed",
+        "source_checked": "whitehouse.gov EO 14409, faq.com.tw (FT), Norton Rose Fulbright, Latham & Watkins",
+        "note": "EO 14409 (June 2, 2026) confirms the 30-day window, NSA classified benchmarking, 'covered frontier model' designation, and explicit non-mandatory/non-licensing language; FT/Bloomberg reporting supports the week-of-July-7 announcement expectation."
+      },
+      {
+        "claim": "Anthropic's Pentagon standoff: $200M contract, participation signals rehabilitation",
+        "verdict": "confirmed",
+        "source_checked": "faq.com.tw (FT coverage)",
+        "note": "FT-sourced reporting confirms the terminated $200M Pentagon contract over autonomous-weapons language and the 'Supply Chain Risk to National Security' designation, matching the brief."
+      },
+      {
+        "claim": "UN Global Dialogue on AI Governance closes July 7 in Geneva, co-chaired by El Salvador's Egriselda L\u00f3pez and Estonia's Rein Tammsaar; runs alongside WSIS Forum (July 6-10) and AI for Good (July 7-10); Scientific Panel report co-chaired by Bengio",
+        "verdict": "confirmed",
+        "source_checked": "un.org, unesco.org, news.un.org",
+        "note": "All confirmed including co-chairs, concurrent WSIS/ITU events, Palexpo venue, and Bengio's panel warning about capabilities outpacing governance; brief cites '169 countries' while UN sources reference 193 Member States invited (a minor, plausibly-attendance-based discrepancy)."
+      },
+      {
+        "claim": "Microsoft launched $2.5B AI deployment company with enterprise focus",
+        "verdict": "confirmed",
+        "source_checked": "techcrunch.com, thenextweb.com, finance.yahoo.com",
+        "note": "Confirmed as 'Microsoft Frontier Company,' $2.5B and 6,000 engineers, announced July 2, 2026; brief's characterization is accurate though it omits the specific name."
+      },
+      {
+        "claim": "Google Antigravity processing 3+ trillion tokens daily (up from ~500B in March); Pichai says 80% workload shift saves >$1B/yr",
+        "verdict": "confirmed",
+        "source_checked": "venturebeat.com, theregister.com, investing.com",
+        "note": "Confirmed: internal Antigravity usage went from ~500B/day (March) to past 3 trillion by mid-May per VentureBeat's I/O coverage; the $1B savings figure refers to top Cloud customers processing ~1T tokens/day, which the brief slightly conflates with internal usage but reports accurately."
+      }
+    ]
   },
   "length_format": {
     "score": 5,
-    "rationale": "The brief contains 8 headlines (within the 8\u201315 target range) and delivers 6 deep-dive items across 3 substantive sections (Policy, Safety & Society; Products, Tools & Releases; Industry, Deals & Strategy; Research & Models), all well within the 5\u201310 deep-dive target. Each deep-dive is a dense 3\u20136 sentence summary with supporting sources. The structure is clean, empty sections are omitted, and the content density is appropriate for a high-activity news day (White House framework finalization, Fable 5 billing shift, revenue crossover, Samsung chip talks, Microsoft deployment company, Google token scale). No padding or bloat detected.",
-    "evidence": "Headlines: 8 items (White House standards, Fable 5 billing, Anthropic revenue, Samsung chips, GPT-5.6 pricing, UN Dialogue, Google Antigravity, Microsoft deployment). Deep-dives: 6 items (White House framework, UN Dialogue, Fable 5, GPT-5.6, Anthropic revenue crossover, Samsung semiconductor, Microsoft deployment, Google Antigravity tokens). Each deep-dive ranges 3\u20136 sentences with cited sources.",
+    "rationale": "The brief has 8 headline bullets (at the low end but within the 8-15 target) and 7 deep-dive items across 4 tiered sections (within the 5-10 range). Empty sections are omitted (no Benchmarks & Evals section). Each deep-dive is a dense 3-6+ sentence summary, matching the target format. Everything is within stated ranges with no meaningful under- or over-shoot.",
+    "evidence": "8 Headlines bullets; deep-dives: 2 Policy + 2 Products + 3 Industry + 1 Research = 7 items across tiered sections, with Benchmarks & Evals omitted.",
     "insufficient_data": false
   },
   "dedup": {
     "score": 2,
-    "rationale": "Today's brief repeats several stories from prior editions without clear new information. The UN Global Dialogue on AI Governance (headline and policy section) is nearly identical to July 6's brief\u2014same dates, same co-chairs, same framing\u2014with only minor rewording and no new developments. The White House voluntary frontier-model standards framework repeats July 3's coverage verbatim in substance, with no new announcement or timeline update despite the headline claiming 'expected this week.' Microsoft's $2.5B deployment company and Anthropic-Samsung chip talks are direct rehashes from July 3 with no new details. Only a handful of stories (Fable 5 subscription end, GPT-5.6 pricing, Anthropic revenue crossover, Google Antigravity scale) appear genuinely new or substantially updated.",
-    "evidence": "UN story: Today's brief: 'inaugural UN Global Dialogue on AI Governance concludes today at Geneva's Palexpo, co-chaired by El Salvador's Egriselda L\u00f3pez and Estonia's Rein Tammsaar.' July 6 brief: nearly identical wording, same dates (July 6\u20137), same co-chairs. White House framework: Today repeats 'expected this week' and '30 days to review' from July 3 with no new confirmation or announcement actually occurring. Microsoft Frontier Company: Today lists it as a headline; July 3 brief already covered it with identical details ($2.5B, 6,000 engineers).",
-    "insufficient_data": false
+    "rationale": "Today's brief repeats at least four stories from prior editions with little-to-no new information and, critically, without any follow-up/update framing\u2014they are presented as fresh headlines. The White House frontier-standards story, the Anthropic-Samsung chip talks, and the Microsoft $2.5B deployment company all appeared in the July 3 edition and recur here as if new; the UN Geneva Dialogue was already covered July 6 as opening and is now re-covered as closing (a modest time-progression update, though unlabelled). The Samsung and Microsoft items in particular are near-verbatim rehashes with no substantive new data.",
+    "evidence": "July 3 headline 'White House nears voluntary frontier-model release standards' and 'Microsoft launches $2.5B \"Frontier Company\"' and 'Anthropic reportedly in early talks with Samsung on a custom AI chip' all reappear July 7 as unlabelled headlines: 'Microsoft launches $2.5B deployment company', 'Anthropic in preliminary talks with Samsung to manufacture custom 2nm AI chips'.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "story": "White House voluntary frontier-model standards framework",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Recurs unlabelled but adds real new detail (30-day review window, NSA benchmarking, threshold negotiations)."
+      },
+      {
+        "story": "Anthropic in talks with Samsung on custom 2nm AI chip",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Same July 2 story rehashed with essentially the same facts and no new developments."
+      },
+      {
+        "story": "Microsoft $2.5B AI deployment/Frontier company",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Same July 2 announcement re-reported as a fresh headline with no new information."
+      },
+      {
+        "story": "UN Global Dialogue on AI Governance in Geneva",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Covered July 6 as 'opens today'; now 'closes today' with the same background but no substantive outcomes, unlabelled as an update."
+      },
+      {
+        "story": "GPT-5.6 Sol/Terra/Luna gated availability window",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Same gated-preview status and pricing repeated; only a narrowed date window added, presented as new."
+      }
+    ]
   }
 }
