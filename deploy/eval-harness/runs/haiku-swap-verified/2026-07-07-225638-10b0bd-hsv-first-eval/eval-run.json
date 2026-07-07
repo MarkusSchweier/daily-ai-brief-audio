@@ -1,0 +1,33 @@
+{
+  "name": "hsv first eval",
+  "slug": "haiku-swap-verified",
+  "agent_id": "agent_013zhkbzC3PGdHbbNZzKgF49",
+  "git_ref": "57413ce62a8a0f6fd292e7391aa0b848a84bf843",
+  "composition": "multi-agent",
+  "models": [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": [
+      {
+        "name": "daily-ai-brief-cost-hsv-verifier-sub-agent",
+        "model": "claude-sonnet-5",
+        "parameters": {}
+      }
+    ]
+  },
+  "repetitions": 1,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1783457798,
+  "declaration_dirty": false
+}
