@@ -96,6 +96,100 @@ coordinator $0.6023, research $0.3570, selection $1.2105, writing $0.1029,
 listening-script $0.0442 — and confirms sum-of-threads usage equals the session's
 own total usage.
 
+## The four judges (`eval_core/judges/`, judge methodology v2 — 2026-07-07)
+
+Each of the four v1 criteria (`content_selection`, `factual_accuracy`, `length_format`,
+`dedup`) is scored by a one-shot Anthropic Messages API call (`eval_core/judges/base.py`'s
+`run_judge()`) — not a Managed Agents session. **Judge methodology v2** (owner-directed,
+2026-07-07, `docs/adr/0016-eval-harness-reintegration.md`'s dated amendment) reworked
+three of the four after two real committed runs exposed genuine judge-quality defects;
+`length_format` is unchanged.
+
+**Models — ALL FOUR default to `claude-opus-4-8`.** The owner's principle: a judge must be
+run on a model STRONGER than what it judges, or the evaluation doesn't mean much. Per-judge
+model config stays flippable — `eval_core/judges/base.JUDGE_MODELS` is the one small mapping
+(`{criterion: model_id}`) every judge module resolves its own entry from; changing one
+judge's model back down is a one-line edit there, not a hunt through four files. Each
+`JudgeResult` records which model actually ran the call (`.model`), so `run.py`'s
+`_price_judge_results()` prices every criterion against ITS OWN model — `judge-cost.json`'s
+top-level `models` field is the sorted set of models actually used across the criteria a run
+tested (usually just `["claude-opus-4-8"]`, but would show more than one entry if a judge's
+model is ever flipped).
+
+- **`factual_accuracy` — full rework.** Previously judged PLAUSIBILITY against the judge's
+  own training data (a real committed run penalized a correctly-dated brief for being
+  "dated July 7, 2026 — a future date," i.e. knowledge-cutoff bias). Now ACTUALLY VALIDATES
+  the brief's claims via the judge's OWN live research: given the brief markdown plus this
+  repo's curated `sources.md` (read fresh at trigger time from
+  `deploy/managed-agent/skills/daily-ai-brief/sources.md` — the ADR-0008 in-repo/live-Skills-API
+  lockstep copy — and passed into the prompt, never fetched by the judge itself), it extracts
+  headlines/claims per section (focus set: headlines, numbers, dates, dollar amounts,
+  benchmark scores, direct quotes, named products/models), then verifies/falsifies each via
+  server-side **web_search** (`web_search_20250305`, `max_uses: 8`) and **web_fetch**
+  (`web_fetch_20250910`, `max_uses: 8`) tools. The system prompt explicitly forbids treating
+  "I don't recognize this" as fabrication evidence — verification comes from live research,
+  never training-data familiarity. Output gains a structured `findings` array:
+  `{claim, verdict: confirmed|contradicted|unverifiable, source_checked, note}`, with any
+  deviation between the brief's version and the judge's own research specifically documented.
+- **`content_selection` — targeted upgrade.** Keeps its proven `candidates.json`-vs-brief
+  contrast approach unchanged. Adds the same `web_search`/`web_fetch` tools (`max_uses: 5`
+  each) with an instruction to check the sources/internet before disagreeing with a selection
+  decision, sharpening the judge's editorial-priority call rather than relying on static
+  topic familiarity. Output gains a `selection_disagreements` array:
+  `{story, judge_view, rationale}`, populated only when the judge concludes (after checking)
+  it would have selected differently.
+- **`dedup` — feed fix + richer assessment.** A real committed run exposed structural
+  contamination: the judge was handed a "prior" that was actually the SAME-DAY production
+  brief, because `GET /recent-briefs` filters against the delivery Lambda's own wall-clock
+  "today" at REQUEST time, not the date of the specific brief under evaluation. **The fix
+  lives in the harness, not the judge or the endpoint**: `harness/dedup_priors.py`'s
+  `fetch_recent_prior_briefs(brief_date=...)` over-fetches (`count + 2`) from
+  `GET /recent-briefs`, then locally drops any entry whose own `date` is the SAME AS OR AFTER
+  the eval brief's own date (parsed by `run.py` from its artifact filename,
+  `AI Brief - YYYY-MM-DD.md`), dedupes to one entry per date, and caps at `count`. Each
+  prior's date is told to the judge explicitly in the prompt (`PRIOR EDITION (YYYY-MM-DD):`).
+  The judge now documents, per potential duplication, THREE things in a structured `findings`
+  array — `{story, duplicate_of_date, labelled_as_followup, justified, note}`: is it a
+  duplicate at all; IS it labelled as a follow-up in today's brief; IS that follow-up
+  justified by substantial new data (vs. a bare rehash). No web tools (two same-day texts
+  need no external verification).
+- **`length_format` — UNCHANGED.** Prompt, rubric, and approach are exactly as they were
+  (a length/format check needs no live research and was never implicated by either
+  live-run finding) — the ONLY change is its model, per the uniform Opus default above.
+
+**Web-tool schema/versions** (verified live 2026-07-07 against
+`platform.claude.com/docs/en/docs/agents-and-tools/tool-use/{web-search,web-fetch}-tool`,
+recorded in `accuracy.py`'s own docstring): `web_search_20250305` / `web_fetch_20250910`
+("basic" variants, both still current/documented) — **no `anthropic-beta` header required
+for either** (a change from the historical web-fetch beta-header requirement, confirmed by
+the docs' own cURL examples sending none). `max_uses` caps the number of tool invocations
+per judge call. A response's `usage.server_tool_use.web_search_requests` reports how many
+searches a call actually made (`base._extract_search_count()`).
+
+**Judge-cost accounting** (`judge-cost.json`, per repetition) prices token usage per the
+per-judge model above (`cost_usd`), and web-search usage SEPARATELY (`pricing.json`'s flat
+`web_search.cost_per_1000_searches_usd: 10.0` → `harness.cost.price_web_searches()`):
+`search_count`/`search_cost_usd` per criterion, `total_search_count`/`total_search_cost_usd`
+at the top level, never folded into `total_cost_usd` — `grand_total_cost_usd` is the one
+convenience sum for "judging cost, all-in." Web fetch is NOT priced separately — Anthropic
+bills it at ordinary token cost only, no per-call fee (confirmed live the same day). A judge
+model with no `pricing.json` entry fails loud (`cost.UnknownModelPriceError`), never silently
+prices as $0. Expected judge cost: roughly **$0.70–$1.00 per repetition, all-in** (Opus 4.8
+token cost across four judges, plus up to 8+5=13 web searches at $0.01 each) — note Opus
+4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more tokens for the same text** than
+Haiku 4.5's tokenizer (part of why an Opus judge costs more per call than a raw token-count
+comparison alone would suggest — see `pricing.json`'s own comment).
+
+**Response parsing**: a server-side-tool response can carry MIXED content (narration text,
+`server_tool_use`/tool-result blocks, then a final text block) — `run_judge()` parses ONLY
+the LAST text block for the JSON verdict, never joins every text block (an earlier narration
+block's own stray braces could otherwise corrupt the parse) and never assumes the first block
+is the answer. The `scores.json` schema stays additive: the original
+`{score, rationale, evidence, insufficient_data}` shape is unchanged; `findings`/
+`selection_disagreements` are included only when a judge's result actually carries one. The
+Deep Dive UI (`templates/run_detail.html`) renders both as plain tables, escaped exactly like
+every other judge-authored field (never `| safe`).
+
 ## Triggering an eval run (`run.py`)
 
 ```bash

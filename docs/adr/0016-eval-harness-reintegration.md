@@ -402,3 +402,142 @@ still, at build time: reproduce the spike `cost.json` exactly from `pricing.json
 the `git rev-parse` declaration-ref capture round-trips via `git show <ref>:<path>` with no rollback; and
 verify Platform session/event retention (open item 3) before relying on `events.json` for any historical
 deep dive.
+
+## Amendment: Judge methodology v2 (2026-07-07, owner-directed)
+
+Same-day amendment, after the harness above was built and run for real against three live
+candidates (`production-baseline`, `multiagent-aggressive-haiku`, `haiku-swap`). The four
+judges' MECHANICS (D1's "reuse `eval_core/judges/` unchanged" cross-cutting note) are
+superseded for three of the four criteria by this amendment; the harness's topology (D1–D5)
+is unaffected.
+
+### What the real runs found
+
+Two live-run findings, both visible in committed `runs/*/*/repetitions/01/scores.json`
+records, motivated this rework:
+
+1. **Knowledge-cutoff bias in `factual_accuracy`.** `runs/production-baseline/2026-07-07-
+   174129-cdafb6-harness-validation-baseline/repetitions/01/scores.json` scored a real,
+   correctly-dated production brief 2/5, with the rationale citing "The brief is dated July
+   7, 2026 — a future date nearly two years from now" and unfamiliar product names as
+   evidence of fabrication. The v1 judge (ADR-0016 Phase 1, ported unchanged from
+   `deploy/eval/`) judged PLAUSIBILITY against its own training data, not accuracy against
+   the brief's own sources — "I don't recognize this" was being treated as evidence of
+   fabrication, when the brief was simply reporting events after the judge's training
+   cutoff.
+2. **Same-day dedup contamination.** `runs/multiagent-aggressive-haiku/2026-07-07-174852-
+   aecc7c-harness-validation-multiagent/repetitions/01/scores.json`'s `dedup` entry was
+   scored against priors that included the SAME DAY's production brief. `GET
+   /recent-briefs` filters against the delivery Lambda's own wall-clock "today" at REQUEST
+   time (`_today_local_date()`), not the date of the specific brief under evaluation — an
+   eval run's own "today" and the delivery endpoint's "today" are not guaranteed to agree,
+   and nothing in the v1 harness checked.
+
+### The three judge changes (owner spec, 2026-07-07)
+
+- **`factual_accuracy` — full rework.** Now ACTUALLY VALIDATES the brief's claims via the
+  judge's OWN live research — server-side `web_search` (`web_search_20250305`, `max_uses:
+  8`) and `web_fetch` (`web_fetch_20250910`, `max_uses: 8`) tools — instead of judging
+  plausibility from training-data familiarity. Given this repo's curated `sources.md`
+  (`deploy/managed-agent/skills/daily-ai-brief/sources.md`, read fresh by `run.py` and
+  passed into the prompt) for context on where the brief's own sourcing should trace back
+  to. The system prompt explicitly states the brief may legitimately postdate the judge's
+  knowledge cutoff and that unfamiliarity is NOT evidence of fabrication — only live
+  research is. Extracts a stated focus set (headlines, numbers, dates, dollar amounts,
+  benchmark scores, direct quotes, named products/models) per section, then verifies each
+  claim, emitting a structured `findings` array:
+  `{claim, verdict: confirmed|contradicted|unverifiable, source_checked, note}`, with any
+  deviation between the brief's version and the judge's research SPECIFICALLY documented.
+- **`content_selection` — targeted upgrade.** Its proven `candidates.json`-vs-brief contrast
+  is unchanged. Adds the same `web_search`/`web_fetch` tools (`max_uses: 5` each): whenever
+  the judge believes a story should have been featured, or a featured story shouldn't have
+  made it, it checks the sources/internet before committing to that view. A structured
+  `selection_disagreements` array (`{story, judge_view, rationale}`) documents any case
+  where the judge, after checking, would have selected differently.
+- **`dedup` — feed fix (harness-side, not the judge) + richer assessment.** The feed fix
+  lives in `harness/dedup_priors.py`, not the judge and not the delivery endpoint (which
+  stays a thin, stateless, wall-clock read used by production candidates too, and gains no
+  new parameter): `fetch_recent_prior_briefs(brief_date=...)` over-fetches (`count + 2`)
+  from `GET /recent-briefs`, then locally drops any entry whose own date is the SAME AS OR
+  AFTER the eval brief's own date (parsed by `run.py` from the brief's artifact filename,
+  `AI Brief - YYYY-MM-DD.md`, via the new `_extract_brief_date()`), dedupes to one entry per
+  date, and caps at the requested count. Each prior's date is now told to the judge
+  explicitly in the prompt. The judge documents, per potential duplication, THREE things in
+  a structured `findings` array — `{story, duplicate_of_date, labelled_as_followup,
+  justified, note}`: is this actually a duplicate of a specific prior date; IS it labelled
+  as a follow-up in today's brief; IS that follow-up justified by substantial new data (vs.
+  a bare rehash). No web tools (comparing two texts the harness already has needs no
+  external verification).
+- **`length_format` — UNCHANGED**, per explicit owner instruction: its prompt and approach
+  were never implicated by either finding above (a length/format check needs no live
+  research), so only its MODEL changes (below), nothing else.
+
+### Per-judge model: ALL FOUR default to Opus 4.8 (owner course-correction, mid-build)
+
+The owner's original spec (models per-judge, "accuracy: Sonnet 5... content_selection/dedup
+stay Haiku unless a hard reason otherwise") was superseded, mid-build, by a stronger,
+uniform direction: **all four judges default to `claude-opus-4-8`**, on the principle that a
+judge must be run on a model STRONGER than what it judges, or the evaluation doesn't mean
+much — including `length_format`, whose prompt is otherwise untouched. Per-judge model
+config is KEPT as the mechanism (`eval_core/judges/base.JUDGE_MODELS`, one small
+`{criterion: model_id}` mapping each judge module resolves its own entry from) — the
+all-Opus default is the owner's call for right now, not hardcoded dogma; flipping one
+judge's model back down later is a one-line change to that mapping, not a rewrite.
+
+`pricing.json` gained a `claude-opus-4-8` entry, VERIFIED live the same day against
+`platform.claude.com/docs/en/about-claude/pricing`: base input $5/MTok, output $25/MTok,
+standard (non-introductory) pricing, no `effective_until`. Its cache rates ($6.25/$10/$0.50)
+reproduce the SAME uniform 1.25×/2.0×/0.1×-of-base-input ratios every other model family in
+the table already uses, so no per-model `cache_multipliers` override was needed. Judge cost
+resolves Opus 4.8 through the SAME fail-loud pricing path every other model uses
+(`cost.price_usage()` / `cost.UnknownModelPriceError`) — an unrecognized judge model still
+fails loud, never silently prices as $0.
+
+Expected judge cost: roughly **$0.70–$1.00 per repetition, all-in** — Opus 4.8 token cost
+across all four judges, plus up to 8 (accuracy) + 5 (content_selection) = 13 web searches at
+$0.01 each (web fetch is token-cost-only, no separate per-call fee — confirmed live the same
+day against the web-fetch-tool docs page). Note the pricing page's own tokenizer caveat:
+Opus 4.7+ (incl. 4.8) and Sonnet 5 use a newer tokenizer that produces **~30% more tokens for
+the same text** than Haiku 4.5's tokenizer — part of the cost multiple, not a `pricing.json`
+concern but worth knowing when reading a `judge-cost.json` total. Web-search cost is priced
+as a SEPARATE axis from token cost (`harness.cost.price_web_searches()`, `pricing.json`'s
+flat `web_search.cost_per_1000_searches_usd: 10.0`), never folded into `total_cost_usd` —
+`judge-cost.json` carries both `total_cost_usd` (token) and `total_search_cost_usd` (search)
+plus a convenience `grand_total_cost_usd` sum.
+
+### Plumbing consequences (additive, not a schema break)
+
+- `run_judge()` (`eval_core/judges/base.py`) now takes an explicit `model=` and optional
+  `tools=` (passed straight through to `messages.create(...)`), and parses ONLY the LAST
+  `text`-type content block for its JSON verdict — a server-side-tool response can carry
+  MIXED content (narration, `server_tool_use`/tool-result blocks, then a final text block),
+  and joining every text block (the v1 behavior) risked an earlier narration block's own
+  stray braces corrupting the outermost-brace JSON scan. `JudgeResult` gained `.model`,
+  `.search_count`, `.findings`, `.selection_disagreements` — all additive; the original
+  `score`/`rationale`/`evidence`/`insufficient_data`/`usage` fields are unchanged.
+- `scores.json` stays additive: `findings`/`selection_disagreements` are included only when
+  a judge's result actually carries one — a v1-shaped judge (or a v2 judge's degrade path
+  that never called the API) simply omits the key.
+- `run.py`'s `_price_judge_results()` now prices each criterion against its OWN recorded
+  model (`result.model`), not one shared constant, and adds the search-cost axis;
+  `_run_selected_judges()` threads through the new `sources_md`/`prior_briefs` (now
+  `{date, markdown}` dicts, not bare strings) parameters.
+- The Deep Dive UI (`templates/run_detail.html`) renders `findings`/`selection_disagreements`
+  as plain tables, escaped exactly like every other judge-authored field (never `| safe`) —
+  and the judge-cost table reads every v2 field via `.get(key, default)` so the several
+  ALREADY-COMMITTED runs under `runs/` (recorded before this amendment, still in the OLD
+  judge-cost.json shape) keep rendering without erroring.
+
+### Verification (web tool schemas, 2026-07-07)
+
+Confirmed live by fetching the current docs pages directly (`platform.claude.com/docs/en/
+docs/agents-and-tools/tool-use/{web-search,web-fetch}-tool` and `.../about-claude/pricing`;
+no API key needed): `web_search_20250305` and `web_fetch_20250910` ("basic" variants) are
+both still current/documented (newer dated versions exist, adding dynamic-filtering/
+response-inclusion controls neither judge needs); **no `anthropic-beta` header is required
+for either tool** — the docs' own cURL examples send none, correcting this task's own
+starting assumption that web_fetch still needed the historical `web-fetch-2025-09-10` beta
+header. Web search is billed "$10 per 1,000 searches" (flat, per-call, model-independent);
+web fetch is "available... at no additional cost... you only pay standard token costs." A
+response's `usage.server_tool_use.web_search_requests` (confirmed via the docs' own example
+response JSON) is how `base._extract_search_count()` reads a call's actual search count.
