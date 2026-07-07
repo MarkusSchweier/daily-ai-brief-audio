@@ -40,6 +40,13 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
     return candidate_dir
 
 
+# Synthetic sources.md content -- judge methodology v2's factual-accuracy judge
+# needs SOME sources.md to read; `_setup_env()` monkeypatches `run_cli._SOURCES_MD_PATH`
+# to a tmp copy of this fixture so tests never depend on the real repo's
+# deploy/managed-agent/skills/daily-ai-brief/sources.md content (hermetic).
+_FAKE_SOURCES_MD = "# Fake Source List\n\n## Tier 1\n- Fake Outlet: https://fake-outlet.example.test/news\n"
+
+
 def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None = "agent_test", commit: bool = True) -> Path:
     """`commit=True` (the default) makes `candidates_dir` a real, freshly-committed
     git repo -- required for `run.py`'s dirty-working-tree guard
@@ -54,8 +61,12 @@ def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None =
     if commit:
         git_init_and_commit(candidates_dir)
 
+    sources_md_path = tmp_path / "sources.md"
+    sources_md_path.write_text(_FAKE_SOURCES_MD, encoding="utf-8")
+
     monkeypatch.setattr(run_cli, "CANDIDATES_DIR", candidates_dir)
     monkeypatch.setattr(run_cli, "_ENVIRONMENT_JSON_PATH", candidates_dir / "environment.json")
+    monkeypatch.setattr(run_cli, "_SOURCES_MD_PATH", sources_md_path)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-for-cli-test")
     return candidates_dir
 
@@ -163,6 +174,15 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     judge_call_payload = json.dumps(fake_judge_client.messages.calls[0], default=str)
     assert "Some content." in judge_call_payload, "judge prompt did not contain the brief markdown"
 
+    # Judge methodology v2: factual_accuracy runs on Opus 4.8, with the sources.md
+    # fixture content actually reaching the system prompt (end-to-end plumbing of
+    # run.py's _load_sources_md()), and the web_search/web_fetch tools attached.
+    judge_call = fake_judge_client.messages.calls[0]
+    assert judge_call["model"] == "claude-opus-4-8"
+    assert "Fake Outlet: https://fake-outlet.example.test/news" in judge_call["system"]
+    tool_types = {t["type"] for t in judge_call["tools"]}
+    assert tool_types == {"web_search_20250305", "web_fetch_20250910"}
+
     cost_data = json.loads((rep_dir / "cost.json").read_text())
     assert cost_data["total_cost_usd"] > 0
 
@@ -172,12 +192,17 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
 
     assert (rep_dir / "events.json").is_file()  # written locally; gitignored, not asserted absent here
 
-    # Judge cost (review-fix: ADR-0016 reviewer Medium, "judge cost accounting") --
-    # a SIBLING file to cost.json, never folded into pipeline cost.
+    # Judge cost (review-fix: ADR-0016 reviewer Medium, "judge cost accounting";
+    # judge methodology v2 amends the shape for per-judge model config + search
+    # cost) -- a SIBLING file to cost.json, never folded into pipeline cost.
     judge_cost = json.loads((rep_dir / "judge-cost.json").read_text())
-    assert judge_cost["model"] == "claude-haiku-4-5"
+    assert judge_cost["models"] == ["claude-opus-4-8"]
     assert judge_cost["total_cost_usd"] > 0
+    assert judge_cost["total_search_count"] == 0  # the fake response reports no server_tool_use
+    assert judge_cost["total_search_cost_usd"] == 0
+    assert judge_cost["grand_total_cost_usd"] == judge_cost["total_cost_usd"]
     assert set(judge_cost["per_criterion"]) == {"factual_accuracy"}
+    assert judge_cost["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
     assert judge_cost["total_cost_usd"] != cost_data["total_cost_usd"]  # never confused with pipeline cost
 
     summary = json.loads((run_dir / "summary.json").read_text())
@@ -428,17 +453,111 @@ def test_extract_named_artifacts_tolerates_missing_files():
     assert run_cli._extract_named_artifacts({}) == (None, None, None, None)
 
 
-# --- _price_judge_results (review-fix: judge cost accounting) -------------------------
+# --- _extract_brief_date (dedup judge's v2 feed fix) -----------------------------------
 
 
-def test_price_judge_results_prices_every_criterion_against_the_judge_model():
+def test_extract_brief_date_parses_the_date_from_a_full_sandbox_path():
+    artifacts = {"/workspace/AI Brief - 2026-07-07.md": "brief body", "/workspace/listening-script.txt": "x"}
+    assert run_cli._extract_brief_date(artifacts) == "2026-07-07"
+
+
+def test_extract_brief_date_parses_the_date_from_a_bare_basename():
+    artifacts = {"AI Brief - 2026-07-05.md": "brief body"}
+    assert run_cli._extract_brief_date(artifacts) == "2026-07-05"
+
+
+def test_extract_brief_date_returns_none_when_no_brief_artifact_present():
+    assert run_cli._extract_brief_date({"listening-script.txt": "x"}) is None
+    assert run_cli._extract_brief_date({}) is None
+
+
+# --- _load_sources_md ------------------------------------------------------------------
+
+
+def test_load_sources_md_reads_the_configured_path(tmp_path, monkeypatch):
+    path = tmp_path / "sources.md"
+    path.write_text("# Sources\n- X\n", encoding="utf-8")
+    monkeypatch.setattr(run_cli, "_SOURCES_MD_PATH", path)
+
+    assert run_cli._load_sources_md() == "# Sources\n- X\n"
+
+
+def test_load_sources_md_fails_loud_when_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(run_cli, "_SOURCES_MD_PATH", tmp_path / "does-not-exist.md")
+
+    with pytest.raises(SystemExit):
+        run_cli._load_sources_md()
+
+
+# --- dedup criterion wiring (v2 feed fix, end to end through main()) -------------------
+
+
+def test_dedup_criterion_fetches_priors_using_the_parsed_brief_date(tmp_path, monkeypatch):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief body", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(5)))
+
+    captured_kwargs: dict = {}
+
+    def _fake_fetch(**kwargs):
+        captured_kwargs.update(kwargs)
+        return [{"date": "2026-07-06", "markdown": "# Prior"}]
+
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_prior_briefs", _fake_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "dedup", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    # The brief artifact in _fake_run_result() is dated 2026-07-07 -- that must be
+    # exactly the brief_date passed through to the priors fetch.
+    assert captured_kwargs["brief_date"] == "2026-07-07"
+
+
+def test_dedup_criterion_skips_the_priors_fetch_when_no_brief_date_is_parseable(tmp_path, monkeypatch, capsys):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    # A brief artifact IS present (so brief_markdown is truthy and the dedup
+    # block is entered at all), but its filename carries no recognizable
+    # "YYYY-MM-DD" date -- _extract_brief_date() must return None for it.
+    def _fake_run_undated_brief(client, **kwargs):
+        events = [
+            *_cat_events("t1", "/workspace/AI Brief - UNDATED.md", "# Brief body"),
+            *_cat_events("t2", "/workspace/listening-script.txt", "Script."),
+        ]
+        return trigger_module.CandidateRunResult(deployment_id="depl_fake", session_id="sesn_fake", final_status="idle", events=events)
+
+    monkeypatch.setattr(trigger_module, "run_candidate", _fake_run_undated_brief)
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(5)))
+
+    called = {"fetch": False}
+    monkeypatch.setattr(
+        run_cli.dedup_priors, "fetch_recent_prior_briefs", lambda **kwargs: called.__setitem__("fetch", True)
+    )
+
+    run_cli.main(["test-candidate", "--criteria", "dedup", "--runs-root", str(runs_root)])
+
+    assert called["fetch"] is False
+    assert "DEDUP_PRIORS_SKIPPED" in capsys.readouterr().err
+
+
+# --- _price_judge_results (review-fix: judge cost accounting; judge methodology v2) ----
+
+
+def test_price_judge_results_prices_every_criterion_against_its_own_recorded_model():
     from datetime import date
 
     from eval_core.judges.base import JudgeResult
 
     judge_results = {
         "factual_accuracy": JudgeResult(
-            criterion="factual_accuracy", score=4, rationale="r", evidence="e",
+            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-4-8",
             usage={"input_tokens": 1000, "output_tokens": 500, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
         ),
         "content_selection": JudgeResult(
@@ -449,22 +568,55 @@ def test_price_judge_results_prices_every_criterion_against_the_judge_model():
 
     result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
 
-    assert result["model"] == "claude-haiku-4-5"
+    assert result["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
     assert result["per_criterion"]["factual_accuracy"]["cost_usd"] > 0
     assert result["per_criterion"]["content_selection"]["cost_usd"] == 0
     assert result["total_cost_usd"] == result["per_criterion"]["factual_accuracy"]["cost_usd"]
     assert result["total_usage"]["input_tokens"] == 1000
+    # Both judges' models are reported (content_selection defaults to the base
+    # JUDGE_MODEL fallback, claude-opus-4-8, even though it never actually called
+    # the API -- see JudgeResult's own default).
+    assert result["models"] == ["claude-opus-4-8"]
 
 
-def test_price_judge_results_fails_loud_for_an_unrecognized_judge_model(monkeypatch):
+def test_price_judge_results_prices_different_criteria_against_different_models():
+    """Per-judge model config (v2): two criteria on two DIFFERENT models must each
+    be priced against their own rate, and both appear in the top-level 'models'
+    list."""
     from datetime import date
 
     from eval_core.judges.base import JudgeResult
 
-    monkeypatch.setattr(run_cli, "JUDGE_MODEL", "claude-some-future-judge-model-not-in-pricing-json")
+    judge_results = {
+        "factual_accuracy": JudgeResult(
+            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-4-8",
+            usage={"input_tokens": 1000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
+        ),
+        "length_format": JudgeResult(
+            criterion="length_format", score=5, rationale="r", evidence="e", model="claude-haiku-4-5",
+            usage={"input_tokens": 1000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
+        ),
+    }
+    pricing_table = run_cli.cost.load_pricing_table()
+
+    result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
+
+    assert result["models"] == ["claude-haiku-4-5", "claude-opus-4-8"]
+    # Opus ($5/M in) costs 5x Haiku's ($1/M in) rate for the SAME input-token count.
+    opus_cost = result["per_criterion"]["factual_accuracy"]["cost_usd"]
+    haiku_cost = result["per_criterion"]["length_format"]["cost_usd"]
+    assert opus_cost == pytest.approx(haiku_cost * 5, rel=1e-6)
+
+
+def test_price_judge_results_fails_loud_for_an_unrecognized_judge_model():
+    from datetime import date
+
+    from eval_core.judges.base import JudgeResult
+
     judge_results = {
         "factual_accuracy": JudgeResult(
             criterion="factual_accuracy", score=4, rationale="r", evidence="e",
+            model="claude-some-future-judge-model-not-in-pricing-json",
             usage={"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
         ),
     }
@@ -472,3 +624,97 @@ def test_price_judge_results_fails_loud_for_an_unrecognized_judge_model(monkeypa
 
     with pytest.raises(run_cli.cost.UnknownModelPriceError):
         run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
+
+
+def test_price_judge_results_prices_search_count_as_a_separate_cost_axis():
+    """Web-search cost ($10/1,000 searches -- $0.01/search) is priced separately
+    from token cost, never summed into cost_usd/total_cost_usd."""
+    from datetime import date
+
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "factual_accuracy": JudgeResult(
+            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-4-8",
+            search_count=6,
+            usage={"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
+        ),
+    }
+    pricing_table = run_cli.cost.load_pricing_table()
+
+    result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
+
+    assert result["per_criterion"]["factual_accuracy"]["search_count"] == 6
+    assert result["per_criterion"]["factual_accuracy"]["search_cost_usd"] == pytest.approx(0.06)
+    assert result["total_search_count"] == 6
+    assert result["total_search_cost_usd"] == pytest.approx(0.06)
+    assert result["total_cost_usd"] == 0.0  # zero token usage -- search cost is separate
+    assert result["grand_total_cost_usd"] == pytest.approx(0.06)
+
+
+def test_price_judge_results_zero_search_count_costs_nothing():
+    from datetime import date
+
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "length_format": JudgeResult(
+            criterion="length_format", score=5, rationale="r", evidence="e", model="claude-haiku-4-5",
+            usage={"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
+        ),
+    }
+    pricing_table = run_cli.cost.load_pricing_table()
+
+    result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
+
+    assert result["per_criterion"]["length_format"]["search_count"] == 0
+    assert result["per_criterion"]["length_format"]["search_cost_usd"] == 0
+    assert result["total_search_cost_usd"] == 0
+    assert result["grand_total_cost_usd"] == result["total_cost_usd"]
+
+
+# --- _scores_to_dict (additive findings/selection_disagreements, judge methodology v2) -
+
+
+def test_scores_to_dict_omits_findings_when_the_judge_result_has_none():
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "length_format": JudgeResult(criterion="length_format", score=5, rationale="r", evidence="e"),
+    }
+
+    scores = run_cli._scores_to_dict(judge_results)
+
+    assert set(scores["length_format"]) == {"score", "rationale", "evidence", "insufficient_data"}
+
+
+def test_scores_to_dict_includes_findings_when_present():
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "factual_accuracy": JudgeResult(
+            criterion="factual_accuracy", score=2, rationale="r", evidence="e",
+            findings=[{"claim": "x", "verdict": "contradicted", "source_checked": "y", "note": "z"}],
+        ),
+    }
+
+    scores = run_cli._scores_to_dict(judge_results)
+
+    assert scores["factual_accuracy"]["findings"] == [{"claim": "x", "verdict": "contradicted", "source_checked": "y", "note": "z"}]
+
+
+def test_scores_to_dict_includes_selection_disagreements_when_present():
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "content_selection": JudgeResult(
+            criterion="content_selection", score=4, rationale="r", evidence="e",
+            selection_disagreements=[{"story": "a", "judge_view": "should have been excluded", "rationale": "b"}],
+        ),
+    }
+
+    scores = run_cli._scores_to_dict(judge_results)
+
+    assert scores["content_selection"]["selection_disagreements"] == [
+        {"story": "a", "judge_view": "should have been excluded", "rationale": "b"}
+    ]
