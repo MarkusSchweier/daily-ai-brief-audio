@@ -26,12 +26,14 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   - **`deploy/delivery/`** (internal boundary, not a public surface) — the decoupled AWS **delivery
     boundary**: Polly narration, SES send, subscriber fan-out, S3 archival, and deterministic
     no-LLM Markdown→HTML, reachable only via a bearer-authed `POST /deliver` (+ `GET /deliver/{id}`
-    poll, `GET /recent-briefs` read). **Built, deployed, and live-validated** — but **production
-    delivery still runs in-VM** via `deploy/managed-agent/`. Moving production onto this boundary
-    (full decouple, so the content MicroVM holds zero AWS delivery IAM — **ADR-0015**) is an
-    **owner-gated cut-over that has NOT happened yet** (runbook:
-    `deploy/delivery/CUTOVER-production-decoupling.md`). `GET /recent-briefs` is already live-used by
-    `cloud` eval candidates.
+    poll, `GET /recent-briefs` read). **Built, deployed, live-validated, and — as of 2026-07-07 —
+    the LIVE production delivery path (ADR-0015 cut-over DONE).** Production DELIVERY now runs on this
+    boundary; the content MicroVM holds **zero AWS delivery IAM** (the `deliveryDecoupled=true` IAM
+    strip is applied — `MicroVmExecutionRole` = env-key + logs + the two delivery-secret reads only).
+    The scheduled weekday deployment runs the decoupled prompt (`delivery_client.py` → `POST /deliver`
+    with `ENABLE_SUBSCRIBER_FANOUT=1`); the old in-VM `audio_email.py` deployment is archived. Runbook
+    + rollback: `deploy/delivery/CUTOVER-production-decoupling.md`. `GET /recent-briefs` is also
+    live-used by `cloud` eval candidates.
   - **The original local Claude Desktop scheduled task** (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`)
     is **DEAD** — retired by the owner (agent-system-redesign epic; ADR-0014 / ADR-0008's 2026-07-06
     amendment). It will not run and will not be reactivated; it is no longer a skill-content lockstep
@@ -63,12 +65,14 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   /deliver/{id}`, `GET /recent-briefs`, the `brief-deliveries` table (tracking + a caller-idempotency
   dedup row, TTL'd), and `functions/deliver/` (`delivery_core.derive_html` + Polly + SES + fan-out +
   archival), bearer-gated by `delivery_auth` / signed-token `recent_briefs_auth`. Deployed +
-  live-validated; **production delivery cut-over is owner-gated** (`CUTOVER-production-decoupling.md`).
-  The MicroVM-side API client is `deploy/managed-agent/pipeline/delivery_client.py` (Option B: reads the
-  bearer + mints the recent-briefs token via the MicroVM's own scoped role). It is **baked into microVM
-  image v13**, but **`audio_email.py` is still the live delivery path** — the scheduled `deployment.json`
-  still invokes it, and the `MicroVmExecutionRole` delivery-IAM strip is gated behind a `deliveryDecoupled`
-  CDK context flag (default OFF). Flipping to `delivery_client.py` + the strip is the owner-gated cut-over.
+  live-validated; **this is the LIVE production delivery path as of the 2026-07-07 ADR-0015 cut-over**
+  (`CUTOVER-production-decoupling.md`). The MicroVM-side API client is
+  `deploy/managed-agent/pipeline/delivery_client.py` (Option B: reads the bearer + mints the
+  recent-briefs token via the MicroVM's own scoped role), **baked into microVM image v13**. The
+  scheduled `deployment.json` now invokes `delivery_client.py` (→ `POST /deliver`, `ENABLE_SUBSCRIBER_FANOUT=1`),
+  **not** `audio_email.py`, and the `MicroVmExecutionRole` delivery-IAM strip is **applied**
+  (`deliveryDecoupled=true`). `audio_email.py` remains in image v13 only as the documented rollback
+  path (re-point the scheduled deployment + redeploy the CDK without the flag).
 - `deploy/candidates/` — git-native candidate declarations + `sync.py`/`trigger.py` for `cloud`
   eval/experimentation (agent-system-redesign epic); `deploy/eval/` — the evaluation harness
   (eval-harness epic). Both are their own deploy units with their own `README.md`.

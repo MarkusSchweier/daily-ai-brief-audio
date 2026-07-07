@@ -6,6 +6,18 @@ Owner-gated steps to move the **live** weekday brief's delivery from the in-VM
 key via its own ARN-scoped role grants and mints the read token itself — **no launcher
 change**, no secret value in the run payload. Do NOT run the live-flip steps unattended.
 
+> ## ✅ EXECUTED — 2026-07-07 (owner-approved)
+> This cut-over is **done and live**. Phase A (owner-only validation on the stripped role) passed —
+> all four artifacts archived under `briefs/2026-07-07/`, `SUBSCRIBER_FANOUT_SKIPPED`,
+> `DELIVERY_SUCCEEDED`. Phase B was then executed: the scheduled weekday deployment was swapped to the
+> decoupled prompt + `ENABLE_SUBSCRIBER_FANOUT=1` (new **`depl_01VP2gkocBheZF9dybQQ8aUN`**, cron
+> `7 6 * * 1-5` Europe/Berlin; old **`depl_01GfuYeqwuDJ3q968CpTUUDe`** archived), `deliveryDecoupled=true`
+> was flipped (the IAM strip — `MicroVmExecutionRole` now holds env-key + logs + the two delivery-secret
+> reads only), and the welcome-send Lambda was deployed. The **first real subscriber send via the new
+> path is Wed 2026-07-08 06:07 Europe/Berlin.** The steps below are retained as the record of what was
+> done and as the rollback reference. **Watch that first weekday run** and roll back (see bottom) if it
+> regresses.
+
 ## Already done + staged (safe; production unchanged)
 - **Delivery boundary** (`deploy/delivery/`): contract v2, idempotency, reviewer+security
   passes (PR #34) — deployed, live-validated (owner-only, fan-out off).

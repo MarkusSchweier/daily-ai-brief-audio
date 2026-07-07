@@ -6,10 +6,13 @@ The current active PRD for this project:
 
 ---
 
-Status: **ACTIVE — ADR-0015 "production delivery decoupling" (the agent-system-redesign epic's
-deferred Phase 7, now executed). Built + reviewer/security-cleared + live-staged + HTML-refined on
-branch `feat/production-delivery-cutover` (PR #35, includes review-fix PR #34). The live cut-over is
-owner-gated and NOT yet flipped — production still delivers in-VM, unchanged.**
+Status: **DONE (live) — ADR-0015 "production delivery decoupling" (the agent-system-redesign epic's
+deferred Phase 7) CUT OVER TO PRODUCTION 2026-07-07. Built + reviewer/security-cleared on branch
+`feat/production-delivery-cutover` (PR #35, includes review-fix PR #34); validated owner-only on the
+stripped role, then the owner-approved live flip was executed. Production DELIVERY now runs on the
+`deploy/delivery/` boundary and the content MicroVM holds ZERO AWS delivery IAM (FR-1/AC-1). The next
+scheduled weekday run (Wed 2026-07-08 06:07 Europe/Berlin) is the first real subscriber send via the
+new path.**
 
 **ADR-0015 (Option 2, full decouple — owner-approved 2026-07-06/07).** Production content generation
 stays self-hosted, but production DELIVERY (Polly/SES/S3/fan-out + deterministic HTML) moves off the
@@ -37,12 +40,18 @@ Built/staged (reviewer + security **GO**, PR #34, no Critical/High; their Medium
   mail (`deploy/subscribers/welcome-send`) now renders EXACTLY like a daily subscriber email + a
   welcome intro at the top. Validated by real emails to `mail@mschweier.com`.
 
-**Live on AWS now (production UNCHANGED — still in-VM):** the `deploy/delivery/` stack (contract v2 +
-new template), the two additive `MicroVmExecutionRole` secret-grants, microVM image v13.
-**NOT done (owner-gated live flip):** the validation run, then swap the scheduled deployment to the new
-prompt + `ENABLE_SUBSCRIBER_FANOUT=1` + flip `deliveryDecoupled=true` (the IAM strip) + deploy the
-welcome-send Lambda. Full runbook: `deploy/delivery/CUTOVER-production-decoupling.md`. Tests: 261
-delivery + 78 managed-agent + 3 CDK + 71 subscribers pass.
+**Cut over to production 2026-07-07 (owner-approved live flip — DONE):** validated owner-only on the
+stripped role (all four artifacts archived, `SUBSCRIBER_FANOUT_SKIPPED`, `DELIVERY_SUCCEEDED`), then
+swapped the scheduled weekday deployment to the decoupled prompt + `ENABLE_SUBSCRIBER_FANOUT=1` (new
+`depl_01VP2gkocBheZF9dybQQ8aUN`, cron `7 6 * * 1-5` Europe/Berlin; old `depl_01GfuYeqwuDJ3q968CpTUUDe`
+archived), flipped `deliveryDecoupled=true` (the IAM strip — `MicroVmExecutionRole` is now env-key +
+logs + the two delivery-secret reads only), and deployed the welcome-send Lambda (new chrome).
+**Live now:** the `deploy/delivery/` stack (contract v2 + new template), microVM image v13, and the
+decoupled scheduled deployment. Rollback (if a weekday run regresses): re-point the scheduled
+deployment at the archived in-VM prompt and `cdk deploy ManagedAgentSandboxStack` WITHOUT
+`-c deliveryDecoupled=true` (image v13 still contains `audio_email.py`). Full runbook:
+`deploy/delivery/CUTOVER-production-decoupling.md`. Tests: 261 delivery + 78 managed-agent + 3 CDK +
+71 subscribers pass.
 
 ---
 
