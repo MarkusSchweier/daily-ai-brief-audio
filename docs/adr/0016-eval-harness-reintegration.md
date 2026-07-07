@@ -493,10 +493,19 @@ resolves Opus 4.8 through the SAME fail-loud pricing path every other model uses
 (`cost.price_usage()` / `cost.UnknownModelPriceError`) — an unrecognized judge model still
 fails loud, never silently prices as $0.
 
-Expected judge cost: roughly **$0.70–$1.00 per repetition, all-in** — Opus 4.8 token cost
-across all four judges, plus up to 8 (accuracy) + 5 (content_selection) = 13 web searches at
-$0.01 each (web fetch is token-cost-only, no separate per-call fee — confirmed live the same
-day against the web-fetch-tool docs page). Note the pricing page's own tokenizer caveat:
+Judge cost — MEASURED LIVE (2026-07-07, the v2 accuracy judge on a real stored brief, both
+smokes on the same input): **uncached, the first smoke burned $1.60** (281,543 full-price
+input tokens across the 8-search server-tool loop — every iteration re-sent the whole
+accumulated context, cache_read=0). **Automatic prompt caching was then enabled on every
+judge call** (`run_judge()` passes the top-level `cache_control: {"type": "ephemeral"}`; the
+API auto-manages breakpoints as the tool loop grows — confirmed against the prompt-caching
+docs the same day): the identical re-run cost **$0.88 all-in (-45%)** — input collapsed to 10
+full-price + 98,935 cache-write (1.25×) + 192,990 cache-read (0.1×) tokens, cache writes now
+the dominant term (each iteration's NEW search results, written once — near the loop's cost
+floor). Extrapolated all-four-judges cost: roughly **$1.40–$1.60 per repetition, all-in**,
+of which up to 8 (accuracy) + 5 (content_selection) = 13 web searches at $0.01 each (web
+fetch is token-cost-only, no separate per-call fee — confirmed live the same day against the
+web-fetch-tool docs page). Note the pricing page's own tokenizer caveat:
 Opus 4.7+ (incl. 4.8) and Sonnet 5 use a newer tokenizer that produces **~30% more tokens for
 the same text** than Haiku 4.5's tokenizer — part of the cost multiple, not a `pricing.json`
 concern but worth knowing when reading a `judge-cost.json` total. Web-search cost is priced

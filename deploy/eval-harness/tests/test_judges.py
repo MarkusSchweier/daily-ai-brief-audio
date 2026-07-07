@@ -545,3 +545,17 @@ def test_degrade_paths_that_never_call_the_api_report_zero_usage():
         "cache_creation_1h_input_tokens": 0,
     }
     assert result.search_count == 0
+
+
+def test_run_judge_enables_automatic_prompt_caching():
+    """Judge calls must carry the top-level automatic-caching field (2026-07-07
+    cost fix): without it, a web-tool judge's server-side loop re-sends the
+    whole accumulated context UNCACHED every iteration -- the first live v2
+    accuracy smoke burned 281,543 uncached input tokens ($1.52) with
+    cache_read=0. The fake records kwargs, so this pins the field's presence
+    and exact shape."""
+    from eval_core.judges.base import run_judge
+
+    client = make_fake_client('{"score": 4, "rationale": "r", "evidence": "e", "insufficient_data": false}')
+    run_judge(client, criterion="length_format", system_prompt="s", user_prompt="u", model="claude-opus-4-8")
+    assert client.messages.calls[0]["cache_control"] == {"type": "ephemeral"}

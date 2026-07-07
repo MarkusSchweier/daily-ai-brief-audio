@@ -174,11 +174,17 @@ at the top level, never folded into `total_cost_usd` — `grand_total_cost_usd` 
 convenience sum for "judging cost, all-in." Web fetch is NOT priced separately — Anthropic
 bills it at ordinary token cost only, no per-call fee (confirmed live the same day). A judge
 model with no `pricing.json` entry fails loud (`cost.UnknownModelPriceError`), never silently
-prices as $0. Expected judge cost: roughly **$0.70–$1.00 per repetition, all-in** (Opus 4.8
-token cost across four judges, plus up to 8+5=13 web searches at $0.01 each) — note Opus
-4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more tokens for the same text** than
-Haiku 4.5's tokenizer (part of why an Opus judge costs more per call than a raw token-count
-comparison alone would suggest — see `pricing.json`'s own comment).
+prices as $0. Every judge call enables **automatic prompt caching** (top-level
+`cache_control: {"type": "ephemeral"}` in `run_judge()`): a web-tool judge's server-side
+loop re-sends the whole accumulated context every iteration, and the first live uncached
+smoke of the v2 accuracy judge cost **$1.60** (281,543 full-price input tokens); the
+identical cached re-run cost **$0.88 (-45%)** — 10 full-price input + ~99K cache-write +
+~193K cache-read tokens. Measured judge cost: **~$0.88 for the accuracy judge alone;
+roughly $1.40–$1.60 per repetition all-in across all four** (incl. up to 8+5=13 web searches
+at $0.01 each) — note Opus 4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more
+tokens for the same text** than Haiku 4.5's tokenizer (part of why an Opus judge costs more
+per call than a raw token-count comparison alone would suggest — see `pricing.json`'s own
+comment).
 
 **Response parsing**: a server-side-tool response can carry MIXED content (narration text,
 `server_tool_use`/tool-result blocks, then a final text block) — `run_judge()` parses ONLY

@@ -289,6 +289,19 @@ def run_judge(
         max_tokens=max_tokens,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
+        # AUTOMATIC prompt caching (top-level cache_control; confirmed against
+        # the prompt-caching docs 2026-07-07): the API auto-manages cache
+        # breakpoints as the request's context grows. This matters ENORMOUSLY
+        # for the web-tool judges: a server-side tool loop re-sends the
+        # accumulated context (system + brief + every prior search/fetch
+        # result) on EVERY iteration -- the first live v2 accuracy-judge smoke
+        # burned 281,543 UNCACHED input tokens ($1.52) across its 8-search
+        # loop, cache_read=0. With this field, iterations 2..N read the shared
+        # prefix at 0.1x base instead. 5m TTL is ample (a judge call's loop
+        # completes within minutes); writes cost 1.25x base, paid back after a
+        # single loop iteration. Harmless on tool-less judges (one iteration,
+        # nothing re-read).
+        cache_control={"type": "ephemeral"},
     )
     if tools:
         kwargs["tools"] = tools
