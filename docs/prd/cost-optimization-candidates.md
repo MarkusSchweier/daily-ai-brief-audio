@@ -161,12 +161,19 @@ discipline) — not automatic from a good eval result.
   to subscribers.
 - **[DECIDED] Aggressive #3** (Haiku on research+write+script; Sonnet only coord+select) and
   **backburner #5/#6** (owner, 2026-07-07 — rationale in §3).
-- **[FLAG — A-verification item] Multi-agent execution semantics.** The candidate *declarations*
-  (models, structure, which skill-steps each sub-agent runs) are final, but **how** the coordinator
-  delegates and **whether sub-agents share the `/workspace` working folder** for artifact passing is
-  **not yet confirmed on the Platform**. A must verify this end-to-end; it may refine the sub-agent
-  *delegation* wording (not the structure/models). If sub-agents do **not** share `/workspace`, A must
-  adapt the coordinator to pass artifacts through the delegation messages.
+- **[A-verification item — creation shape + shared filesystem RESOLVED 2026-07-07; live run still
+  pending] Multi-agent execution semantics.** The candidate *declarations* (models, structure, which
+  skill-steps each sub-agent runs) are final. Two of the previously-open questions are now confirmed
+  against the live Platform + official docs (platform.claude.com/docs/en/managed-agents/multi-agent):
+  (1) **the coordinator references each sub-agent by id** as
+  `multiagent.agents: [{"type":"agent","id":<id>}]` — a plain reference object, **no `entry` wrapper**
+  (the sync's original guess; fixed, and all four candidates are now synced with real coordinator +
+  sub-agent `agent_id`s); and (2) **all agents share one sandbox filesystem** ("All agents share the
+  same sandbox, filesystem, and vault credentials"), so the decomposition candidates' `/workspace`
+  artifact hand-off **is valid** (only per-agent context/tools are isolated, not the filesystem). What
+  remains for A is a **live end-to-end multi-agent RUN** confirming the coordinator actually delegates
+  the skill-scoped phases and the `/workspace` hand-off works in practice — the sub-agent *delegation*
+  wording may still be refined then (not the structure/models).
 - **[BRANCH TOPOLOGY]** B is built on `feat/cost-optimization-candidates`, branched off `origin/main`
   (which has the delivery-**decoupling** work, PR #33, but **not** the later production-delivery-
   **cut-over** branch). A is to be developed in the main thread, which carries the cut-over context.
