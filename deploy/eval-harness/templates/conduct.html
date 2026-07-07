@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Conduct{% endblock %}
+{% block content %}
+  <h2>Conduct an eval run</h2>
+
+  {% if error %}
+    <p class="error">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('trigger') }}">
+    <div class="field">
+      <label for="candidate_slug">Candidate</label>
+      <select name="candidate_slug" id="candidate_slug" required>
+        <option value="" disabled selected>Select a candidate…</option>
+        {% for candidate in candidates %}
+          <option value="{{ candidate.slug }}" {% if not candidate.has_agent_id %}disabled{% endif %}>
+            {{ candidate.slug }}
+            ({{ candidate.composition }}{% if candidate.is_production_config %}, production config{% endif %}{% if not candidate.has_agent_id %}, not synced yet{% endif %})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="name">Run name</label>
+      <input type="text" name="name" id="name" placeholder="e.g. baseline sanity check">
+    </div>
+
+    <div class="field">
+      <label for="repetitions">Repetitions</label>
+      <input type="number" name="repetitions" id="repetitions" value="1" min="1" max="20">
+    </div>
+
+    <div class="field">
+      <label>
+        <input type="checkbox" name="email" id="email" disabled>
+        Send an eval email to mail@mschweier.com when this run completes
+      </label>
+      <p class="hint">Deferred — see ADR-0016 D3 (docs/adr/0016-eval-harness-reintegration.md). Not yet implemented.</p>
+    </div>
+
+    <div class="field">
+      <fieldset>
+        <legend>Criteria</legend>
+        {% for criterion in criteria %}
+          <label class="checkbox-label">
+            <input type="checkbox" name="criteria" value="{{ criterion }}" checked>
+            {{ criterion }}
+          </label>
+        {% endfor %}
+      </fieldset>
+    </div>
+
+    <button type="submit">Trigger run</button>
+  </form>
+
+  <p class="hint">
+    A real research/writing run takes roughly 15 minutes — triggering here launches
+    <code>run.py</code> as a background process and redirects you to the run's Deep
+    Dive page immediately, where the state (configured → running → completed/failed)
+    updates as the run progresses. Refresh the page to see the latest state.
+  </p>
+{% endblock %}

@@ -32,12 +32,19 @@ If a candidate's task prompt uses the `__RECENT_BRIEFS_TOKEN__`/
 `$RECENT_BRIEFS_SIGNING_KEY`/`$DELIVERY_BASE_URL` first, exactly as
 `deploy/candidates/trigger.py` requires -- this script fails loud with the same
 clear error if they're needed and missing.
+
+`$EVAL_HARNESS_RUN_ID_OVERRIDE`, if set, is used as the eval-run-id instead of a
+freshly computed `run_store.make_eval_run_id(...)` -- `ui.py`'s "trigger" route
+sets this so it can redirect to the exact run directory this process will write,
+computed BEFORE launching the subprocess (so the id is known immediately, without
+waiting for or racing this process's own clock read). Unset in ordinary CLI usage.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import date
@@ -295,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     environment_id = _load_shared_environment_id()
     git_ref = run_store.current_git_ref()
     eval_run_name = args.name or f"{candidate.slug} ad-hoc run"
-    eval_run_id = run_store.make_eval_run_id(eval_run_name)
+    eval_run_id = os.environ.get("EVAL_HARNESS_RUN_ID_OVERRIDE") or run_store.make_eval_run_id(eval_run_name)
     runs_root = Path(args.runs_root) if args.runs_root else None
     run_dir = run_store.eval_run_dir(candidate.slug, eval_run_id, runs_root=runs_root)
 
