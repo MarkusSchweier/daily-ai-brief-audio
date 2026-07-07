@@ -159,22 +159,30 @@ _DEFAULT_EMAIL_TITLE = "Daily AI Brief"
 # look, applied consistently on every future run.
 _EMAIL_BODY_STYLE = "margin:0;padding:0;background-color:#f4f4f5;"
 _EMAIL_OUTER_TABLE_STYLE = "background-color:#f4f4f5;padding:24px 0;"
+# Responsive width (`width:100%` + `max-width:640px`) rather than a hard 640px: a fixed
+# 640px card is wider than a phone viewport, so mobile mail clients scale the whole card
+# DOWN to fit -- shrinking the body text well below its nominal size (the "too small on
+# mobile" complaint). Full-width-up-to-640 lets the card be the phone's full width with
+# the text at true size, and stay a centered 640px card on desktop.
 _EMAIL_CARD_TABLE_STYLE = (
+    "width:100%;max-width:640px;margin:0 auto;"
     "background-color:#ffffff;border-radius:8px;overflow:hidden;"
     "box-shadow:0 1px 3px rgba(0,0,0,0.08);"
 )
+# Base body size bumped 16px -> 17px for comfortable mobile reading (paired with the
+# responsive width above so it is not then scaled back down).
 _EMAIL_CARD_CELL_STYLE = (
-    "padding:32px 40px;color:#1a1a1a;font-size:16px;line-height:1.6;"
+    "padding:32px 40px;color:#1a1a1a;font-size:17px;line-height:1.65;"
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
 )
 _EMAIL_CONTENT_STYLE_BLOCK = (
     "<style>\n"
-    "  h1 { font-size:22px; line-height:1.3; margin:0 0 12px 0; color:#111111; }\n"
-    "  h2 { font-size:18px; margin:28px 0 12px 0; color:#111111; border-bottom:2px solid #eeeeee; padding-bottom:6px; }\n"
-    "  h3 { font-size:16px; margin:22px 0 8px 0; color:#111111; }\n"
-    "  p { margin:0 0 14px 0; color:#2b2b2b; }\n"
+    "  h1 { font-size:23px; line-height:1.3; margin:0 0 12px 0; color:#111111; }\n"
+    "  h2 { font-size:19px; margin:28px 0 12px 0; color:#111111; border-bottom:2px solid #eeeeee; padding-bottom:6px; }\n"
+    "  h3 { font-size:17px; margin:22px 0 8px 0; color:#111111; }\n"
+    "  p { margin:0 0 14px 0; font-size:17px; color:#2b2b2b; }\n"
     "  ul { margin:0 0 16px 0; padding-left:22px; }\n"
-    "  li { margin-bottom:8px; color:#2b2b2b; }\n"
+    "  li { margin-bottom:8px; font-size:17px; color:#2b2b2b; }\n"
     "  hr { border:none; border-top:1px solid #e5e5e5; margin:24px 0; }\n"
     "  a { color:#2563eb; text-decoration:none; }\n"
     "  a:hover { text-decoration:underline; }\n"
@@ -344,7 +352,7 @@ def derive_html(brief_markdown: str) -> str:
         f'<body style="{_EMAIL_BODY_STYLE}">\n'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_EMAIL_OUTER_TABLE_STYLE}">\n'
         "<tr><td align=\"center\">\n"
-        f'<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
         f'<tr><td style="{_EMAIL_CARD_CELL_STYLE}">\n'
         f"{_EMAIL_CONTENT_STYLE_BLOCK}"
         f"{_HEADER_SLOT}\n"
@@ -641,8 +649,12 @@ def _html_with_header(html_body, feedback_link=None):
         else ""
     )
     header = (
-        '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
-        'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        # No inset box: the previous grey box had 16px horizontal padding, pushing its
+        # text 16px past the brief body's left edge (a real misalignment). This is now a
+        # flush, divider-separated preheader -- its text shares the card cell's content
+        # edge exactly, so it lines up with the headlines and body below it.
+        '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
+        'font-size:13px;color:#666;line-height:1.5;">'
         f"{feedback_line}"
         '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
         f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'

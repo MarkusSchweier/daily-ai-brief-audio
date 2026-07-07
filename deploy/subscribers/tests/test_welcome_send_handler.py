@@ -103,8 +103,10 @@ def test_welcome_email_with_audio_attached(briefs_bucket):
     assert sent["source"] == welcome_send.SENDER
     body = _html_body_text(sent["raw"])
     assert "Welcome to the Daily AI Brief!" in body
-    assert "06:07 (Europe/Berlin)" in body
+    assert "every weekday in the morning" in body  # owner copy (no specific time)
     assert "Today's brief" in body
+    # The welcome mail now carries the SAME chrome as a daily subscriber email:
+    assert "subscribe here" in body  # daily header banner's forward/subscribe line
     assert "curated and written by an AI agent" in body
     assert "unsub-tok" in body  # unsubscribe link present
     attachments = _attachment_parts(sent["raw"])
@@ -172,7 +174,7 @@ def test_cold_start_sends_welcome_only_no_brief_no_audio(briefs_bucket):
     sent = ses_client.sent[0]
     body = _html_body_text(sent["raw"])
     assert "Welcome to the Daily AI Brief!" in body
-    assert "06:07 (Europe/Berlin)" in body
+    assert "every weekday in the morning" in body  # owner copy (no specific time)
     assert "haven't published an edition yet" in body
     assert _attachment_parts(sent["raw"]) == []
 

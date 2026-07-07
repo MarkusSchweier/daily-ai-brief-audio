@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -30,7 +31,7 @@ from botocore.exceptions import ClientError
 
 import feedback_token
 import latest_brief
-from subscriber_common import normalize_email, weekday_send_time_label
+from subscriber_common import normalize_email
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -121,89 +122,109 @@ def _unsubscribe_link(email: str, token: str) -> str:
     return f"{base}/unsubscribe?email={quote(email)}&token={quote(token)}"
 
 
-def _disclaimer_html() -> str:
+# --- HTML chrome: kept EXACTLY in sync with the daily mail's chrome
+# (deploy/delivery/functions/deliver/delivery_core.py's derive_html slots +
+# _html_with_header / _html_with_unsubscribe_footer) so a welcome email looks IDENTICAL
+# to a regular daily email -- with ONE addition: the welcome intro at the very top
+# (owner request 2026-07-07). Hand-duplicated (this Lambda cannot import the delivery
+# deploy unit); a change to the daily chrome there MUST be mirrored here, same convention
+# as feedback_token.py's hand-duplication across deploy units.
+SUBSCRIBE_SITE_URL = "https://briefing.mschweier.com"
+_HEADER_SLOT = "<!--BRIEF_HEADER_SLOT-->"
+_FOOTER_SLOT = "<!--BRIEF_FOOTER_SLOT-->"
+_BODY_OPEN_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+_BODY_CLOSE_RE = re.compile(r"</body\s*>", re.IGNORECASE)
+
+
+def _daily_header_banner_html(feedback_link: str | None) -> str:
+    """EXACT mirror of delivery_core._html_with_header's inner banner: feedback prompt +
+    forward/subscribe prompt + AI-curation disclaimer, in the flush divider-preheader
+    style (text aligned with the brief body)."""
+    feedback_line = (
+        f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
+        f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
+        if feedback_link
+        else ""
+    )
     return (
+        '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
+        'font-size:13px;color:#666;line-height:1.5;">'
+        f"{feedback_line}"
+        '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
+        f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
         '<p style="margin:0;">This brief is curated and written by an AI agent, '
         "which may make mistakes. For anything important, please verify with "
         "original sources and do your own research.</p>"
-    )
-
-
-def _feedback_line_html(feedback_link: str | None) -> str:
-    """The feedback prompt line, mirroring audio_email.py's _html_with_header (moved
-    from a small gray footer line to the most prominent line in the top banner, first
-    thing the recipient sees) -- a no-op string when no link is available (PRD FR-5,
-    fail-safe: never fails or degrades the send)."""
-    if not feedback_link:
-        return ""
-    return (
-        f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
-        f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
-    )
-
-
-def _welcome_header_html(feedback_link: str | None = None) -> str:
-    """FR-4's exact drafted copy, rendered from the centralized send-time source
-    (subscriber_common.weekday_send_time_label(), FR-10/FR-11) -- not a hardcoded time
-    string. Mirrors the visual shape of audio_email.py's _html_with_header banner,
-    including the feedback line as the first line in the box when available."""
-    time_label = weekday_send_time_label()
-    return (
-        '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
-        'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
-        f"{_feedback_line_html(feedback_link)}"
-        '<p style="margin:0 0 6px 0;"><strong>Welcome to the Daily AI Brief!</strong> '
-        "This is the most recent edition — the same one that went out to subscribers "
-        f"today. Going forward, you'll receive a fresh edition every weekday at "
-        f"<strong>{time_label}</strong>.</p>"
-        f"{_disclaimer_html()}"
         "</div>"
     )
 
 
-def _cold_start_header_html(feedback_link: str | None = None) -> str:
-    """FR-8's cold-start welcome-only copy: confirms the subscription and states the
-    schedule, with no brief content implied (the caller sends no brief body alongside
-    this header in the cold-start case). `feedback_link` is always None in practice
-    here (no brief_date to attribute to, see `_feedback_link`'s cold-start guard) but
-    the parameter is accepted for symmetry with `_welcome_header_html`."""
-    time_label = weekday_send_time_label()
+def _unsubscribe_footer_html(unsubscribe_link: str) -> str:
+    """EXACT mirror of delivery_core._html_with_unsubscribe_footer's footer."""
     return (
-        '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
-        'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
-        f"{_feedback_line_html(feedback_link)}"
-        '<p style="margin:0 0 6px 0;"><strong>Welcome to the Daily AI Brief!</strong> '
-        "You're subscribed. We haven't published an edition yet, but you'll receive a "
-        f"fresh one every weekday at <strong>{time_label}</strong>.</p>"
-        f"{_disclaimer_html()}"
-        "</div>"
-    )
-
-
-def _html_with_unsubscribe_footer(html_body: str, unsubscribe_link: str) -> str:
-    # Verbatim mirror of audio_email.py's _html_with_unsubscribe_footer (FR-6: same
-    # framing regular daily emails carry).
-    footer = (
-        '<hr><p style="font-size:12px;color:#666;">'
+        '<hr><p style="font-size:13px;color:#666;">'
         "You are receiving this because you subscribed to the daily AI brief. "
         f'<a href="{unsubscribe_link}">Unsubscribe</a> at any time.</p>'
     )
-    return html_body + footer
 
 
-def _cold_start_body(unsubscribe_link: str, feedback_link: str | None = None) -> str:
-    body = (
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>"
-        "<p>Thanks for confirming your subscription!</p>"
-        "</body></html>"
-    )
-    return _html_with_unsubscribe_footer(_cold_start_header_html(feedback_link) + body, unsubscribe_link)
+# The ONE difference from a regular daily email -- the welcome intro at the very top.
+# "in the morning" (not a specific time) is the owner's chosen copy (2026-07-07).
+_WELCOME_INTRO_HTML = (
+    '<p style="margin:0 0 18px 0;color:#1a1a1a;font-size:16px;line-height:1.55;">'
+    "<strong>Welcome to the Daily AI Brief!</strong> This is the most recent edition — "
+    "the same one that went out to subscribers today. Going forward, you'll receive a "
+    "fresh edition every weekday in the morning."
+    "</p>"
+)
+_COLD_START_INTRO_HTML = (
+    '<p style="margin:0 0 18px 0;color:#1a1a1a;font-size:16px;line-height:1.55;">'
+    "<strong>Welcome to the Daily AI Brief!</strong> You're subscribed. We haven't "
+    "published an edition yet, but you'll receive a fresh one every weekday in the morning."
+    "</p>"
+)
+
+
+def _insert_after_body_open(doc: str, fragment: str) -> str:
+    m = _BODY_OPEN_RE.search(doc)
+    return doc[: m.end()] + fragment + doc[m.end() :] if m else fragment + doc
+
+
+def _insert_before_body_close(doc: str, fragment: str) -> str:
+    m = _BODY_CLOSE_RE.search(doc)
+    return doc[: m.start()] + fragment + doc[m.start() :] if m else doc + fragment
+
+
+def _fill_or_insert(doc: str, slot: str, fragment: str, *, at_top: bool) -> str:
+    """Fill the derive_html slot (post-cut-over archived brief.html) with `fragment`, or
+    fall back to inserting inside <body> for an old-format (pre-cut-over, no-slot)
+    archived brief.html -- so the welcome mail composes correctly against either."""
+    if slot in doc:
+        return doc.replace(slot, fragment, 1)
+    return _insert_after_body_open(doc, fragment) if at_top else _insert_before_body_close(doc, fragment)
 
 
 def _welcome_body(brief_html: str, unsubscribe_link: str, feedback_link: str | None = None) -> str:
-    return _html_with_unsubscribe_footer(
-        _welcome_header_html(feedback_link) + brief_html, unsubscribe_link
+    """A welcome email = the archived brief rendered EXACTLY like a daily subscriber email
+    (same header banner + unsubscribe footer, filled into the same slots), PLUS the
+    welcome intro at the very top of the header."""
+    header = _WELCOME_INTRO_HTML + _daily_header_banner_html(feedback_link)
+    composed = _fill_or_insert(brief_html, _HEADER_SLOT, header, at_top=True)
+    return _fill_or_insert(composed, _FOOTER_SLOT, _unsubscribe_footer_html(unsubscribe_link), at_top=False)
+
+
+def _cold_start_body(unsubscribe_link: str, feedback_link: str | None = None) -> str:
+    """Cold start: no archived brief yet -- a minimal self-contained document carrying the
+    same chrome + a cold-start intro (no brief content)."""
+    doc = (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"></head>'
+        '<body style="margin:0;padding:28px 24px;'
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
+        'color:#1a1a1a;font-size:17px;line-height:1.65;">'
+        f"{_COLD_START_INTRO_HTML}{_daily_header_banner_html(feedback_link)}"
+        "</body></html>"
     )
+    return _insert_before_body_close(doc, _unsubscribe_footer_html(unsubscribe_link))
 
 
 def _fetch_audio_bytes(s3_client, audio_key: str | None) -> bytes | None:
