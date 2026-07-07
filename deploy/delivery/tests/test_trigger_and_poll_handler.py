@@ -64,9 +64,11 @@ def _get_event(delivery_id: str, with_bearer: str | None = "secret123") -> dict:
 
 
 VALID_BODY = {
-    "contractVersion": 1,
+    "contractVersion": 2,
     "brief_markdown": "# Brief\n\nContent.",
     "listening_script": "The listening script.",
+    "candidates": '{"considered": []}',
+    "source_usage": '{"featured": []}',
     "metadata": {"email_subject": "Daily AI Brief", "enable_subscriber_fanout": False},
 }
 
@@ -247,6 +249,124 @@ def test_trigger_marks_row_failed_when_self_invoke_fails(delivery_table):
     items = delivery_table.scan()["Items"]
     assert len(items) == 1
     assert items[0]["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Contract v2 (ADR-0015 D2): the four-artifact contract. candidates/source_usage
+# are additive archival artifacts -- their ABSENCE must never block the send.
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_accepts_missing_candidates_and_source_usage(delivery_table):
+    """Additive artifacts are best-effort: their absence must NEVER 400 the delivery
+    (that would let a missing additive artifact cost the subscriber the brief --
+    ADR-0015 D2). Only brief_markdown + listening_script are required."""
+    lambda_client = _FakeLambdaClient()
+    body = dict(VALID_BODY)
+    del body["candidates"]
+    del body["source_usage"]
+
+    result = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert result["statusCode"] == 202
+
+
+def test_trigger_rejects_candidates_of_wrong_type(delivery_table):
+    """A wrong TYPE (not "absent") is a genuine caller bug -- candidates/source_usage
+    must be the raw JSON STRING the skill produced, not a nested object."""
+    lambda_client = _FakeLambdaClient()
+    body = {**VALID_BODY, "candidates": {"not": "a string"}}
+
+    result = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert result["statusCode"] == 400
+    assert lambda_client.invocations == []
+
+
+# ---------------------------------------------------------------------------
+# Idempotency dedup (ADR-0015 D7): a duplicate trigger for the same run (same
+# idempotency key) must NOT create a second delivery or a second send.
+# ---------------------------------------------------------------------------
+
+
+def _body_with_key(key: str) -> dict:
+    return {**VALID_BODY, "metadata": {**VALID_BODY["metadata"], "idempotency_key": key}}
+
+
+def test_duplicate_trigger_with_same_idempotency_key_is_deduped(delivery_table):
+    lambda_client = _FakeLambdaClient()
+    body = _body_with_key("2026-07-06")
+
+    first = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+    second = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert first["statusCode"] == 202
+    assert second["statusCode"] == 202
+    first_id = json.loads(first["body"])["deliveryId"]
+    second_body = json.loads(second["body"])
+    # Same delivery id returned; second explicitly flagged a replay.
+    assert second_body["deliveryId"] == first_id
+    assert second_body.get("idempotentReplay") is True
+    # Only ONE real send was kicked off, despite two triggers.
+    assert len(lambda_client.invocations) == 1
+    # Exactly one real delivery row (a UUID id) plus the dedup row (idem#...).
+    ids = sorted(item["deliveryId"] for item in delivery_table.scan()["Items"])
+    assert first_id in ids
+    assert "idem#2026-07-06" in ids
+    assert len([i for i in ids if not i.startswith("idem#")]) == 1
+
+
+def test_different_idempotency_keys_create_separate_deliveries(delivery_table):
+    lambda_client = _FakeLambdaClient()
+
+    r1 = handler_module._handle_trigger(_post_event(_body_with_key("2026-07-06")), delivery_table, lambda_client)
+    r2 = handler_module._handle_trigger(_post_event(_body_with_key("2026-07-07")), delivery_table, lambda_client)
+
+    assert json.loads(r1["body"])["deliveryId"] != json.loads(r2["body"])["deliveryId"]
+    assert len(lambda_client.invocations) == 2
+
+
+def test_self_invoke_failure_with_idempotency_key_releases_claim_for_retry(delivery_table):
+    """ADR-0015 D7/D8: if the worker self-invoke never even started (nothing was
+    sent), the dedup claim is released so a subsequent retry can start fresh rather
+    than being deduped forever to a dead, never-processed delivery."""
+    key = "2026-07-06"
+    body = _body_with_key(key)
+
+    failing = _FakeLambdaClient(raise_on_invoke=True)
+    r1 = handler_module._handle_trigger(_post_event(body), delivery_table, failing)
+    assert r1["statusCode"] == 502
+    # The dedup row was released (deleted), so the key is free to re-claim.
+    assert delivery_table.get_item(Key={"deliveryId": f"idem#{key}"}).get("Item") is None
+
+    ok = _FakeLambdaClient()
+    r2 = handler_module._handle_trigger(_post_event(body), delivery_table, ok)
+    assert r2["statusCode"] == 202
+    assert json.loads(r2["body"]).get("idempotentReplay") is None  # a genuine new start, not a replay
+    assert len(ok.invocations) == 1
+
+
+def test_trigger_rejects_invalid_idempotency_key(delivery_table):
+    lambda_client = _FakeLambdaClient()
+    body = _body_with_key("bad key with spaces!")
+
+    result = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert result["statusCode"] == 400
+    assert lambda_client.invocations == []
+
+
+def test_trigger_without_idempotency_key_still_works_and_does_not_dedupe(delivery_table):
+    """Backward-compatible: absent idempotency key -> each trigger is its own
+    delivery (no dedup), preserving the pre-D7 behavior for any caller that omits
+    the key."""
+    lambda_client = _FakeLambdaClient()
+
+    r1 = handler_module._handle_trigger(_post_event(VALID_BODY), delivery_table, lambda_client)
+    r2 = handler_module._handle_trigger(_post_event(VALID_BODY), delivery_table, lambda_client)
+
+    assert json.loads(r1["body"])["deliveryId"] != json.loads(r2["body"])["deliveryId"]
+    assert len(lambda_client.invocations) == 2
 
 
 # ---------------------------------------------------------------------------

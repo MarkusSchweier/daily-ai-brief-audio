@@ -242,12 +242,18 @@ class BriefDeliveryStack(Stack):
     # Data
     # ------------------------------------------------------------------
     def _build_deliveries_table(self) -> dynamodb.Table:
-        """DynamoDB table `brief-deliveries`: PK `deliveryId` (a generated UUID), no
-        sort key, no GSI -- single-item get-by-id is the only access pattern
-        (mirroring `deploy/eval/brief_eval/stack.py`'s `_build_eval_table()`).
-        PAY_PER_REQUEST, RETAIN (this table tracks real delivery outcomes -- useful
-        operational history, same posture as `brief-eval-records`, not a purely
-        transient idempotency table like the managed-agent stack's dedup table)."""
+        """DynamoDB table `brief-deliveries`: PK `deliveryId`, no sort key, no GSI --
+        single-item get-by-id is the only access pattern (mirroring
+        `deploy/eval/brief_eval/stack.py`'s `_build_eval_table()`). PAY_PER_REQUEST,
+        RETAIN (this table tracks real delivery outcomes -- useful operational history,
+        same posture as `brief-eval-records`).
+
+        Two item types share the PK (ADR-0015 D7): real delivery rows (`deliveryId` = a
+        random UUID) and idempotency-dedup rows (`deliveryId` = `idem#<key>`). Only the
+        dedup rows carry an `expiresAt` epoch, so the `expiresAt` TTL reaps ONLY them
+        (DynamoDB TTL ignores items without the attribute) -- delivery rows have no TTL
+        and are retained as history, while dedup rows self-clean after 48h so the table
+        does not grow without bound."""
         return dynamodb.Table(
             self,
             "DeliveriesTable",
@@ -258,6 +264,7 @@ class BriefDeliveryStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True
             ),
+            time_to_live_attribute="expiresAt",
             removal_policy=RemovalPolicy.RETAIN,
         )
 
@@ -383,7 +390,11 @@ class BriefDeliveryStack(Stack):
             iam.PolicyStatement(
                 sid="DeliveriesTableAccess",
                 effect=iam.Effect.ALLOW,
-                actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+                # DeleteItem (ADR-0015 D7): the trigger leg deletes an idempotency-dedup
+                # row when the worker self-invoke never started, so a genuine
+                # "nothing-sent" failure can be retried instead of being deduped forever
+                # to a dead delivery.
+                actions=["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
                 resources=[self.deliveries_table.table_arn],
             )
         )
@@ -532,10 +543,18 @@ class BriefDeliveryStack(Stack):
         resource AT ALL, so the Role's policy no longer depends on the Function --
         only the Function still depends on the Role, the correct, acyclic
         direction."""
+        # Lambda function ARNs use a COLON separator (`...:function:<name>`), NOT the
+        # `format_arn` default slash (`...:function/<name>`). Getting this wrong makes
+        # the granted resource never match the real function ARN, so the self-invoke
+        # fails AccessDenied at runtime -- a latent bug that only surfaces on a real
+        # POST /deliver trigger (never on synth, and never while the endpoint was locked
+        # and untriggered), which is exactly how it was found. ArnFormat.COLON_RESOURCE_NAME
+        # forces the correct `function:<name>` form.
         self_invoke_arn = self.format_arn(
             service="lambda",
             resource="function",
             resource_name=DELIVER_FUNCTION_NAME,
+            arn_format=cdk.ArnFormat.COLON_RESOURCE_NAME,
         )
         fn.role.add_to_policy(
             iam.PolicyStatement(

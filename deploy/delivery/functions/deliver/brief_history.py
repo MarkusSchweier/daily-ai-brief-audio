@@ -301,3 +301,79 @@ def archive_source_usage_file(
     except Exception as e:
         print("BRIEF_ARCHIVE_FAILED:", key, repr(e))
         return False
+
+
+def _archive_json_content(
+    s3_client,
+    today: str,
+    *,
+    content: str | None,
+    filename: str,
+    log_label: str,
+    bucket: str = BUCKET,
+) -> bool:
+    """Archive `content` (a raw JSON string handed straight from the POST /deliver
+    request body) to `briefs/<today>/<filename>` -- the contract-v2 sibling of
+    `archive_candidates_file()` / `archive_source_usage_file()` above (ADR-0015 D2).
+
+    In the DECOUPLED production model these artifacts are produced in the MicroVM's
+    workspace, NOT on this delivery Lambda's filesystem, so their CONTENT travels in
+    the request body rather than being read from `WORKING_FOLDER` (the file-based
+    helpers above would find nothing here). The content is treated as an OPAQUE
+    string and archived byte-for-byte -- exactly what the file-based helpers do with
+    the file's bytes -- so archived fidelity matches what the skill produced, with no
+    re-serialization drift.
+
+    Same additive, best-effort fail-safe as the file-based helpers (CLAUDE.md: never
+    lose the brief -- or, here, block it -- over an additive-artifact glitch): an
+    absent/empty `content` (a caller that didn't include it, or a run before the skill
+    emitted it) is the expected common case, logged and skipped, NEVER raised or 400'd
+    -- an additive artifact must never fail the actual send. An S3-write failure is
+    likewise logged, never raised. Returns True only if archived."""
+    if not content or not content.strip():
+        print(f"{log_label}_ARCHIVE_SKIPPED: no {filename} content in request body")
+        return False
+    key = f"{BRIEFS_PREFIX}{today}/{filename}"
+    try:
+        s3_client.put_object(
+            Bucket=bucket, Key=key, Body=content.encode("utf-8"), ContentType="application/json"
+        )
+        print("BRIEF_ARCHIVED", key)
+        return True
+    except Exception as e:
+        print("BRIEF_ARCHIVE_FAILED:", key, repr(e))
+        return False
+
+
+def archive_candidates_content(
+    s3_client,
+    today: str,
+    *,
+    content: str | None,
+    bucket: str = BUCKET,
+    candidates_filename: str = CANDIDATES_FILENAME,
+) -> bool:
+    """Archive `candidates.json` CONTENT (from the POST /deliver body, ADR-0015 D2) to
+    `briefs/<today>/candidates.json`. Content-based sibling of
+    `archive_candidates_file()`; see `_archive_json_content()` for the fail-safe
+    contract."""
+    return _archive_json_content(
+        s3_client, today, content=content, filename=candidates_filename, log_label="CANDIDATES", bucket=bucket
+    )
+
+
+def archive_source_usage_content(
+    s3_client,
+    today: str,
+    *,
+    content: str | None,
+    bucket: str = BUCKET,
+    source_usage_filename: str = SOURCE_USAGE_FILENAME,
+) -> bool:
+    """Archive `source-usage.json` CONTENT (from the POST /deliver body, ADR-0015 D2)
+    to `briefs/<today>/source-usage.json`. Content-based sibling of
+    `archive_source_usage_file()`; see `_archive_json_content()` for the fail-safe
+    contract."""
+    return _archive_json_content(
+        s3_client, today, content=content, filename=source_usage_filename, log_label="SOURCE_USAGE", bucket=bucket
+    )

@@ -10,6 +10,14 @@
   escalated to the human — **who has now ratified the environment topology (Decision 1: the
   hybrid).** The delivery-boundary shape and candidate versioning layout remain recommended
   concretely and are not yet locked. Nothing is deployed to production yet.
+  **AMENDED 2026-07-06 by [ADR-0015](0015-production-delivery-decoupling.md):** Decision 1 ratified the
+  hybrid AND recorded that the Phase-7 production cut-over would be a **no-op** (production keeps
+  delivering in-VM). ADR-0015 **reverses that specific sub-decision** on the owner's approval:
+  production **content generation stays self-hosted** (the hybrid itself is unchanged), but production
+  **delivery** (Polly/SES/S3/fan-out/HTML) moves out of the MicroVM to the `deploy/delivery/` boundary
+  (full decouple; the MicroVM ends up with the same zero-AWS-delivery posture as a cloud candidate).
+  Wherever this ADR below says "Phase 7 is a no-op" or "production delivers in-VM," it is superseded by
+  ADR-0015 for the **delivery** half; the topology (where content generation runs) is not changed.
   **Decision 1's recommendation was reassessed on 2026-07-06 (fifth pass, below) in light of two
   live-confirmed `cloud` findings to the HYBRID (`cloud` for candidate/eval, `self_hosted` retained
   for production) rather than full cloud-for-everything, and the human RATIFIED the hybrid on

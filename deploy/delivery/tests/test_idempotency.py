@@ -126,9 +126,11 @@ def _worker_event(delivery_id: str) -> dict:
         "_delivery_worker": True,
         "deliveryId": delivery_id,
         "body": {
-            "contractVersion": 1,
+            "contractVersion": 2,
             "brief_markdown": "# Test Brief\n\nSome content.",
             "listening_script": "This is the listening script.",
+            "candidates": '{"considered": []}',
+            "source_usage": '{"featured": []}',
             "metadata": {"email_subject": "Test Brief", "enable_subscriber_fanout": False, "brief_date": "2026-07-06"},
         },
     }
@@ -251,6 +253,54 @@ def test_worker_invocation_marks_failed_on_exception_not_duplicate_skipped(deliv
     row = delivery_table.get_item(Key={"deliveryId": delivery_id})["Item"]
     assert row["status"] == "failed"
     assert "error" in row
+
+
+def test_run_delivery_archives_all_four_artifacts_from_the_request_body(delivery_table, briefs_bucket):
+    """ADR-0015 D2 wiring: the worker leg archives candidates.json and
+    source-usage.json from the REQUEST BODY (not this Lambda's empty local
+    filesystem), alongside brief.md/brief.html/listening-script -- proving the
+    four-artifact contract's content actually lands in `briefs/<date>/`.
+
+    `briefs_bucket` is a real moto-backed S3 client, so this exercises the genuine
+    put_object path end to end (unlike the other tests here, which use the raising
+    `_NoOpS3Client` because they only care about the send/claim logic)."""
+    import brief_history
+
+    delivery_id = "delivery-archival-1"
+    delivery_table.put_item(Item={"deliveryId": delivery_id, "status": "pending"})
+
+    result = handler_module._handle_worker_invocation(
+        _worker_event(delivery_id),
+        table=delivery_table,
+        polly_client=_NoOpPollyClient(),  # audio fails -> text-only, archival still runs
+        s3_client=briefs_bucket,
+        ses_client=_CountingSesClient(),
+        dynamodb_client=_EmptyDynamoDBClient(),
+        secretsmanager_client=_NoOpSecretsManagerClient(),
+    )
+
+    assert result["status"] == "succeeded"
+    # The per-artifact archival flags live in the summary stored on the tracking row
+    # (the worker leg's own return is a minimal status dict).
+    summary = json.loads(delivery_table.get_item(Key={"deliveryId": delivery_id})["Item"]["summary"])
+    assert summary["candidates_archived"] is True
+    assert summary["source_usage_archived"] is True
+
+    keys = {
+        obj["Key"]
+        for obj in briefs_bucket.list_objects_v2(Bucket=brief_history.BUCKET, Prefix="briefs/2026-07-06/").get(
+            "Contents", []
+        )
+    }
+    assert "briefs/2026-07-06/candidates.json" in keys
+    assert "briefs/2026-07-06/source-usage.json" in keys
+    assert "briefs/2026-07-06/brief.md" in keys
+
+    # And the candidates content is the exact string from the request body.
+    archived = briefs_bucket.get_object(
+        Bucket=brief_history.BUCKET, Key="briefs/2026-07-06/candidates.json"
+    )["Body"].read().decode("utf-8")
+    assert archived == '{"considered": []}'
 
 
 def test_json_serialized_worker_event_round_trips(delivery_table):
