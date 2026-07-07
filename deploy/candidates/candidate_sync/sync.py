@@ -459,11 +459,18 @@ def _build_multiagent_config(candidate: CandidateDeclaration, sub_agent_ids: lis
     or already-known) so the coordinator always references real agent ids."""
     assert candidate.multiagent_json is not None
     roster = candidate.multiagent_json.get("agents", [])
-    agents_field = []
+    agents_field: list[dict[str, Any]] = []
     for index, roster_entry in enumerate(roster):
-        entry = dict(roster_entry.get("entry", {}))
-        entry["agent"] = sub_agent_ids[index]
-        agents_field.append({"entry": entry})
+        # Platform-confirmed shape (platform.claude.com/docs/en/managed-agents/multi-agent):
+        # each roster item is DIRECTLY the reference object -- `{"type":"agent","id":<id>}` --
+        # with NO `entry` wrapper, type == "agent", and the id field named "id". An optional
+        # per-entry `version` pins a specific sub-agent version; omitting it pins to the
+        # sub-agent's latest version at coordinator create/update time.
+        ref: dict[str, Any] = {"type": "agent", "id": sub_agent_ids[index]}
+        version = roster_entry.get("version")
+        if version is not None:
+            ref["version"] = version
+        agents_field.append(ref)
     return {
         "type": candidate.multiagent_json.get("type", "coordinator"),
         "agents": agents_field,

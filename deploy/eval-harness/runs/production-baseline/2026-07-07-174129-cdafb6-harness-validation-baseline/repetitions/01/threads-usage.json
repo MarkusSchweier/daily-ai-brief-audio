@@ -1,0 +1,27 @@
+{
+  "session_id": "sesn_01PbrTNs2Z2Z3qo9gonRd57X",
+  "total_cost_usd": 1.9057,
+  "total_usage": {
+    "input_tokens": 53,
+    "output_tokens": 35458,
+    "cache_read_input_tokens": 4117571,
+    "cache_creation_5m_input_tokens": 291003,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "threads": [
+    {
+      "thread_id": "sthr_016Cto2Ehm6VAmS8sNSVcxMK",
+      "role": "primary",
+      "agent_id": "agent_017KynQYfK2gNXtJBDeWe81B",
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 53,
+        "output_tokens": 35458,
+        "cache_read_input_tokens": 4117571,
+        "cache_creation_5m_input_tokens": 291003,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 1.9057
+    }
+  ]
+}

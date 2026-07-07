@@ -2,66 +2,42 @@
 
 The current active PRD for this project:
 
-@agent-system-redesign.md
+@cost-optimization-candidates.md
 
 ---
 
-Status: **DONE (live) — ADR-0015 "production delivery decoupling" (the agent-system-redesign epic's
-deferred Phase 7) CUT OVER TO PRODUCTION 2026-07-07. Built + reviewer/security-cleared on branch
-`feat/production-delivery-cutover` (PR #35, includes review-fix PR #34); validated owner-only on the
-stripped role, then the owner-approved live flip was executed. Production DELIVERY now runs on the
-`deploy/delivery/` boundary and the content MicroVM holds ZERO AWS delivery IAM (FR-1/AC-1). The next
-scheduled weekday run (Wed 2026-07-08 06:07 Europe/Berlin) is the first real subscriber send via the
-new path.**
-
-**ADR-0015 (Option 2, full decouple — owner-approved 2026-07-06/07).** Production content generation
-stays self-hosted, but production DELIVERY (Polly/SES/S3/fan-out + deterministic HTML) moves off the
-in-VM `audio_email.py` path onto the standalone `deploy/delivery/` boundary, so the content MicroVM
-ends with **zero AWS delivery IAM** (FR-1). Secret delivery uses **Option B** (owner's choice): the
-MicroVM reads the `POST /deliver` bearer + the recent-briefs signing key via its own ARN-scoped role
-grants and mints the short-lived read token itself — no launcher change, the launcher's
-"references-only" credential boundary intact.
-
-Built/staged (reviewer + security **GO**, PR #34, no Critical/High; their Medium/Low all fixed):
-- **Delivery boundary contract v2** — four artifacts (brief md + listening script + candidates +
-  source-usage), caller **idempotency key**, total-send-failure = hard-fail + auto re-drive, a fixed
-  latent self-invoke-ARN bug. Deployed live + validated end-to-end (owner-only, fan-out OFF).
-- **`deploy/managed-agent/pipeline/delivery_client.py`** — the MicroVM-side trigger/poll API client
-  (reads secrets, mints the read token, fails loud) — baked into microVM **image v13**
-  (`audio_email.py`/skill unchanged → the live scheduled run is unaffected).
-- **`MicroVmExecutionRole`** — two ARN-scoped delivery-secret reads deployed (flag OFF, legacy grants
-  intact); the delivery-capability strip is gated behind a `deliveryDecoupled` CDK context flag
-  (default OFF = today's behavior), flipped ON only at cut-over.
-- **`deploy/managed-agent/deployment-validation.json`** — the new decoupled prompt (fan-out OFF,
-  on-demand) for the owner-only validation run.
-- **HTML template (delivery-side, FR-2a; owner feedback):** responsive card + 17px body for mobile; a
-  single unified **14px top "meta" box** carrying feedback + subscribe + **unsubscribe** + AI
-  disclaimer (unsubscribe moved from a bottom footer INTO the top box; footer removed); the welcome
-  mail (`deploy/subscribers/welcome-send`) now renders EXACTLY like a daily subscriber email + a
-  welcome intro at the top. Validated by real emails to `mail@mschweier.com`.
-
-**Cut over to production 2026-07-07 (owner-approved live flip — DONE):** validated owner-only on the
-stripped role (all four artifacts archived, `SUBSCRIBER_FANOUT_SKIPPED`, `DELIVERY_SUCCEEDED`), then
-swapped the scheduled weekday deployment to the decoupled prompt + `ENABLE_SUBSCRIBER_FANOUT=1` (new
-`depl_01VP2gkocBheZF9dybQQ8aUN`, cron `7 6 * * 1-5` Europe/Berlin; old `depl_01GfuYeqwuDJ3q968CpTUUDe`
-archived), flipped `deliveryDecoupled=true` (the IAM strip — `MicroVmExecutionRole` is now env-key +
-logs + the two delivery-secret reads only), and deployed the welcome-send Lambda (new chrome).
-**Live now:** the `deploy/delivery/` stack (contract v2 + new template), microVM image v13, and the
-decoupled scheduled deployment. Rollback (if a weekday run regresses): re-point the scheduled
-deployment at the archived in-VM prompt and `cdk deploy ManagedAgentSandboxStack` WITHOUT
-`-c deliveryDecoupled=true` (image v13 still contains `audio_email.py`). Full runbook:
-`deploy/delivery/CUTOVER-production-decoupling.md`. Tests: 261 delivery + 78 managed-agent + 3 CDK +
-71 subscribers pass.
+Status: **ACTIVE — agent cost-optimization epic (2026-07-07).** A **combined A/B/C epic** (owner
+decision): **A** re-integrate the eval harness with the new candidate mechanism, **B** configure &
+deploy the candidate set, **C** run the comparison & decide the future production set-up. Sequenced
+**B → A → C**. **B (candidate declarations) is BUILT** on branch `feat/cost-optimization-candidates`
+(`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure`; `production-baseline` pre-exists)
+— all content-generation only, delivery-free, **no TTS in evals**. **A is developed next in this
+thread**; **C** follows. Full plan, final candidate set (incl. the aggressive-#3 split and the #5/#6
+backburner), A UI requirements, and the decisions/flags log (no-TTS, branch topology, the
+multi-agent-execution A-verification item) live in `cost-optimization-candidates.md`, imported above.
+**This branch was reconciled with `main` on 2026-07-07 (merge): it now carries the shipped
+agent-system-redesign + the live ADR-0015 delivery cut-over described below.**
 
 ---
 
-**agent-system-redesign epic — MERGED to main (PRs #31/#32).** Decoupled content generation from AWS
-delivery: the `deploy/delivery/` boundary, git-native candidates (`deploy/candidates/`), and the shared
-`cloud` environment. Topology (ADR-0014 Decision 1): **hybrid** — `cloud` for candidate/eval,
-`self_hosted` retained for production. ADR-0015 above executes its deferred Phase 7. Its
-build-history detail (retained below for reference) predates the ADR-0015 changes — e.g. "`POST
-/deliver` locked" and "one fixed HTML template" are now superseded by contract v2 and the refined
-template above. **Built, each reviewed + security-cleared, on the merged branch `feat/agent-system-redesign`:**
+### Previous epic — agent-system-redesign + ADR-0015 delivery cut-over (SHIPPED + LIVE)
+
+Status: **DONE (live).** The agent-system-redesign epic **shipped and merged to main (PRs #31/#32)**,
+decoupling content generation from AWS delivery (the `deploy/delivery/` boundary, git-native
+candidates in `deploy/candidates/`, the shared `cloud` environment; topology ADR-0014 Decision 1 =
+**hybrid** — `cloud` for candidate/eval, `self_hosted` for production). Its deferred Phase 7 —
+**ADR-0015 production delivery decoupling — was CUT OVER TO PRODUCTION 2026-07-07** (owner-approved,
+PRs #34/#35/#36): production DELIVERY now runs on the `deploy/delivery/` boundary (contract v2), the
+content MicroVM holds **zero AWS delivery IAM** (`deliveryDecoupled=true`; FR-1/AC-1), the scheduled
+weekday deployment runs the decoupled `delivery_client.py` → `POST /deliver` prompt (new
+`depl_01VP2gkocBheZF9dybQQ8aUN`; old in-VM deployment archived), and the welcome-send Lambda ships the
+new chrome. Validated owner-only on the stripped role first (all four artifacts archived,
+`SUBSCRIBER_FANOUT_SKIPPED`, `DELIVERY_SUCCEEDED`); first real subscriber send via the new path = Wed
+2026-07-08 06:07 Europe/Berlin. Rollback: re-point the scheduled deployment at the archived in-VM
+prompt + `cdk deploy ManagedAgentSandboxStack` WITHOUT `-c deliveryDecoupled=true` (image v13 still
+has `audio_email.py`). The build-history detail below (Phases 1–6) predates the ADR-0015 refinements —
+e.g. "`POST /deliver` locked" and "one fixed HTML template" are now superseded by contract v2 and the
+refined template. **Built, each reviewed + security-cleared, on the merged branch `feat/agent-system-redesign`:**
 - **Phase 1** — `deploy/delivery/`: standalone CDK stack, async bearer-authed `POST /deliver` +
   `GET /deliver/{id}` (async trigger/poll — API Gateway's 30s cap can't hold a multi-minute send),
   deterministic no-LLM Markdown→HTML via one fixed template (the "reproduce THE standardized design"

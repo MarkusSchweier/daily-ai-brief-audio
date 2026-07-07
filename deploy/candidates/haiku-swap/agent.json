@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-haiku-swap-candidate",
+  "description": "Cost-optimization candidate #2: the production-baseline content-generation configuration with the backing model swapped to Claude Haiku 4.5 (everything else -- system prompt, task prompt, skill, tools -- identical). Content generation only (research + write, no narration/email/archival); holds no AWS/delivery role. SEPARATE agent resource from the real live production agent (agent_01EswBTose8dnTAUDbGvzdLq) and from production-baseline -- syncing or triggering it can never mutate or invoke either. See candidate.json for the full cost-optimization-scope description.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

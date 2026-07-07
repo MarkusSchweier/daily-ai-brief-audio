@@ -1,0 +1,26 @@
+{
+  "name": "haiku-swap first eval",
+  "slug": "haiku-swap",
+  "agent_id": "agent_01GZARcojJpY9pLoHqXrmPzq",
+  "git_ref": "50c8791285eda5612c4bd835d93ec57fb2321ceb",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": []
+  },
+  "repetitions": 1,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1783445087,
+  "declaration_dirty": false
+}

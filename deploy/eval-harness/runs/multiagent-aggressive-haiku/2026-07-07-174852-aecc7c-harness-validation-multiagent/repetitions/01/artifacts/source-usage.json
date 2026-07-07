@@ -1,0 +1,374 @@
+[
+  {
+    "source": "Anthropic",
+    "tier": 1,
+    "featured": true,
+    "stories": ["J-space interpretability paper", "TeraWulf lease", "Government $1/year offer", "Alberta case study", "Fable 5 pricing"]
+  },
+  {
+    "source": "Google DeepMind",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Google Research",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Meta AI",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Microsoft Research",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Mistral AI",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "OpenAI",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Qwen (Alibaba)",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "DeepSeek",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "xAI",
+    "tier": 1,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Hugging Face Daily Papers",
+    "tier": 2,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "arXiv cs.CL",
+    "tier": 2,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "arXiv cs.LG",
+    "tier": 2,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "arXiv cs.AI",
+    "tier": 2,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Papers with Code",
+    "tier": 2,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "LMArena (Chatbot Arena) leaderboard",
+    "tier": 3,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Artificial Analysis",
+    "tier": 3,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Hugging Face Open LLM leaderboard",
+    "tier": 3,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "SWE-bench",
+    "tier": 3,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "TechCrunch — AI",
+    "tier": 4,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "The Verge — AI",
+    "tier": 4,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "VentureBeat — AI",
+    "tier": 4,
+    "featured": true,
+    "stories": ["J-space interpretability paper"]
+  },
+  {
+    "source": "Ars Technica — AI",
+    "tier": 4,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Reuters — Technology",
+    "tier": 4,
+    "featured": true,
+    "stories": ["TeraWulf lease (via Yahoo Finance)"]
+  },
+  {
+    "source": "Axios",
+    "tier": 4,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "The Information",
+    "tier": 5,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Bloomberg — Technology",
+    "tier": 5,
+    "featured": true,
+    "stories": ["White House framework (via secondary reporting)"]
+  },
+  {
+    "source": "The Wall Street Journal — Tech",
+    "tier": 5,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Financial Times — Artificial Intelligence",
+    "tier": 5,
+    "featured": true,
+    "stories": ["White House framework (via secondary recap)"]
+  },
+  {
+    "source": "The New York Times — Technology",
+    "tier": 5,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "smol.ai — AI News",
+    "tier": 6,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Zvi Mowshowitz — Don't Worry About the Vase",
+    "tier": 6,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Import AI (Jack Clark)",
+    "tier": 6,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "The Batch (DeepLearning.AI)",
+    "tier": 6,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Ahead of AI (Sebastian Raschka)",
+    "tier": 6,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Hacker News",
+    "tier": 7,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Reddit r/LocalLLaMA",
+    "tier": 7,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Reddit r/MachineLearning",
+    "tier": 7,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "GitHub Trending",
+    "tier": 7,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Hugging Face Trending",
+    "tier": 7,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "White House OSTP / AI policy",
+    "tier": 8,
+    "featured": true,
+    "stories": ["White House EO 14409 (policy framework primary source)"]
+  },
+  {
+    "source": "EU AI Act / European Commission digital",
+    "tier": 8,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "UK AI Safety Institute",
+    "tier": 8,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "NIST AI",
+    "tier": 8,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "Stanford HAI",
+    "tier": 8,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "NVIDIA Newsroom",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "NVIDIA Blog",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "AMD News",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "AWS Machine Learning Blog",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "SemiAnalysis",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "TSMC News",
+    "tier": 9,
+    "featured": false,
+    "stories": []
+  },
+  {
+    "source": "METR",
+    "tier": null,
+    "featured": true,
+    "stories": ["GPT-5.6 Sol benchmark gaming evaluation"]
+  },
+  {
+    "source": "Tech Times",
+    "tier": null,
+    "featured": true,
+    "stories": ["METR GPT-5.6 Sol gaming findings recap", "Fable 5 pricing cliff"]
+  },
+  {
+    "source": "Digg",
+    "tier": null,
+    "featured": true,
+    "stories": ["METR GPT-5.6 Sol gaming recap"]
+  },
+  {
+    "source": "Ponoka News",
+    "tier": null,
+    "featured": true,
+    "stories": ["Alberta Claude Code case study"]
+  },
+  {
+    "source": "Digital Watch Observatory",
+    "tier": null,
+    "featured": true,
+    "stories": ["Alberta Claude Code case study"]
+  },
+  {
+    "source": "TeraWulf investor relations",
+    "tier": null,
+    "featured": true,
+    "stories": ["TeraWulf-Anthropic lease primary announcement"]
+  },
+  {
+    "source": "CNBC",
+    "tier": null,
+    "featured": true,
+    "stories": ["TeraWulf-Anthropic lease coverage", "Samsung Q2 profit / share decline"]
+  },
+  {
+    "source": "Decrypt",
+    "tier": null,
+    "featured": true,
+    "stories": ["TeraWulf-Anthropic lease coverage"]
+  },
+  {
+    "source": "Yahoo Finance",
+    "tier": null,
+    "featured": true,
+    "stories": ["Reuters terawulf coverage"]
+  },
+  {
+    "source": "LessWrong",
+    "tier": null,
+    "featured": true,
+    "stories": ["J-space interpretability paper review and replication"]
+  },
+  {
+    "source": "AI Weekly",
+    "tier": null,
+    "featured": true,
+    "stories": ["White House framework reporting recap"]
+  }
+]

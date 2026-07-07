@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "ADR-0016 D2: cost is computed from per-thread USAGE (Claude-Platform-sourced,",
+    "GET /v1/sessions/{id}/threads) times this git-pinned, model-aware,",
+    "cache-bucket-aware price table -- there is NO public per-token price-list API",
+    "(confirmed live 2026-07-07: GET /v1/models carries capabilities/max_tokens/effort",
+    "but no pricing field at all), so prices must be pinned somewhere. Anti-drift is",
+    "handled by (a) isolating every price in this ONE small, reviewed file, each tier",
+    "carrying its own effective_from/effective_until, and (b) `harness/cost.py`'s",
+    "`--check-pricing-drift` guard, which fails loud when today's date falls outside",
+    "every tier's window for a model family.",
+    "",
+    "`cache_multipliers` are fixed and (per ADR-0016 D2's live-confirmed arithmetic,",
+    "reproduced exactly by the golden test in tests/test_cost_golden.py) apply",
+    "UNIFORMLY across both model families below: a cache-write (creation) token costs",
+    "`write_5m`/`write_1h` times the model's OWN base INPUT rate; a cache-read token",
+    "costs `read` times that same base input rate. Output happens to price out to",
+    "~5x each model's own base input rate on every tier below -- noted as a sanity",
+    "observation, NOT stored/derived as a multiplier (output_per_million_usd is",
+    "pinned explicitly per tier, not computed, for maximum accuracy per the ADR's",
+    "'prices must be pinned, not formula-derived' stance)."
+  ],
+  "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "captured_on": "2026-07-07",
+  "cache_multipliers": {
+    "write_5m": 1.25,
+    "write_1h": 2.0,
+    "read": 0.1
+  },
+  "models": {
+    "claude-sonnet-5": {
+      "aliases": ["claude-sonnet-5"],
+      "tiers": [
+        {
+          "label": "introductory",
+          "effective_from": null,
+          "effective_until": "2026-08-31",
+          "input_per_million_usd": 2.00,
+          "output_per_million_usd": 10.00,
+          "captured_on": "2026-07-07"
+        },
+        {
+          "label": "standard",
+          "effective_from": "2026-09-01",
+          "effective_until": null,
+          "input_per_million_usd": 3.00,
+          "output_per_million_usd": 15.00,
+          "captured_on": "2026-07-07"
+        }
+      ]
+    },
+    "claude-haiku-4-5": {
+      "aliases": ["claude-haiku-4-5", "claude-haiku-4-5-20251001"],
+      "tiers": [
+        {
+          "label": "standard",
+          "effective_from": null,
+          "effective_until": null,
+          "input_per_million_usd": 1.00,
+          "output_per_million_usd": 5.00,
+          "captured_on": "2026-07-07"
+        }
+      ]
+    }
+  }
+}

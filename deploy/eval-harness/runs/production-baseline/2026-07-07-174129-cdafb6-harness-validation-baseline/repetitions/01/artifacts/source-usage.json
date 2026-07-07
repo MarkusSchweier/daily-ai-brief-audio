@@ -1,0 +1,61 @@
+[
+  {"source": "Anthropic", "tier": 1, "featured": true},
+  {"source": "Google DeepMind", "tier": 1, "featured": false},
+  {"source": "Google Research", "tier": 1, "featured": false},
+  {"source": "Meta AI", "tier": 1, "featured": false},
+  {"source": "Microsoft Research", "tier": 1, "featured": false},
+  {"source": "Mistral AI", "tier": 1, "featured": false},
+  {"source": "OpenAI", "tier": 1, "featured": false},
+  {"source": "Qwen (Alibaba)", "tier": 1, "featured": false},
+  {"source": "DeepSeek", "tier": 1, "featured": false},
+  {"source": "xAI", "tier": 1, "featured": false},
+
+  {"source": "Hugging Face Daily Papers", "tier": 2, "featured": false},
+  {"source": "arXiv cs.CL (Computation & Language) RSS", "tier": 2, "featured": false},
+  {"source": "arXiv cs.LG (Machine Learning) RSS", "tier": 2, "featured": false},
+  {"source": "arXiv cs.AI (Artificial Intelligence) RSS", "tier": 2, "featured": false},
+  {"source": "Papers with Code", "tier": 2, "featured": false},
+
+  {"source": "LMArena (Chatbot Arena) leaderboard", "tier": 3, "featured": false},
+  {"source": "Artificial Analysis", "tier": 3, "featured": false},
+  {"source": "Hugging Face Open LLM / Open models leaderboards", "tier": 3, "featured": false},
+  {"source": "SWE-bench", "tier": 3, "featured": false},
+
+  {"source": "TechCrunch — AI", "tier": 4, "featured": true},
+  {"source": "The Verge — AI", "tier": 4, "featured": false},
+  {"source": "VentureBeat — AI", "tier": 4, "featured": false},
+  {"source": "Ars Technica — AI", "tier": 4, "featured": false},
+  {"source": "Reuters — Technology", "tier": 4, "featured": true},
+  {"source": "Axios", "tier": 4, "featured": false},
+
+  {"source": "The Information", "tier": 5, "featured": false},
+  {"source": "Bloomberg — Technology", "tier": 5, "featured": true},
+  {"source": "The Wall Street Journal — Tech", "tier": 5, "featured": false},
+  {"source": "Financial Times — Artificial intelligence", "tier": 5, "featured": true},
+  {"source": "The New York Times — Technology", "tier": 5, "featured": false},
+
+  {"source": "smol.ai — AI News", "tier": 6, "featured": false},
+  {"source": "Zvi Mowshowitz — Don't Worry About the Vase", "tier": 6, "featured": false},
+  {"source": "Import AI (Jack Clark)", "tier": 6, "featured": false},
+  {"source": "The Batch (DeepLearning.AI)", "tier": 6, "featured": false},
+  {"source": "Ahead of AI (Sebastian Raschka)", "tier": 6, "featured": false},
+
+  {"source": "Hacker News front page", "tier": 7, "featured": false},
+  {"source": "Reddit r/LocalLLaMA", "tier": 7, "featured": false},
+  {"source": "Reddit r/MachineLearning", "tier": 7, "featured": false},
+  {"source": "GitHub Trending", "tier": 7, "featured": false},
+  {"source": "Hugging Face Trending", "tier": 7, "featured": false},
+
+  {"source": "White House OSTP / AI policy", "tier": 8, "featured": false},
+  {"source": "EU AI Act / European Commission digital", "tier": 8, "featured": false},
+  {"source": "UK AI Safety Institute", "tier": 8, "featured": false},
+  {"source": "NIST AI", "tier": 8, "featured": false},
+  {"source": "Stanford HAI", "tier": 8, "featured": false},
+
+  {"source": "NVIDIA Newsroom", "tier": 9, "featured": false},
+  {"source": "NVIDIA Blog", "tier": 9, "featured": false},
+  {"source": "AMD News", "tier": 9, "featured": false},
+  {"source": "AWS Machine Learning Blog", "tier": 9, "featured": false},
+  {"source": "SemiAnalysis", "tier": 9, "featured": false},
+  {"source": "TSMC News", "tier": 9, "featured": false}
+]

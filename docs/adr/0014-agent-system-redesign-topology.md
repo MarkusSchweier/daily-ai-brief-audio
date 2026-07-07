@@ -415,13 +415,17 @@ I trust the live evidence and say so explicitly.
 
 - **Multi-agent is a first-class field ON a single agent resource — confirmed.** The
   agent object has a top-level `multiagent` key (`null` for single-agent).
-  Agent-create accepts `multiagent: {type: "coordinator", agents: [{entry: {...}}]}`
-  (my probe reached field-level validation: `multiagent.agents[0].entry.type: Field
-  required`). So a coordinator + sub-agents graph is **one** agent resource with a
-  nested `agents[].entry` array — not N separate agents the candidate layout must stitch
-  together. (The exact `entry` schema is a build-time detail flagged below; the
-  structural fact — multi-agent lives inside one agent definition — is what the
-  candidate layout needs.)
+  Agent-create accepts `multiagent: {type: "coordinator", agents: [{"type":"agent","id":<sub_agent_id>}]}`
+  — each roster item is DIRECTLY a reference object (`{"type":"agent","id":...}`, with an optional
+  `"version"` to pin), **not** an `entry`-wrapped object. **[CORRECTED 2026-07-07]** The original probe
+  used an `entry`-wrapped shape and only reached `multiagent.agents[0].entry.type: Field required`; the
+  correct shape was then confirmed live (by syncing real coordinators) and against the official docs
+  (platform.claude.com/docs/en/managed-agents/multi-agent). So the coordinator is **one** agent
+  resource whose roster **references N separate sub-agent resources by id** — each sub-agent is its own
+  agent resource with its own stable `agent_id` (exactly what `deploy/candidates/`'s sync creates:
+  sub-agents first, then a coordinator referencing them). The docs also confirm **all agents in a
+  session share one sandbox filesystem** (only per-agent context/tools are isolated), so the
+  decomposition candidates' `/workspace` artifact hand-off is valid.
 
 ## Decision 1 (ACCEPTED — hybrid, ratified by the human 2026-07-06): Hybrid — `cloud` for candidate/eval, retain `self_hosted` for production
 

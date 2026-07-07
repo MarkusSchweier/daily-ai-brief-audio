@@ -1,0 +1,102 @@
+[
+  {
+    "title": "White House nears completion of voluntary frontier-model pre-release standards framework",
+    "source": "Financial Times / Bloomberg",
+    "disposition": "included"
+  },
+  {
+    "title": "Fable 5 subscription window closes, moves to usage-credit billing at $10/$50 per Mtok",
+    "source": "Anthropic / TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic has overtaken OpenAI in annualized revenue, hitting $30B+ vs OpenAI's $25B",
+    "source": "Fortune / Epoch AI",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic in preliminary talks with Samsung for custom 2nm AI chip manufacturing",
+    "source": "The Information / TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "GPT-5.6 Sol/Terra/Luna pricing confirmed; general availability expected July 7-14 window",
+    "source": "unrot.co / Build Fast with AI",
+    "disposition": "included"
+  },
+  {
+    "title": "UN Global Dialogue on AI Governance concludes today in Geneva after two days",
+    "source": "UN.org / UNESCO",
+    "disposition": "included"
+  },
+  {
+    "title": "Google's Antigravity platform processes 3+ trillion tokens daily, undercutting enterprise AI costs",
+    "source": "VentureBeat / Google I/O",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft launches $2.5B AI deployment company amid enterprise tokenomics backlash",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "China's anthropomorphic AI rules push ByteDance, Alibaba to disable custom agent personas July 15",
+    "source": "SCMP / Bloomberg",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 6)"
+  },
+  {
+    "title": "Amazon will stop accepting new customers for Mechanical Turk, signaling AI displacement of crowdwork",
+    "source": "TechCrunch / The Register",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 5); no material update"
+  },
+  {
+    "title": "Venice.ai becomes unicorn with $65M Series A on private AI platform momentum",
+    "source": "TechCrunch",
+    "disposition": "excluded",
+    "reason": "funding round from early July; timing outside 48-hour window for today's brief"
+  },
+  {
+    "title": "Meta's Watermelon model claimed to match GPT-5.5 on benchmarks; Zuckerberg admits agents progressing slower than expected",
+    "source": "Reuters / TechCrunch",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 4); no material update as of July 7"
+  },
+  {
+    "title": "Grok 4.5 in private beta at SpaceX/Tesla; Polymarket gives Q3 Grok 5 release 3% odds",
+    "source": "xAI / Polymarket",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 4); no material update"
+  },
+  {
+    "title": "Gemini 3.5 Pro expanded preview rollout beginning early July, after missing May/June targets",
+    "source": "Google / unrot.co",
+    "disposition": "excluded",
+    "reason": "announcement from late June; already covered in context of White House framework delays"
+  },
+  {
+    "title": "SK Hynix $28B Nasdaq IPO among largest ever, on AI memory-chip demand",
+    "source": "Reuters",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 6); IPO completed"
+  },
+  {
+    "title": "Claude Sonnet 5 launches at $2/M input tokens (intro pricing through August)",
+    "source": "Anthropic",
+    "disposition": "excluded",
+    "reason": "launched June 30; already in context for this week's briefing but not fresh for July 7"
+  },
+  {
+    "title": "JadePuffer: first fully autonomous AI-run ransomware operation documented by Sysdig",
+    "source": "Sysdig / BleepingComputer",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 6); no material update"
+  },
+  {
+    "title": "Cloudflare sets September 15 deadline for AI crawlers to self-identify or be blocked",
+    "source": "Cloudflare / NBC News",
+    "disposition": "excluded",
+    "reason": "covered in prior brief (July 4); future-dated enforcement, not today's news"
+  }
+]

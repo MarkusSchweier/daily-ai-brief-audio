@@ -1,0 +1,25 @@
+# deploy/eval-harness/ is a plain local Python package -- no AWS, no CDK (ADR-0016
+# D1: "local-first, git-native... makes no AWS calls in its core loop"). It reuses
+# deploy/candidates/candidate_sync for candidate loading + trigger/retrieve (imported
+# via a sys.path shim, see harness/*.py's header comments -- not duplicated here).
+
+httpx>=0.27.0
+# The real Anthropic Messages API client the four ported judges call at runtime
+# (eval_core/judges/base.py's `run_judge(client, ...)` -- tests inject a fake, but
+# harness/run.py's live `run` CLI builds a real anthropic.Anthropic() client).
+anthropic>=0.40.0
+# D5: the tiny local Flask web app that triggers + views eval runs (127.0.0.1 only,
+# no auth needed -- ADR-0016 D5).
+flask>=3.0.0,<4.0.0
+# Server-side rendering of the brief Markdown in the UI's deep-dive page (same
+# package + pin already established at deploy/delivery/functions/deliver/requirements.txt
+# for delivery-side HTML derivation -- reused here for consistency, not duplicated
+# reasoning; see that file's own comment for why `markdown` and not something else).
+markdown>=3.7,<4.0
+# review-fix (security M1): markdown.markdown() passes raw HTML in the source
+# Markdown straight through -- a brief containing e.g. "<script>...</script>" (LLM
+# output about third-party web content, not assumed inert) would render as live
+# HTML/JS in the deep-dive page. bleach.clean() strips anything outside a small,
+# explicit allowlist after the Markdown->HTML conversion, closing that stored-XSS
+# path. See ui.py's render_markdown() for the allowlist.
+bleach>=6.0,<7.0

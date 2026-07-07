@@ -46,6 +46,7 @@ strings are ever committed.
 from __future__ import annotations
 
 import os
+import shlex
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -583,43 +584,40 @@ def _parse_plain_cat_command(command: str) -> str | None:
     rejection rules (unterminated quote, embedded quote, metacharacter inside)
     apply to both quote characters, kept as parallel, independently-readable
     branches rather than a single generalized-but-harder-to-verify helper."""
+    # CORRECTED A THIRD TIME (2026-07-07, cost-optimization epic, the real
+    # haiku-swap eval run): a real Haiku 4.5 agent produced yet another equally
+    # idiomatic quoting form this parser's form-enumeration had never seen --
+    # BACKSLASH-ESCAPED spaces (`cat /workspace/AI\ Brief\ -\ 2026-07-07.md`).
+    # The brief (the ONLY artifact whose filename contains spaces) was silently
+    # dropped again, for the THIRD distinct shell idiom in a row, while the
+    # space-free artifacts parsed fine. Three strikes ends the enumeration
+    # strategy: the remainder is now tokenized with `shlex` (POSIX-correct for
+    # bare, double-quoted, single-quoted, AND backslash-escaped forms uniformly,
+    # including mixes) and accepted only if it yields EXACTLY ONE token -- with
+    # all shell metacharacters still rejected up front on the RAW remainder, so
+    # the recognized set is "every plain single-path `cat` spelling a POSIX
+    # shell would parse", and nothing else.
     if not command.startswith("cat "):
         return None
     remainder = command[len("cat ") :].strip()
     if not remainder:
         return None
-    if remainder.startswith('"'):
-        # ANY remainder starting with a quote must satisfy the quoted-path form
-        # below, or be rejected outright -- it must NOT silently fall through to
-        # the unquoted-form check (a real gap an earlier version of this branch
-        # had: an unterminated leading quote with no space/metacharacter inside
-        # would otherwise fall through and be returned verbatim, quote
-        # character and all).
-        if not (remainder.endswith('"') and len(remainder) >= 2):
-            return None
-        inner = remainder[1:-1]
-        # Reject anything that still isn't a single, simple, unescaped-quote-free
-        # path inside the quotes (an embedded `"` or shell metacharacter means
-        # this isn't the plain single-quoted-path form this parser recognizes).
-        if not inner or any(ch in inner for ch in ('"', "|", ">", "<", "&", ";")):
-            return None
-        return inner
-    if remainder.startswith("'"):
-        # Mirrors the double-quote branch above exactly, for the equally
-        # idiomatic single-quoted form (`cat 'path with spaces'`) -- see the
-        # "CORRECTED AGAIN" docstring note for why this branch exists at all.
-        if not (remainder.endswith("'") and len(remainder) >= 2):
-            return None
-        inner = remainder[1:-1]
-        if not inner or any(ch in inner for ch in ("'", "|", ">", "<", "&", ";")):
-            return None
-        return inner
-    # Unquoted form: reject anything with shell metacharacters/pipes/redirects/
-    # multiple args/unquoted spaces -- those aren't the simple form this module
-    # is built to recognize.
-    if any(ch in remainder for ch in ("|", ">", "<", "&", ";", " ")):
+    # Reject shell metacharacters on the RAW remainder before any unquoting:
+    # pipes/redirects/chaining/substitution mean this is not the plain
+    # single-path form. `$` and backtick are rejected even though shlex would
+    # keep them literal -- a `$var` path key could never match a real artifact,
+    # and both conservatively signal a more complex command than this parser
+    # owns.
+    if any(ch in remainder for ch in ("|", ">", "<", "&", ";", "`", "$", "\n")):
         return None
-    return remainder
+    try:
+        tokens = shlex.split(remainder)
+    except ValueError:
+        # Unterminated quote / trailing escape -- not a well-formed simple form.
+        return None
+    if len(tokens) != 1 or not tokens[0]:
+        return None
+    return tokens[0]
 
 
 def _extract_tool_result_text(event: dict[str, Any]) -> str | None:

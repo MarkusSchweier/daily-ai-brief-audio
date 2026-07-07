@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}{{ meta.name }}{% endblock %}
+{% block content %}
+  <h2>{{ meta.name }}</h2>
+  <p>
+    <span class="state state-{{ meta.state }}">{{ meta.state }}</span>
+    — candidate <strong>{{ meta.slug }}</strong>
+    {% if meta.is_production_config %}(production config){% endif %}
+    — {{ meta.composition }}
+    — agent_id <code>{{ meta.agent_id }}</code>
+    — git ref <code>{{ meta.git_ref }}</code>
+  </p>
+  {% if meta.declaration_dirty %}
+    <p class="error" title="deploy/candidates/&lt;slug&gt; had uncommitted changes at trigger time (--allow-dirty was used) -- git show &lt;git_ref&gt;:&lt;path&gt; will NOT reproduce what actually ran.">
+      &#9888; declaration_dirty -- this run's candidate directory had uncommitted changes at trigger time; the
+      configuration shown below (read at the recorded git ref) is NOT guaranteed to match what actually ran.
+    </p>
+  {% endif %}
+  <p>Repetitions requested: {{ meta.repetitions }} — Criteria judged: {{ meta.criteria | join(", ") }}</p>
+
+  {% if meta.state in ("configured", "running") %}
+    <script>
+      // Auto-refresh while the run is still in flight, so the state (and, once
+      // complete, the repetitions/summary below) updates with no manual action.
+      setTimeout(function () { window.location.reload(); }, 5000);
+    </script>
+    <p class="hint">This page will refresh automatically every 5 seconds while the run is in progress.</p>
+  {% endif %}
+
+  <h3>Candidate configuration (as of the recorded git ref)</h3>
+  <details open>
+    <summary>{{ declaration.name }} — {{ declaration.model }}</summary>
+    <p>{{ declaration.description }}</p>
+    <h4>System prompt</h4>
+    <pre>{{ declaration.system_prompt }}</pre>
+    <h4>Task prompt</h4>
+    <pre>{{ declaration.task_prompt }}</pre>
+  </details>
+
+  {% if declaration.is_multi_agent %}
+    {% for sub_agent in declaration.sub_agents %}
+      <details>
+        <summary>Sub-agent: {{ sub_agent.name }} — {{ sub_agent.model }}</summary>
+        <p>{{ sub_agent.description }}</p>
+        <h4>System prompt</h4>
+        <pre>{{ sub_agent.system_prompt }}</pre>
+        {% if sub_agent.task_prompt %}
+          <h4>Task prompt</h4>
+          <pre>{{ sub_agent.task_prompt }}</pre>
+        {% endif %}
+      </details>
+    {% endfor %}
+  {% endif %}
+
+  {% if summary %}
+    <h3>Summary across {{ summary.replicate_count }} repetition(s)</h3>
+    <table>
+      <thead><tr><th>Criterion</th><th>n</th><th>mean</th><th>stdev</th><th>min</th><th>max</th></tr></thead>
+      <tbody>
+        {% for criterion, aggregate in summary.criterion_aggregates.items() %}
+          <tr>
+            <td>{{ criterion }}</td>
+            <td>{{ aggregate.n }}</td>
+            <td>{% if aggregate.mean is not none %}{{ "%.2f" | format(aggregate.mean) }}{% else %}—{% endif %}</td>
+            <td>{% if aggregate.stdev is not none %}{{ "%.2f" | format(aggregate.stdev) }}{% else %}—{% endif %}</td>
+            <td>{{ aggregate.min if aggregate.min is not none else "—" }}</td>
+            <td>{{ aggregate.max if aggregate.max is not none else "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p>
+      Mean cost:
+      {% if summary.mean_cost_usd is not none %}${{ "%.4f" | format(summary.mean_cost_usd) }}{% else %}—{% endif %}
+    </p>
+    <p title="The judge calls' own cost -- separate from pipeline cost, never folded in">
+      Mean judge cost:
+      {% if summary.judge_cost and summary.judge_cost.mean_cost_usd is not none %}
+        ${{ "%.4f" | format(summary.judge_cost.mean_cost_usd) }}
+      {% else %}
+        —
+      {% endif %}
+    </p>
+  {% endif %}
+
+  <h3>Human evaluation</h3>
+  <pre class="human-eval">{{ human_eval_text }}</pre>
+
+  <h3>Repetitions</h3>
+  {% if not repetitions %}
+    <p>No repetitions have completed yet.</p>
+  {% endif %}
+  {% for rep in repetitions %}
+    <details>
+      <summary>
+        Repetition {{ rep.index }}
+        {% if rep.run_meta.final_status %}— {{ rep.run_meta.final_status }}{% endif %}
+        {% if rep.cost %}— ${{ "%.4f" | format(rep.cost.total_cost_usd) }}{% endif %}
+      </summary>
+
+      {% if rep.run_meta.error %}
+        <p class="error">{{ rep.run_meta.error }}</p>
+      {% endif %}
+
+      {% if rep.run_meta.session_id %}
+        <p>session <code>{{ rep.run_meta.session_id }}</code> — deployment <code>{{ rep.run_meta.deployment_id }}</code></p>
+      {% endif %}
+
+      {% if rep.scores %}
+        <h4>Scores</h4>
+        <table>
+          <thead><tr><th>Criterion</th><th>Score</th><th>Rationale</th><th>Evidence</th></tr></thead>
+          <tbody>
+            {% for criterion, score in rep.scores.items() %}
+              <tr>
+                <td>{{ criterion }}</td>
+                <td>{% if score.insufficient_data %}insufficient data{% else %}{{ score.score }}{% endif %}</td>
+                <td>{{ score.rationale }}</td>
+                <td>{{ score.evidence }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+
+      {% if rep.cost %}
+        <h4>Cost by thread (pipeline)</h4>
+        <table>
+          <thead><tr><th>Role</th><th>Model</th><th>Cost</th></tr></thead>
+          <tbody>
+            {% for thread in rep.cost.threads %}
+              <tr>
+                <td>{{ thread.role }}</td>
+                <td>{{ thread.model }}</td>
+                <td>${{ "%.4f" | format(thread.cost_usd) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+
+      {% if rep.judge_cost %}
+        <h4 title="Kept separate from pipeline cost above -- never folded in">Judge cost (separate from pipeline cost)</h4>
+        <table>
+          <thead><tr><th>Criterion</th><th>Cost</th></tr></thead>
+          <tbody>
+            {% for criterion, entry in rep.judge_cost.per_criterion.items() %}
+              <tr>
+                <td>{{ criterion }}</td>
+                <td>${{ "%.4f" | format(entry.cost_usd) }}</td>
+              </tr>
+            {% endfor %}
+            <tr>
+              <td><strong>Total ({{ rep.judge_cost.model }})</strong></td>
+              <td><strong>${{ "%.4f" | format(rep.judge_cost.total_cost_usd) }}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      {% endif %}
+
+      {% if rep.brief_html %}
+        <h4>Brief</h4>
+        <div class="brief-render">{{ rep.brief_html | safe }}</div>
+      {% endif %}
+
+      {% if rep.artifacts %}
+        <h4>Other artifacts</h4>
+        {% for filename, content in rep.artifacts.items() %}
+          {% if not (filename.startswith("AI Brief") and filename.endswith(".md")) %}
+            <details>
+              <summary>{{ filename }}</summary>
+              <pre>{{ content }}</pre>
+            </details>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </details>
+  {% endfor %}
+{% endblock %}

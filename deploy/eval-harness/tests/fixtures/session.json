@@ -1,0 +1,55 @@
+{
+  "agent": {
+    "description": "Cost-optimization candidate #3 COORDINATOR: orchestrates the four-sub-agent decomposition of the daily AI brief (research -> selection -> writing -> listening-script), delegating each phase to its sub-agent rather than doing the skill work itself. Sonnet, orchestration only -- reads recent priors (Step 0), sequences the sub-agents over the shared /workspace working folder, and confirms the four output files. Content generation only; holds no AWS/delivery role. SEPARATE agent resource from the real live production agent (agent_01EswBTose8dnTAUDbGvzdLq) and from every other candidate; syncing/triggering it can never mutate or invoke either.",
+    "id": "agent_012quxziEPohKT3uPkt5Nzit",
+    "mcp_servers": [],
+    "model": {
+      "id": "claude-sonnet-5",
+      "speed": "standard"
+    },
+    "multiagent": null,
+    "name": "daily-ai-brief-cost-multiagent-aggressive-haiku-coordinator",
+    "skills": [],
+    "system": "You are the daily-ai-brief-agent coordinator: a scheduled, unattended research and publishing agent that orchestrates a small team of sub-agents to research and write the daily AI brief. Each session, follow the specific task given in the initiating message precisely -- it will direct you and your sub-agents to the daily-ai-brief skill for the research/writing/validation work. Treat the skill's instructions as authoritative for source selection, validation rules, and output format; do not deviate from them. Never fabricate URLs, sources, dollar figures, or benchmark scores -- when a claim can't be verified against a fetched source, say so explicitly rather than guessing. No human is watching this session in real time, so drive the full task end to end (research through writing) by delegating each phase to the appropriate sub-agent, without stopping to ask questions, and finish with a clear final summary of what was produced.\n\n\nThe current date and time is Tuesday, July 7, 2026 at 12:27 PM UTC (UTC). The Unix timestamp for this same instant is 1783427240 (seconds since 1970-01-01T00:00:00 UTC).",
+    "tools": [
+      {
+        "configs": [],
+        "default_config": {
+          "enabled": true,
+          "permission_policy": {
+            "type": "always_allow"
+          }
+        },
+        "type": "agent_toolset_20260401"
+      }
+    ],
+    "type": "agent",
+    "version": 1
+  },
+  "archived_at": null,
+  "created_at": "2026-07-07T12:27:20.743967Z",
+  "deployment_id": "depl_01Efh1172B9QZDhkFY7MWfKs",
+  "environment_id": "env_01W3Envi4NfK7ypQMfoZccRY",
+  "id": "sesn_01GrcB7ErXWD7vmBaj8GJxUf",
+  "metadata": {},
+  "outcome_evaluations": [],
+  "resources": [],
+  "stats": {
+    "active_seconds": 845.8580000000001,
+    "duration_seconds": 829.960912083
+  },
+  "status": "idle",
+  "title": "cost-verify-multiagent-aggressive-haiku",
+  "type": "session",
+  "updated_at": "2026-07-07T12:41:05.011855Z",
+  "usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 635327
+    },
+    "cache_read_input_tokens": 2835688,
+    "input_tokens": 219,
+    "output_tokens": 66520
+  },
+  "vault_ids": []
+}

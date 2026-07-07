@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-multiagent-aggressive-haiku-coordinator",
+  "description": "Cost-optimization candidate #3 COORDINATOR: orchestrates the four-sub-agent decomposition of the daily AI brief (research -> selection -> writing -> listening-script), delegating each phase to its sub-agent rather than doing the skill work itself. Sonnet, orchestration only -- reads recent priors (Step 0), sequences the sub-agents over the shared /workspace working folder, and confirms the four output files. Content generation only; holds no AWS/delivery role. SEPARATE agent resource from the real live production agent (agent_01EswBTose8dnTAUDbGvzdLq) and from every other candidate; syncing/triggering it can never mutate or invoke either.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

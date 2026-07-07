@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Assess{% endblock %}
+{% block content %}
+  <h2>Assess eval runs</h2>
+
+  {% if not rows %}
+    <p>No eval runs yet. <a href="{{ url_for('conduct') }}">Conduct one.</a></p>
+  {% else %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>State</th>
+          <th>Model(s)</th>
+          <th>Thinking params</th>
+          <th>Agent / Multi-agent</th>
+          <th>Repetitions</th>
+          <th>Production config</th>
+          {% for criterion in criteria %}
+            <th>{{ criterion }}</th>
+          {% endfor %}
+          <th>Cost (mean)</th>
+          <th title="The judge calls' own cost -- SEPARATE from pipeline cost, never folded in">Judge cost (mean)</th>
+          <th>Human eval</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><a href="{{ url_for('run_detail', slug=row.slug, eval_run_id=row.eval_run_id) }}">{{ row.name }}</a></td>
+            <td><span class="state state-{{ row.state }}">{{ row.state }}</span></td>
+            <td>{{ row.models | join(", ") }}</td>
+            <td>{{ row.parameters_display }}</td>
+            <td>{{ row.composition }}</td>
+            <td>{{ row.repetitions }}</td>
+            <td>{% if row.is_production_config %}yes{% else %}—{% endif %}</td>
+            {% for criterion in criteria %}
+              <td>
+                {% if row.criterion_scores[criterion] is not none %}
+                  {{ "%.2f" | format(row.criterion_scores[criterion]) }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            {% endfor %}
+            <td>
+              {% if row.mean_cost_usd is not none %}
+                ${{ "%.4f" | format(row.mean_cost_usd) }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="judge-cost">
+              {% if row.mean_judge_cost_usd is not none %}
+                ${{ "%.4f" | format(row.mean_judge_cost_usd) }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{% if row.human_eval_present %}yes{% else %}—{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}
