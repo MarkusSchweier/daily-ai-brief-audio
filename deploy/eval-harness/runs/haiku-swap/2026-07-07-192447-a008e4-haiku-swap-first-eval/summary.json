@@ -1,0 +1,45 @@
+{
+  "candidate_config_id": "haiku-swap",
+  "replicate_count": 1,
+  "criterion_aggregates": {
+    "content_selection": {
+      "criterion": "content_selection",
+      "n": 1,
+      "mean": 2,
+      "stdev": null,
+      "min": 2,
+      "max": 2
+    },
+    "dedup": {
+      "criterion": "dedup",
+      "n": 1,
+      "mean": 2,
+      "stdev": null,
+      "min": 2,
+      "max": 2
+    },
+    "factual_accuracy": {
+      "criterion": "factual_accuracy",
+      "n": 1,
+      "mean": 1,
+      "stdev": null,
+      "min": 1,
+      "max": 1
+    },
+    "length_format": {
+      "criterion": "length_format",
+      "n": 1,
+      "mean": 5,
+      "stdev": null,
+      "min": 5,
+      "max": 5
+    }
+  },
+  "mean_cost_usd": 0.3566,
+  "cost_stdev_usd": null,
+  "judge_cost": {
+    "n": 1,
+    "mean_cost_usd": 0.0405,
+    "stdev_cost_usd": null
+  }
+}

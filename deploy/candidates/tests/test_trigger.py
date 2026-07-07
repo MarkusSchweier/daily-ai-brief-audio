@@ -817,3 +817,35 @@ def test_substitution_never_writes_the_real_token_to_any_file():
     source = inspect.getsource(trigger.substitute_recent_briefs_placeholders)
     assert "open(" not in source
     assert ".write(" not in source
+
+
+def test_parse_plain_cat_command_accepts_backslash_escaped_spaces():
+    """Regression test for the THIRD real quoting-idiom gap (2026-07-07, the
+    cost-optimization epic's first real haiku-swap eval run) -- see
+    `_parse_plain_cat_command()`'s "CORRECTED A THIRD TIME" docstring note. A
+    real Haiku 4.5 agent catted the brief with BACKSLASH-ESCAPED spaces
+    (verbatim from the captured run transcript below); the pre-fix
+    form-enumeration parser rejected it (bare-space check fired on the raw
+    remainder), silently dropping the brief for the third distinct shell idiom
+    in a row. The shlex-based parser accepts every plain single-path POSIX
+    spelling uniformly."""
+    assert (
+        trigger._parse_plain_cat_command("cat /workspace/AI\\ Brief\\ -\\ 2026-07-07.md")
+        == "/workspace/AI Brief - 2026-07-07.md"
+    )
+
+
+def test_parse_plain_cat_command_accepts_mixed_quoting_forms():
+    # shlex handles partial quoting too (e.g. quoting only the spaced segment).
+    assert (
+        trigger._parse_plain_cat_command('cat /workspace/"AI Brief - 2026-07-07".md')
+        == "/workspace/AI Brief - 2026-07-07.md"
+    )
+
+
+def test_parse_plain_cat_command_rejects_substitution_forms():
+    # $-expansion and backticks are conservatively rejected even where shlex
+    # would tokenize them -- a `$var` key can never match a real artifact.
+    assert trigger._parse_plain_cat_command("cat $BRIEF_PATH") is None
+    assert trigger._parse_plain_cat_command("cat `which brief`") is None
+    assert trigger._parse_plain_cat_command('cat "/workspace/$FILE.md"') is None
