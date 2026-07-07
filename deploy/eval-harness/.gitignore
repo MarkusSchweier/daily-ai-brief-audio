@@ -1,0 +1,18 @@
+# Local virtualenv + Python bytecode caches (this package's own .venv convention,
+# mirroring deploy/candidates/ and deploy/eval/).
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ADR-0016 D1: run records are COMMITTED, git-tracked data (small JSON/MD files) --
+# ONLY the large raw per-repetition session-event trace is gitignored (the "trace
+# lives on Claude Platform" piece, ~200KB/repetition, vs. ~40KB of derived data the
+# owner wants git-tracked). This is a TARGETED ignore, not the blanket `runs/` ignore
+# deploy/candidates/.gitignore uses for its own (uncommitted-by-design) spike outputs.
+runs/**/events.json
+
+# Anthropic API key file convention (never committed; read at runtime only) -- this
+# repo's key lives at ~/.anthropic-managed-agents/ant-api-key.txt (outside the repo)
+# but guard against an accidental local copy anyway.
+*.ant-api-key.txt
