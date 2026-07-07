@@ -49,7 +49,7 @@ import statistics
 import sys
 import time
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 # Make `candidate_sync` (deploy/candidates/) and `harness`/`eval_core` (this
@@ -132,8 +132,18 @@ def _declared_parameters(candidate: CandidateDeclaration) -> dict[str, Any]:
 
 
 def _find_artifact(artifacts: dict[str, str], *, predicate) -> str | None:
+    """Match on the BASENAME of each artifact key, never the raw key.
+
+    `fetch_catted_file_contents()` keys its result by the path exactly as the
+    agent typed it in the `cat` command -- in real runs that is the FULL sandbox
+    path (`/workspace/AI Brief - 2026-07-07.md`), not a bare filename. Matching
+    the raw key against basename-shaped predicates silently returned None for
+    every artifact on the first two real validation runs (2026-07-07): the
+    judges then scored empty input as `insufficient_data` while the on-disk
+    artifact copies (saved via the basename in run_store) looked perfectly
+    healthy. Regression-tested with full-path keys in test_run_cli.py."""
     for filename, content in artifacts.items():
-        if predicate(filename):
+        if predicate(PurePosixPath(filename).name):
             return content
     return None
 

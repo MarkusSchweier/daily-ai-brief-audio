@@ -1,0 +1,53 @@
+{
+  "model": "claude-haiku-4-5",
+  "total_cost_usd": 0.0411,
+  "total_usage": {
+    "input_tokens": 33928,
+    "output_tokens": 1432,
+    "cache_read_input_tokens": 0,
+    "cache_creation_5m_input_tokens": 0,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "per_criterion": {
+    "content_selection": {
+      "usage": {
+        "input_tokens": 5301,
+        "output_tokens": 364,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.0071
+    },
+    "factual_accuracy": {
+      "usage": {
+        "input_tokens": 4689,
+        "output_tokens": 443,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.0069
+    },
+    "length_format": {
+      "usage": {
+        "input_tokens": 4754,
+        "output_tokens": 373,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.0066
+    },
+    "dedup": {
+      "usage": {
+        "input_tokens": 19184,
+        "output_tokens": 252,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.0204
+    }
+  }
+}

@@ -111,7 +111,8 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
         lambda client, **kwargs: _fake_run_result("# Daily AI Brief\n\nSome content.", "Hello, listeners."),
     )
     monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
-    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+    fake_judge_client = make_fake_client(_score_response(4))
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: fake_judge_client)
 
     exit_code = run_cli.main(
         [
@@ -152,6 +153,15 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     scores = json.loads((rep_dir / "scores.json").read_text())
     assert scores["factual_accuracy"]["score"] == 4
     assert "content_selection" not in scores  # not in the selected criteria subset
+
+    # REGRESSION (2026-07-07): the judge must actually RECEIVE the brief content.
+    # The canned-score fake happily returns 4 for an EMPTY prompt too, which is
+    # exactly how the full-path-artifact-key bug (judges fed None -> "") slipped
+    # past this test on the first two real validation runs. Assert the brief body
+    # made it into the judge call's prompt payload.
+    assert fake_judge_client.messages.calls, "the judge was never called"
+    judge_call_payload = json.dumps(fake_judge_client.messages.calls[0], default=str)
+    assert "Some content." in judge_call_payload, "judge prompt did not contain the brief markdown"
 
     cost_data = json.loads((rep_dir / "cost.json").read_text())
     assert cost_data["total_cost_usd"] > 0
@@ -380,12 +390,20 @@ def test_declared_models_deduplicates_and_sorts_across_coordinator_and_sub_agent
 
 
 def test_extract_named_artifacts_picks_out_the_four_named_files():
+    # REALITY-SHAPED keys (regression, 2026-07-07): `fetch_catted_file_contents()`
+    # keys its result by the path exactly as the agent typed it in the `cat`
+    # command -- in real runs the FULL sandbox path, not a bare filename. The
+    # first two real validation runs proved that matching the raw key against
+    # basename-shaped predicates silently returns None for every artifact (the
+    # judges then scored empty input as insufficient_data), while the original
+    # basename-keyed version of this fixture stayed green. Keys here MUST stay
+    # full paths so that failure mode can never pass tests again.
     artifacts = {
-        "AI Brief - 2026-07-07.md": "brief body",
-        "listening-script.txt": "script body",
-        "candidates.json": "[]",
-        "source-usage.json": "{}",
-        "AI Brief - 2026-07-05.md": "a PRIOR brief, never cat'd by a real task prompt but guarded anyway",
+        "/workspace/AI Brief - 2026-07-07.md": "brief body",
+        "/workspace/listening-script.txt": "script body",
+        "/workspace/candidates.json": "[]",
+        "/workspace/source-usage.json": "{}",
+        "/workspace/AI Brief - 2026-07-05.md": "a PRIOR brief, never cat'd by a real task prompt but guarded anyway",
     }
     brief, script, candidates_json_raw, source_usage_raw = run_cli._extract_named_artifacts(artifacts)
     # The first match wins deterministically off dict insertion order -- production
@@ -395,6 +413,15 @@ def test_extract_named_artifacts_picks_out_the_four_named_files():
     assert script == "script body"
     assert candidates_json_raw == "[]"
     assert source_usage_raw == "{}"
+
+
+def test_extract_named_artifacts_still_accepts_bare_basename_keys():
+    # Bare-filename keys (e.g. an agent that cd'd into /workspace before catting)
+    # must keep working alongside the full-path form.
+    artifacts = {"AI Brief - 2026-07-07.md": "brief body", "listening-script.txt": "script body"}
+    brief, script, _, _ = run_cli._extract_named_artifacts(artifacts)
+    assert brief == "brief body"
+    assert script == "script body"
 
 
 def test_extract_named_artifacts_tolerates_missing_files():

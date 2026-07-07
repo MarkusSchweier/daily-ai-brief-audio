@@ -1,0 +1,48 @@
+{
+  "name": "harness-validation multiagent",
+  "slug": "multiagent-aggressive-haiku",
+  "agent_id": "agent_012quxziEPohKT3uPkt5Nzit",
+  "git_ref": "2d4b384643b8cee7545269560a276b5a53b9ce9b",
+  "composition": "multi-agent",
+  "models": [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": [
+      {
+        "name": "daily-ai-brief-cost-mah-research-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-mah-selection-sub-agent",
+        "model": "claude-sonnet-5",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-mah-writing-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-mah-listening-script-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      }
+    ]
+  },
+  "repetitions": 1,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1783439332,
+  "declaration_dirty": false
+}

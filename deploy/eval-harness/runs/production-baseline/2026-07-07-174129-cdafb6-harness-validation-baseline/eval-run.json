@@ -1,0 +1,26 @@
+{
+  "name": "harness-validation baseline",
+  "slug": "production-baseline",
+  "agent_id": "agent_017KynQYfK2gNXtJBDeWe81B",
+  "git_ref": "2d4b384643b8cee7545269560a276b5a53b9ce9b",
+  "composition": "single-agent",
+  "models": [
+    "claude-sonnet-5"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": []
+  },
+  "repetitions": 1,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": true,
+  "created_at": 1783438889,
+  "declaration_dirty": false
+}
