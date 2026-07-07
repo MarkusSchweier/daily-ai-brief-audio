@@ -8,6 +8,7 @@
   {% endif %}
 
   <form method="post" action="{{ url_for('trigger') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field">
       <label for="candidate_slug">Candidate</label>
       <select name="candidate_slug" id="candidate_slug" required>

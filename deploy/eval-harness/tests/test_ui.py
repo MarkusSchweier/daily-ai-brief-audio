@@ -11,6 +11,8 @@ import pytest
 import ui as ui_app
 from harness import run_store
 
+from conftest import git_init_and_commit
+
 
 @pytest.fixture
 def client():
@@ -60,12 +62,26 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
         )
 
 
-def _setup_candidates_dir(monkeypatch, tmp_path: Path) -> Path:
+def _setup_candidates_dir(monkeypatch, tmp_path: Path, *, commit: bool = True) -> Path:
+    """`commit=True` (the default) makes `candidates_dir` a real, freshly-committed
+    git repo -- required for `harness.run_store.candidate_declaration_is_dirty()`
+    (used by `ui._trigger_run()`) to behave correctly against this synthetic
+    fixture, exactly as it would against the real `deploy/candidates/` tree."""
     candidates_dir = tmp_path / "candidates"
     candidates_dir.mkdir()
     _build_candidate_dir(candidates_dir, "test-candidate")
+    if commit:
+        git_init_and_commit(candidates_dir)
     monkeypatch.setattr(ui_app, "CANDIDATES_DIR", candidates_dir)
     return candidates_dir
+
+
+def _post_trigger(client, **form_fields):
+    """POST /trigger with a valid CSRF token attached -- the shared helper every
+    /trigger test uses so the token wiring lives in ONE place."""
+    data = dict(form_fields)
+    data.setdefault("csrf_token", ui_app._CSRF_TOKEN)
+    return client.post("/trigger", data=data)
 
 
 def test_index_redirects_to_conduct(client):
@@ -103,7 +119,7 @@ def test_run_detail_404s_for_an_unknown_run(client, monkeypatch, tmp_path):
 def test_trigger_without_a_candidate_slug_is_a_400(client, monkeypatch, tmp_path):
     _setup_candidates_dir(monkeypatch, tmp_path)
 
-    response = client.post("/trigger", data={"repetitions": "1", "criteria": ["factual_accuracy"]})
+    response = _post_trigger(client, repetitions="1", criteria=["factual_accuracy"])
 
     assert response.status_code == 400
     assert b"Select a candidate" in response.data
@@ -113,10 +129,7 @@ def test_trigger_without_an_api_key_file_is_a_400(client, monkeypatch, tmp_path)
     _setup_candidates_dir(monkeypatch, tmp_path)
     monkeypatch.setattr(ui_app, "ANTHROPIC_API_KEY_FILE", tmp_path / "does-not-exist.txt")
 
-    response = client.post(
-        "/trigger",
-        data={"candidate_slug": "test-candidate", "repetitions": "1", "criteria": ["factual_accuracy"]},
-    )
+    response = _post_trigger(client, candidate_slug="test-candidate", repetitions="1", criteria=["factual_accuracy"])
 
     assert response.status_code == 400
     assert b"Anthropic API key" in response.data
@@ -132,16 +145,18 @@ def test_trigger_launches_a_subprocess_and_redirects_to_the_run_detail_page(clie
 
     captured = {}
 
-    class _FakePopen:
-        def __init__(self, command, cwd=None, env=None, stdout=None, stderr=None):
-            captured["command"] = command
-            captured["env"] = env
+    def _fake_launch(command, *, env, log_path):
+        captured["command"] = command
+        captured["env"] = env
 
-    monkeypatch.setattr(ui_app.subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", _fake_launch)
 
-    response = client.post(
-        "/trigger",
-        data={"candidate_slug": "test-candidate", "name": "a ui-triggered run", "repetitions": "2", "criteria": ["factual_accuracy", "dedup"]},
+    response = _post_trigger(
+        client,
+        candidate_slug="test-candidate",
+        name="a ui-triggered run",
+        repetitions="2",
+        criteria=["factual_accuracy", "dedup"],
     )
 
     assert response.status_code == 302
@@ -152,9 +167,130 @@ def test_trigger_launches_a_subprocess_and_redirects_to_the_run_detail_page(clie
 
     command = captured["command"]
     assert "test-candidate" in command
+    assert command[-1] == "test-candidate"  # LAST, after "--" (defense in depth, security M2)
+    assert command[-2] == "--"
     assert "--repetitions" in command and "2" in command
     assert "--email" not in command  # the deferred flag is never forwarded from the UI
+    assert "--allow-dirty" not in command  # no UI escape hatch for a dirty declaration
     assert captured["env"]["ANTHROPIC_API_KEY"] == "sk-ant-fake"
+
+
+# --- Security hardening: CSRF, Origin, slug allowlist, repetitions clamp,
+# dirty-declaration guard (review-fix pass) --------------------------------------------
+
+
+def test_trigger_without_a_csrf_token_is_a_400(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+
+    response = client.post("/trigger", data={"candidate_slug": "test-candidate", "criteria": ["factual_accuracy"]})
+
+    assert response.status_code == 400
+    assert b"CSRF" in response.data
+
+
+def test_trigger_with_a_wrong_csrf_token_is_a_400(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/trigger",
+        data={"candidate_slug": "test-candidate", "criteria": ["factual_accuracy"], "csrf_token": "forged-token"},
+    )
+
+    assert response.status_code == 400
+    assert b"CSRF" in response.data
+
+
+def test_trigger_with_a_forged_cross_site_origin_is_a_400(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/trigger",
+        data={"candidate_slug": "test-candidate", "criteria": ["factual_accuracy"], "csrf_token": ui_app._CSRF_TOKEN},
+        headers={"Origin": "https://evil.example.com"},
+    )
+
+    assert response.status_code == 400
+    assert b"origin" in response.data.lower()
+
+
+def test_trigger_with_a_matching_origin_is_accepted(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(run_store, "RUNS_ROOT", tmp_path / "runs")
+    api_key_file = tmp_path / "ant-api-key.txt"
+    api_key_file.write_text("sk-ant-fake\n", encoding="utf-8")
+    monkeypatch.setattr(ui_app, "ANTHROPIC_API_KEY_FILE", api_key_file)
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", lambda command, *, env, log_path: None)
+
+    response = client.post(
+        "/trigger",
+        data={"candidate_slug": "test-candidate", "criteria": ["factual_accuracy"], "csrf_token": ui_app._CSRF_TOKEN},
+        headers={"Origin": "http://localhost/"},
+    )
+
+    assert response.status_code == 302
+
+
+def _fail_if_launched(command, *, env, log_path):
+    raise AssertionError("must not launch a subprocess")
+
+
+def test_trigger_rejects_a_path_traversal_slug(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+    candidates_dir_before = sorted(p.name for p in (tmp_path / "candidates").iterdir())
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", _fail_if_launched)
+
+    response = _post_trigger(client, candidate_slug="../../tmp/evil", criteria=["factual_accuracy"])
+
+    assert response.status_code == 400
+    assert b"Unknown candidate" in response.data
+    # No directory was created anywhere as a side effect of the attempted traversal.
+    assert sorted(p.name for p in (tmp_path / "candidates").iterdir()) == candidates_dir_before
+
+
+def test_trigger_rejects_a_flag_looking_slug(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", _fail_if_launched)
+
+    response = _post_trigger(client, candidate_slug="--check-pricing-drift", criteria=["factual_accuracy"])
+
+    assert response.status_code == 400
+    assert b"Unknown candidate" in response.data
+
+
+def test_trigger_clamps_repetitions_to_the_server_side_maximum(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(run_store, "RUNS_ROOT", tmp_path / "runs")
+    api_key_file = tmp_path / "ant-api-key.txt"
+    api_key_file.write_text("sk-ant-fake\n", encoding="utf-8")
+    monkeypatch.setattr(ui_app, "ANTHROPIC_API_KEY_FILE", api_key_file)
+
+    captured = {}
+
+    def _fake_launch(command, *, env, log_path):
+        captured["command"] = command
+
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", _fake_launch)
+
+    response = _post_trigger(client, candidate_slug="test-candidate", repetitions="99999", criteria=["factual_accuracy"])
+
+    assert response.status_code == 302
+    command = captured["command"]
+    idx = command.index("--repetitions")
+    assert command[idx + 1] == str(ui_app.MAX_REPETITIONS)
+
+
+def test_trigger_on_a_dirty_candidate_directory_is_a_400_and_launches_nothing(client, monkeypatch, tmp_path):
+    _setup_candidates_dir(monkeypatch, tmp_path)
+    (tmp_path / "candidates" / "test-candidate" / "task-prompt.md").write_text("An UNCOMMITTED edit.", encoding="utf-8")
+    api_key_file = tmp_path / "ant-api-key.txt"
+    api_key_file.write_text("sk-ant-fake\n", encoding="utf-8")
+    monkeypatch.setattr(ui_app, "ANTHROPIC_API_KEY_FILE", api_key_file)
+    monkeypatch.setattr(ui_app, "_launch_run_subprocess", _fail_if_launched)
+
+    response = _post_trigger(client, candidate_slug="test-candidate", criteria=["factual_accuracy"])
+
+    assert response.status_code == 400
+    assert b"uncommitted changes" in response.data
 
 
 def test_format_parameters_renders_a_dash_when_everything_is_empty():
@@ -183,6 +319,40 @@ def test_render_markdown_converts_headings_and_returns_empty_string_for_none():
     html = ui_app.render_markdown("# Title\n\nBody text.")
     assert "<h1>Title</h1>" in html
     assert ui_app.render_markdown(None) == ""
+
+
+# --- Stored XSS via markdown render (review-fix, security M1) -------------------------
+
+
+def test_render_markdown_strips_a_raw_script_tag():
+    """bleach's `strip=True` removes the disallowed `<script>` TAG (the actually
+    executable part) but -- like any HTML sanitizer -- leaves its former text
+    content as inert, non-executing plain text, exactly like removing the `<b>`
+    tags from `<b>hello</b>` leaves `hello`. The security property that matters
+    is verified here: no `<script` tag survives, so nothing executes."""
+    html = ui_app.render_markdown("# Daily AI Brief\n\n<script>alert('xss')</script>\n\nSome real content.")
+    assert "<script" not in html
+    assert "</script>" not in html
+    assert "Some real content." in html
+
+
+def test_render_markdown_strips_an_onerror_attribute():
+    html = ui_app.render_markdown('# Brief\n\n<img src="x" onerror="alert(1)">\n\nBody.')
+    assert "onerror" not in html
+    assert "Body." in html
+
+
+def test_render_markdown_keeps_allowlisted_tags_and_a_safe_link():
+    html = ui_app.render_markdown("# Title\n\n- one\n- two\n\n[a link](https://example.test)\n\n**bold**")
+    assert "<h1>Title</h1>" in html
+    assert "<li>one</li>" in html
+    assert '<a href="https://example.test">a link</a>' in html
+    assert "<strong>bold</strong>" in html
+
+
+def test_render_markdown_strips_a_javascript_href():
+    html = ui_app.render_markdown("[click me](javascript:alert(1))")
+    assert "javascript:" not in html
 
 
 def test_run_detail_renders_a_completed_run_end_to_end(client, monkeypatch, tmp_path):

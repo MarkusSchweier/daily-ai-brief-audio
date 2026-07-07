@@ -16,3 +16,10 @@ flask>=3.0.0,<4.0.0
 # for delivery-side HTML derivation -- reused here for consistency, not duplicated
 # reasoning; see that file's own comment for why `markdown` and not something else).
 markdown>=3.7,<4.0
+# review-fix (security M1): markdown.markdown() passes raw HTML in the source
+# Markdown straight through -- a brief containing e.g. "<script>...</script>" (LLM
+# output about third-party web content, not assumed inert) would render as live
+# HTML/JS in the deep-dive page. bleach.clean() strips anything outside a small,
+# explicit allowlist after the Markdown->HTML conversion, closing that stored-XSS
+# path. See ui.py's render_markdown() for the allowlist.
+bleach>=6.0,<7.0

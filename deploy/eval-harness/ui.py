@@ -24,24 +24,54 @@ interpolation, NEVER `| safe`, mirroring `deploy/eval/site/app.js`'s
 `textContent`/`createElement` discipline (this repo's established pattern for
 content that ultimately traces back to LLM output about third-party web sources --
 never assumed inert). The ONE exception is the brief's rendered Markdown->HTML
-(`render_markdown()` below), which IS marked `| safe` in `run_detail.html` -- this
-mirrors `deploy/delivery/functions/deliver/delivery_core.py`'s own accepted
-approach for the exact same content (the daily brief's own body) and carries the
-same scoped risk profile (LLM-authored English prose summarizing news, not
-directly attacker-controlled input) -- flagged here explicitly for a future
-security review, not silently assumed safe.
+(`render_markdown()` below), which IS marked `| safe` in `run_detail.html` --
+AMENDED (review-fix, security M1): `markdown.markdown()` on its own passes raw
+HTML embedded in the source Markdown straight through (a `<script>` tag or an
+`onerror=` attribute in the brief's own text would previously have rendered
+live) -- `render_markdown()` now pipes the converted HTML through
+`bleach.clean()` with a small explicit tag/attribute allowlist before it is ever
+marked `| safe`, so the `| safe` marker is only ever applied to
+ALREADY-SANITIZED output.
 
 The Anthropic API key is NEVER read, held, rendered, or logged by this process
 itself -- `_trigger_run()` reads it fresh from
 `~/.anthropic-managed-agents/ant-api-key.txt` only at the moment of launching the
 `run.py` subprocess, passes it via that CHILD process's own environment only, and
 never includes it in any log line, template, or response.
+
+`/trigger` security hardening (review-fix pass, 2026-07-07):
+  - **Slug allowlist (security M2).** `candidate_slug` is checked against the
+    REAL candidate set (`list_candidate_options()`) BEFORE any path construction
+    or subprocess launch -- rejects path traversal (`../../tmp/evil`) and
+    flag-looking values (`--check-pricing-drift`) alike with a 400, since neither
+    is ever a real directory name. `_trigger_run()`'s subprocess argv also puts
+    `candidate_slug` LAST, after a bare `--`, so `run.py`'s own argparse can never
+    misinterpret it as a flag either (defense in depth on top of the allowlist).
+  - **CSRF (security M3).** A per-PROCESS synchronizer token (`_CSRF_TOKEN`,
+    generated once at import time) is rendered as a hidden field in the Conduct
+    form and compared with `hmac.compare_digest()` on every `/trigger` POST --
+    sufficient for a localhost, single-operator tool (no need for Flask-WTF/
+    sessions). An `Origin`/`Referer` header, WHEN PRESENT, must match this app's
+    own origin -- a forged cross-site POST (which usually DOES carry an Origin)
+    is rejected; a same-origin form POST (which may omit both headers entirely,
+    depending on the browser) is not penalized for their absence.
+  - **Repetitions clamp (security M3).** Server-side clamp to `[1, 20]`
+    regardless of what the form claims -- this route spends real money per
+    repetition.
+  - **Dirty-declaration guard, UI-surfaced (reviewer Medium, item 2).** The SAME
+    check `run.py` itself fails loud on (`harness.run_store.candidate_declaration_is_dirty()`)
+    is run here too, BEFORE launching the subprocess, so a dirty candidate
+    directory gets a clean 400 on the request instead of a silent failure buried
+    in `subprocess.log`. No `--allow-dirty` escape hatch is exposed from the UI
+    at all (per the task's explicit instruction) -- only the CLI can override it.
 """
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +85,7 @@ ANTHROPIC_API_KEY_FILE = Path.home() / ".anthropic-managed-agents" / "ant-api-ke
 sys.path.insert(0, str(HARNESS_DIR))
 sys.path.insert(0, str(CANDIDATES_DIR))
 
+import bleach
 import markdown
 from candidate_sync.loader import CandidateLoadError, load_candidate  # noqa: E402
 from eval_core.record import V1_CRITERIA  # noqa: E402
@@ -63,6 +94,22 @@ from flask import Flask, redirect, render_template, request, url_for  # noqa: E4
 from harness import git_show, run_store  # noqa: E402
 
 app = Flask(__name__)
+
+# A per-PROCESS CSRF synchronizer token (review-fix, security M3) -- regenerated
+# every time the UI process (re)starts, which is exactly the lifetime a
+# localhost, single-operator tool needs: the form embeds it, /trigger checks it.
+_CSRF_TOKEN = secrets.token_urlsafe(32)
+
+# The Markdown->HTML render's post-conversion sanitization allowlist (review-fix,
+# security M1) -- deliberately small: everything a daily-brief Markdown body
+# plausibly needs (headings, paragraphs, lists, emphasis, links, quotes, code,
+# rules) and nothing that can execute (no <script>, no event-handler attributes,
+# no <iframe>/<object>/<style>).
+_BLEACH_ALLOWED_TAGS = [
+    "p", "h1", "h2", "h3", "h4", "ul", "ol", "li", "strong", "em", "a",
+    "blockquote", "code", "pre", "hr", "br",
+]
+_BLEACH_ALLOWED_ATTRIBUTES = {"a": ["href"]}
 
 
 # --- Candidate listing (Conduct page) -----------------------------------------------
@@ -173,17 +220,63 @@ def index():
     return redirect(url_for("conduct"))
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # No favicon asset -- a bare 204 silences the browser console's inevitable
+    # 404 without adding a static file for a debugging-only local tool.
+    return "", 204
+
+
+MAX_REPETITIONS = 20
+
+
+def _render_conduct(*, error: str | None = None, status: int = 200):
+    """Shared render for the Conduct page and every `/trigger` error path -- keeps
+    the CSRF token wiring in ONE place rather than repeated at every call site."""
+    return (
+        render_template(
+            "conduct.html",
+            candidates=list_candidate_options(),
+            criteria=list(V1_CRITERIA),
+            csrf_token=_CSRF_TOKEN,
+            error=error,
+        ),
+        status,
+    )
+
+
 @app.route("/conduct", methods=["GET"])
 def conduct():
-    return render_template(
-        "conduct.html",
-        candidates=list_candidate_options(),
-        criteria=list(V1_CRITERIA),
-    )
+    return _render_conduct()
+
+
+def _is_valid_csrf_token(submitted: str | None) -> bool:
+    return bool(submitted) and hmac.compare_digest(submitted, _CSRF_TOKEN)
+
+
+def _origin_is_local_or_absent() -> bool:
+    """True unless a POST carries an `Origin`/`Referer` header that does NOT
+    match this app's own origin (review-fix, security M3). A same-origin form
+    POST may omit both headers entirely depending on the browser -- absence is
+    NOT penalized, only a MISMATCHING value is rejected (the CSRF token check
+    above is the primary defense; this is a second, independent signal)."""
+    own_origin = request.host_url.rstrip("/")
+    header_value = request.headers.get("Origin") or request.headers.get("Referer")
+    if not header_value:
+        return True
+    return header_value.rstrip("/").startswith(own_origin)
 
 
 @app.route("/trigger", methods=["POST"])
 def trigger():
+    # --- Security checks, in order, BEFORE any path construction or subprocess
+    # launch (review-fix: security M2/M3) ------------------------------------
+    if not _is_valid_csrf_token(request.form.get("csrf_token")):
+        return _render_conduct(error="Invalid or missing CSRF token -- reload the Conduct page and try again.", status=400)
+
+    if not _origin_is_local_or_absent():
+        return _render_conduct(error="Request origin not allowed.", status=400)
+
     candidate_slug = request.form.get("candidate_slug", "").strip()
     run_name = request.form.get("name", "").strip() or f"{candidate_slug} run"
     criteria = request.form.getlist("criteria")
@@ -191,7 +284,9 @@ def trigger():
         repetitions = int(request.form.get("repetitions", "1") or "1")
     except ValueError:
         repetitions = 1
-    repetitions = max(1, repetitions)
+    # Server-side clamp regardless of what the form claims -- this route spends
+    # real money per repetition (review-fix, security M3).
+    repetitions = max(1, min(repetitions, MAX_REPETITIONS))
 
     # The email toggle is rendered DISABLED in the form (ADR-0016 D3: deferred) --
     # even if a form submission somehow carried it, this handler never reads it
@@ -199,48 +294,54 @@ def trigger():
     # sends an eval email.
 
     if not candidate_slug:
-        return render_template(
-            "conduct.html",
-            candidates=list_candidate_options(),
-            criteria=list(V1_CRITERIA),
-            error="Select a candidate before triggering a run.",
-        ), 400
+        return _render_conduct(error="Select a candidate before triggering a run.", status=400)
+
+    # Slug allowlist (review-fix, security M2): must be a REAL candidate --
+    # rejects path traversal ("../../tmp/evil") and flag-looking values
+    # ("--check-pricing-drift") alike, since neither is ever a real directory
+    # name under deploy/candidates/. Checked BEFORE any path is built or any
+    # subprocess is launched.
+    valid_slugs = {c["slug"] for c in list_candidate_options()}
+    if candidate_slug not in valid_slugs:
+        return _render_conduct(error="Unknown candidate.", status=400)
 
     if not criteria:
-        return render_template(
-            "conduct.html",
-            candidates=list_candidate_options(),
-            criteria=list(V1_CRITERIA),
-            error="Select at least one criterion to judge.",
-        ), 400
+        return _render_conduct(error="Select at least one criterion to judge.", status=400)
 
-    eval_run_id = _trigger_run(candidate_slug, run_name, repetitions, criteria)
-    if eval_run_id is None:
-        return render_template(
-            "conduct.html",
-            candidates=list_candidate_options(),
-            criteria=list(V1_CRITERIA),
-            error=(
-                f"Could not read the Anthropic API key from {ANTHROPIC_API_KEY_FILE} -- "
-                "place your key there before triggering a run."
-            ),
-        ), 400
+    eval_run_id, error = _trigger_run(candidate_slug, run_name, repetitions, criteria)
+    if error:
+        return _render_conduct(error=error, status=400)
 
     return redirect(url_for("run_detail", slug=candidate_slug, eval_run_id=eval_run_id))
 
 
-def _trigger_run(candidate_slug: str, run_name: str, repetitions: int, criteria: list[str]) -> str | None:
+def _trigger_run(candidate_slug: str, run_name: str, repetitions: int, criteria: list[str]) -> tuple[str | None, str | None]:
     """Launch `run.py` as a background subprocess (non-blocking -- a real
     multi-agent run takes ~15 minutes, and this request must return immediately per
-    ADR-0016 D5) and return the eval-run-id it will write to, computed with the
-    SAME `make_eval_run_id()` this route uses so the redirect target is known
-    up front, before the subprocess has done anything. Returns None (and launches
-    nothing) if the Anthropic API key file is unreadable."""
+    ADR-0016 D5) and return `(eval_run_id, None)`, where `eval_run_id` is
+    computed with the SAME `make_eval_run_id()` this route uses so the redirect
+    target is known up front, before the subprocess has done anything. Returns
+    `(None, <error message>)` -- and launches NOTHING -- if the candidate
+    declaration is dirty (review-fix, reviewer Medium: no `--allow-dirty` escape
+    hatch is exposed from the UI, per the task's explicit instruction) or the
+    Anthropic API key file is unreadable.
+
+    `candidate_slug` has ALREADY been checked against the real candidate
+    allowlist by the caller (`trigger()`) -- this function additionally puts it
+    LAST in the subprocess argv, after a bare `--`, so `run.py`'s own argparse
+    can never misinterpret it as a flag either (defense in depth)."""
+    candidate_dir = CANDIDATES_DIR / candidate_slug
+    if run_store.candidate_declaration_is_dirty(candidate_dir):
+        return None, (
+            f"Candidate '{candidate_slug}' has uncommitted changes under deploy/candidates/{candidate_slug} -- "
+            "commit them first so the recorded git ref matches what will actually run."
+        )
+
     if not ANTHROPIC_API_KEY_FILE.is_file():
-        return None
+        return None, f"Could not read the Anthropic API key from {ANTHROPIC_API_KEY_FILE} -- place your key there before triggering a run."
     api_key = ANTHROPIC_API_KEY_FILE.read_text(encoding="utf-8").strip()
     if not api_key:
-        return None
+        return None, f"The Anthropic API key file at {ANTHROPIC_API_KEY_FILE} is empty."
 
     eval_run_id = run_store.make_eval_run_id(run_name)
 
@@ -260,18 +361,30 @@ def _trigger_run(candidate_slug: str, run_name: str, repetitions: int, criteria:
     command = [
         sys.executable,
         str(RUN_PY_PATH),
-        candidate_slug,
         "--name",
         run_name,
         "--repetitions",
         str(repetitions),
         "--criteria",
         ",".join(criteria),
+        "--",
+        candidate_slug,
     ]
+    _launch_run_subprocess(command, env=env, log_path=log_path)
+
+    return eval_run_id, None
+
+
+def _launch_run_subprocess(command: list[str], *, env: dict[str, str], log_path: Path) -> None:
+    """The actual `subprocess.Popen(...)` call, factored out into its own
+    function SPECIFICALLY so tests can monkeypatch it directly (`ui_app._launch_run_subprocess`)
+    instead of the shared, process-global `subprocess.Popen` symbol -- monkeypatching
+    that shared symbol would ALSO intercept `harness.run_store.candidate_declaration_is_dirty()`'s
+    own internal `subprocess.run(["git", ...])` call (both modules import the
+    SAME `subprocess` module object), breaking the dirty-check in any test that
+    fakes out the run.py launch."""
     with open(log_path, "wb") as log_file:
         subprocess.Popen(command, cwd=str(HARNESS_DIR), env=env, stdout=log_file, stderr=subprocess.STDOUT)
-
-    return eval_run_id
 
 
 @app.route("/assess")
@@ -336,10 +449,20 @@ def render_markdown(text: str | None) -> str:
     §4.1: "render the MD or HTML of the brief"). Plain conversion, no extensions --
     this is a READ-ONLY debugging view, not the production email template (that is
     `deploy/delivery/functions/deliver/delivery_core.py`'s job, unrelated to this
-    harness)."""
+    harness).
+
+    Review-fix (security M1): `markdown.markdown()` alone passes raw HTML
+    embedded in the source Markdown straight through -- a brief containing
+    `<script>...</script>` or an `onerror=` attribute (LLM output describing
+    third-party web content, never assumed inert) would otherwise render as LIVE
+    HTML/JS in this page. `bleach.clean(..., strip=True)` removes anything
+    outside `_BLEACH_ALLOWED_TAGS`/`_BLEACH_ALLOWED_ATTRIBUTES` -- the result is
+    what `run_detail.html` marks `| safe`, never the raw `markdown.markdown()`
+    output."""
     if not text:
         return ""
-    return markdown.markdown(text)
+    html = markdown.markdown(text)
+    return bleach.clean(html, tags=_BLEACH_ALLOWED_TAGS, attributes=_BLEACH_ALLOWED_ATTRIBUTES, strip=True)
 
 
 def main() -> None:
