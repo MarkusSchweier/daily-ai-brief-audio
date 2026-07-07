@@ -23,6 +23,15 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
      instant-welcome-brief send on confirmation.
   3. **`deploy/feedback/`** — the public reader-feedback form at `feedback.mschweier.com`,
      reached via a personalized per-recipient/per-edition link embedded in every brief email.
+  - **`deploy/delivery/`** (internal boundary, not a public surface) — the decoupled AWS **delivery
+    boundary**: Polly narration, SES send, subscriber fan-out, S3 archival, and deterministic
+    no-LLM Markdown→HTML, reachable only via a bearer-authed `POST /deliver` (+ `GET /deliver/{id}`
+    poll, `GET /recent-briefs` read). **Built, deployed, and live-validated** — but **production
+    delivery still runs in-VM** via `deploy/managed-agent/`. Moving production onto this boundary
+    (full decouple, so the content MicroVM holds zero AWS delivery IAM — **ADR-0015**) is an
+    **owner-gated cut-over that has NOT happened yet** (runbook:
+    `deploy/delivery/CUTOVER-production-decoupling.md`). `GET /recent-briefs` is already live-used by
+    `cloud` eval candidates.
   - **The original local Claude Desktop scheduled task** (`~/Claude/Scheduled/daily-ai-brief-weekday/SKILL.md`)
     is **DEAD** — retired by the owner (agent-system-redesign epic; ADR-0014 / ADR-0008's 2026-07-06
     amendment). It will not run and will not be reactivated; it is no longer a skill-content lockstep
@@ -49,6 +58,17 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
 - `deploy/feedback/` — CDK stack for `feedback.mschweier.com`: submit Lambda, `brief-feedback`
   DynamoDB table, the signed HMAC feedback-link token scheme (ADR-0011/0012). **`README.md`**
   has the full setup/DNS/secret-wiring runbook.
+- `deploy/delivery/` — the decoupled AWS **delivery boundary** (ADR-0015): async `POST /deliver`
+  (contract **v2** = brief markdown + listening script + candidates + source-usage), `GET
+  /deliver/{id}`, `GET /recent-briefs`, the `brief-deliveries` table (tracking + a caller-idempotency
+  dedup row, TTL'd), and `functions/deliver/` (`delivery_core.derive_html` + Polly + SES + fan-out +
+  archival), bearer-gated by `delivery_auth` / signed-token `recent_briefs_auth`. Deployed +
+  live-validated; **production delivery cut-over is owner-gated** (`CUTOVER-production-decoupling.md`).
+  The MicroVM-side API client is `deploy/managed-agent/pipeline/delivery_client.py` (built, **not yet
+  wired into the live image** — `audio_email.py` is still the live delivery path).
+- `deploy/candidates/` — git-native candidate declarations + `sync.py`/`trigger.py` for `cloud`
+  eval/experimentation (agent-system-redesign epic); `deploy/eval/` — the evaluation harness
+  (eval-harness epic). Both are their own deploy units with their own `README.md`.
 - `deploy/scheduled-task-audio.md`, `deploy/audio_email.py`, `deploy/iam-policy.json`,
   `deploy/audio-mail-integration.md`, `deploy/validation-handoff.md` — the **now-dead local Desktop
   path** (retired, not reactivated — agent-system-redesign epic; kept as historical reference only).
@@ -68,6 +88,12 @@ secret rotation). Summary:
   `briefing.mschweier.com`.
 - **`FeedbackStack`** (`deploy/feedback/`) — `brief-feedback` DynamoDB table, submit Lambda, the
   shared feedback-token signing secret, CloudFront site at `feedback.mschweier.com`.
+- **`BriefDeliveryStack`** (`deploy/delivery/`) — `brief-deliveries` DynamoDB table (delivery
+  tracking + idempotency dedup, `expiresAt` TTL), the delivery-bearer + recent-briefs-read-token
+  secrets, the single `brief-delivery-deliver` Lambda (derive HTML → Polly → SES → archive), HTTP API
+  `POST /deliver` + `GET /deliver/{id}` + `GET /recent-briefs`. Its role holds the delivery grants
+  (Polly/S3/SES/DynamoDB-Query) that will move **off** `MicroVmExecutionRole` at the ADR-0015
+  cut-over. **Not yet on the production delivery path** — production still delivers in-VM.
 - IAM user `cowork-polly-tts` — the **original, now-fallback-only** least-priv user (Polly synth
   + S3 rw on one bucket + SES send from `aibriefing@mschweier.com` + a GSI-scoped DynamoDB Query)
   used by the local Desktop task. Policy: `deploy/iam-policy.json`.
