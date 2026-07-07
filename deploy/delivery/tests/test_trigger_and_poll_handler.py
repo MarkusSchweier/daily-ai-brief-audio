@@ -356,6 +356,29 @@ def test_trigger_rejects_invalid_idempotency_key(delivery_table):
     assert lambda_client.invocations == []
 
 
+@pytest.mark.parametrize("bad_date", ["../audio", "2026-07-06/../../x", "2026/07/06", "not-a-date", "20260706"])
+def test_trigger_rejects_brief_date_that_is_not_a_strict_iso_date(delivery_table, bad_date):
+    """Security MEDIUM-1: brief_date is interpolated directly into S3 archive key
+    paths, so a non-ISO value (containing `/` or `..`) must be rejected (400) before
+    it can traverse outside briefs/<date>/ or pollute the archive namespace."""
+    lambda_client = _FakeLambdaClient()
+    body = {**VALID_BODY, "metadata": {**VALID_BODY["metadata"], "brief_date": bad_date}}
+
+    result = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert result["statusCode"] == 400
+    assert lambda_client.invocations == []
+
+
+def test_trigger_accepts_a_valid_iso_brief_date(delivery_table):
+    lambda_client = _FakeLambdaClient()
+    body = {**VALID_BODY, "metadata": {**VALID_BODY["metadata"], "brief_date": "2026-07-06"}}
+
+    result = handler_module._handle_trigger(_post_event(body), delivery_table, lambda_client)
+
+    assert result["statusCode"] == 202
+
+
 def test_trigger_without_idempotency_key_still_works_and_does_not_dedupe(delivery_table):
     """Backward-compatible: absent idempotency key -> each trigger is its own
     delivery (no dedup), preserving the pre-D7 behavior for any caller that omits
