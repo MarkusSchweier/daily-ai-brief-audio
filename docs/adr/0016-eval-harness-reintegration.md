@@ -1,14 +1,18 @@
 # 0016. Eval-harness re-integration: a local-first, git-native harness driving the decoupled candidate mechanism (cost-optimization epic, "step A")
 
-- Status: **Proposed — Gate 0, awaiting owner sign-off before any implementation.** Per
-  `docs/prd/cost-optimization-candidates.md` §2/§4 this is "step A" of the combined A/B/C epic (B's
-  candidate declarations are built; A is designed here; C runs the comparison). The owner gave direct
-  input on D1–D4 (2026-07-07, weighted heavily below). For **D5 (UI)** the §4.1 *requirements* are
-  **settled and final** (re-confirmed verbatim by the owner) — what remains open is **only the choice of
-  UI implementation shape**. Five sub-decisions (D1–D5) each present options with a recommendation;
-  **no code is written until the owner approves the backbone.**
-- Date: 2026-07-07
-- Deciders: architect (Claude, design), owner (direction on D1–D4; D5 + open items pending)
+- Status: **Accepted — Gate 0 passed 2026-07-07; owner signed off on all recommendations.** Owner
+  decisions, recorded verbatim from sign-off: **D1–D4 backbone approved as recommended** (development
+  starts); **D5 = option (b), the tiny local web app** that triggers and views; **`BriefEvalStack`
+  teardown = destroy + clean up fully** (including the RETAIN'd `brief-eval-records` table, secrets,
+  and site bucket — executed only after the new harness's pure-Python port is validated, per the
+  phased plan's step 5); **Admin API key = skip** (no actual-cost cross-check; the pinned price table
+  + drift-check is the cost source). Per `docs/prd/cost-optimization-candidates.md` §2/§4 this is
+  "step A" of the combined A/B/C epic (B's candidate declarations are built + synced; A is designed
+  here; C runs the comparison). The owner gave direct input on D1–D4 (2026-07-07, weighted heavily
+  below); the §4.1 UI *requirements* were settled and final before sign-off.
+- Date: 2026-07-07 (accepted same day)
+- Deciders: architect (Claude, design), owner (all five decisions + open items 1/2/4 at Gate 0;
+  open item 3, Platform trace retention, remains a build-time verification)
 - Supersedes/amends: **ADR-0013** (the eval-harness backbone — "build vs. adopt," Option A, custom
   AWS-native). ADR-0013 chose an AWS-native harness (`deploy/eval/`: CDK stack, DynamoDB records,
   Lambda poll, S3 artifact retrieval, static review site) because the pipeline it measured **delivered
