@@ -16,8 +16,14 @@ change**, no secret value in the run payload. Do NOT run the live-flip steps una
   (`ReadDeliveryBearerSecret`, `ReadRecentBriefsSigningSecret`) are **deployed** (flag OFF,
   so the legacy delivery grants are still present). Both secrets are populated.
 - **`deployment-validation.json`**: the new decoupled `initial_prompt`, fan-out **OFF**.
+- **HTML template refinements** (delivery-side `derive_html` + `_html_with_header`, FR-2a): responsive
+  card + 17px body (mobile), a single unified 14px top box carrying feedback + subscribe + unsubscribe
+  + disclaimer (unsubscribe moved into the top box; footer removed), and the welcome mail
+  (`deploy/subscribers/welcome-send`) now renders exactly like a daily subscriber email + a welcome
+  intro. **Delivery stack redeployed with the new template**; validated by real emails to the owner.
+  The **welcome-send Lambda change is committed but NOT deployed** (subscribers stack — see Phase B).
 - **NOT done (the live flip):** the `deliveryDecoupled` IAM strip, swapping the *scheduled*
-  deployment to the new prompt, and enabling fan-out.
+  deployment to the new prompt, enabling fan-out, and deploying the welcome-send Lambda.
 
 ## Phase A — Validation run (owner-only; the next joint step, after the HTML changes)
 1. Create a **separate, on-demand** deployment from `deploy/managed-agent/deployment-validation.json`
@@ -45,6 +51,11 @@ Do these **together** (deploying either half alone is unsafe — see ADR-0015 D1
    carry feedback + unsubscribe links (`cd deploy/delivery && cdk deploy BriefDeliveryStack
    -c feedbackTokenSecretArn=<arn> -c feedbackBaseUrl=https://feedback.mschweier.com
    -c subscribersApiBaseUrl=https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com`).
+3b. **Deploy the welcome-send Lambda** (`cd deploy/subscribers && cdk deploy BriefSubscribersStack
+   --require-approval never`) so a newly-confirmed subscriber's welcome email matches the new daily
+   chrome (top-box unsubscribe, unified font). Safe to do independently/earlier if you want to
+   live-check it with a real subscribe→confirm; it wraps the latest archived brief (old-format until
+   the cut-over, via a slot fallback) either way.
 4. Confirm the next real weekday run went out via the delivery boundary; keep image v12 and the
    old scheduled deployment recoverable until a full weekday run is confirmed. Verify
    `MicroVmExecutionRole` shows only env-key + logs + the two auth reads (AC-1).

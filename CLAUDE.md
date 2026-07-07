@@ -64,8 +64,11 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   dedup row, TTL'd), and `functions/deliver/` (`delivery_core.derive_html` + Polly + SES + fan-out +
   archival), bearer-gated by `delivery_auth` / signed-token `recent_briefs_auth`. Deployed +
   live-validated; **production delivery cut-over is owner-gated** (`CUTOVER-production-decoupling.md`).
-  The MicroVM-side API client is `deploy/managed-agent/pipeline/delivery_client.py` (built, **not yet
-  wired into the live image** — `audio_email.py` is still the live delivery path).
+  The MicroVM-side API client is `deploy/managed-agent/pipeline/delivery_client.py` (Option B: reads the
+  bearer + mints the recent-briefs token via the MicroVM's own scoped role). It is **baked into microVM
+  image v13**, but **`audio_email.py` is still the live delivery path** — the scheduled `deployment.json`
+  still invokes it, and the `MicroVmExecutionRole` delivery-IAM strip is gated behind a `deliveryDecoupled`
+  CDK context flag (default OFF). Flipping to `delivery_client.py` + the strip is the owner-gated cut-over.
 - `deploy/candidates/` — git-native candidate declarations + `sync.py`/`trigger.py` for `cloud`
   eval/experimentation (agent-system-redesign epic); `deploy/eval/` — the evaluation harness
   (eval-harness epic). Both are their own deploy units with their own `README.md`.
