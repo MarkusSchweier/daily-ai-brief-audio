@@ -459,3 +459,116 @@ def test_run_detail_shows_a_dirty_badge_when_declaration_dirty_is_true(client, m
 
     assert response.status_code == 200
     assert b"declaration_dirty" in response.data
+
+
+def test_run_detail_renders_v2_findings_and_selection_disagreements_xss_safely(client, monkeypatch, tmp_path):
+    """Judge methodology v2's structured findings/selection_disagreements arrays
+    must render (Deep Dive template) and must NEVER be marked `| safe` -- a
+    finding's `note`/`source_checked` text ultimately traces back to judge output
+    about third-party web content, exactly like rationale/evidence, so it gets the
+    SAME XSS discipline this template already applies to those fields."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+
+    run_dir = run_store.eval_run_dir("test-candidate", "2026-07-07-999999-v2", runs_root=runs_root)
+    meta = run_store.EvalRunMeta(
+        name="v2 findings render test",
+        slug="test-candidate",
+        agent_id="agent_x",
+        git_ref="a" * 40,
+        composition="single-agent",
+        models=["claude-opus-4-8"],
+        parameters={"agent": {}, "sub_agents": []},
+        repetitions=1,
+        criteria=["factual_accuracy", "content_selection", "dedup"],
+        state=run_store.STATE_COMPLETED,
+        email_sent=False,
+        is_production_config=False,
+        created_at=1000,
+    )
+    run_store.write_eval_run_meta(run_dir, meta)
+    run_store.write_scores(
+        run_dir,
+        1,
+        {
+            "factual_accuracy": {
+                "score": 2,
+                "rationale": "issues found",
+                "evidence": "n/a",
+                "insufficient_data": False,
+                "findings": [
+                    {
+                        "claim": "<script>alert('claim')</script>",
+                        "verdict": "contradicted",
+                        "source_checked": "https://example.test",
+                        "note": "<img src=x onerror=alert('note')>",
+                    }
+                ],
+            },
+            "content_selection": {
+                "score": 4,
+                "rationale": "mostly fine",
+                "evidence": "n/a",
+                "insufficient_data": False,
+                "selection_disagreements": [
+                    {"story": "<b>A story</b>", "judge_view": "should have been excluded", "rationale": "checked via web_search"}
+                ],
+            },
+            "dedup": {
+                "score": 3,
+                "rationale": "one repeat",
+                "evidence": "n/a",
+                "insufficient_data": False,
+                "findings": [
+                    {
+                        "story": "Some story",
+                        "duplicate_of_date": "2026-07-06",
+                        "labelled_as_followup": True,
+                        "justified": False,
+                        "note": "labelled but adds nothing new",
+                    }
+                ],
+            },
+        },
+    )
+    run_store.write_run_meta(run_dir, 1, {"deployment_id": "depl_x", "session_id": "sesn_x", "thread_count": 1, "final_status": "idle"})
+    run_store.write_judge_cost(
+        run_dir,
+        1,
+        {
+            "models": ["claude-opus-4-8"],
+            "total_cost_usd": 0.02,
+            "total_search_count": 6,
+            "total_search_cost_usd": 0.06,
+            "grand_total_cost_usd": 0.08,
+            "total_usage": {},
+            "per_criterion": {
+                "factual_accuracy": {"model": "claude-opus-4-8", "usage": {}, "cost_usd": 0.02, "search_count": 6, "search_cost_usd": 0.06}
+            },
+        },
+    )
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+
+    # The structured data itself made it into the rendered page...
+    assert "contradicted" in body
+    assert "should have been excluded" in body
+    assert "2026-07-06" in body
+    assert "0.0600" in body  # search_cost_usd, rendered separately from token cost
+    assert "0.0800" in body  # grand_total_cost_usd
+
+    # ...but NEVER as live, unescaped HTML/JS -- the exact stored-XSS pattern this
+    # template's own docstring warns about for rationale/evidence must also hold
+    # for the new findings/selection_disagreements fields. The escaped TEXT of a
+    # tag (e.g. "onerror=alert" inside an inert, HTML-escaped `&lt;img ...&gt;`
+    # blob) is expected and harmless -- what must NEVER appear is a live,
+    # browser-parseable tag.
+    assert "<script>alert" not in body
+    assert "&lt;script&gt;" in body
+    assert "<img src=x onerror=alert" not in body  # would be a LIVE tag if unescaped
+    assert "&lt;img src=x onerror=alert" in body  # present, but only as inert escaped text
+    assert "<b>A story</b>" not in body
+    assert "&lt;b&gt;A story&lt;/b&gt;" in body
