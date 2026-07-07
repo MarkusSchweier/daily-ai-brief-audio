@@ -100,6 +100,22 @@ def test_a_transport_failure_degrades_to_an_empty_list_not_a_raise():
     assert result == []
 
 
+def test_a_transport_failure_prints_a_greppable_stderr_diagnostic(capsys):
+    """review-fix, reviewer Low: the silent degrade-to-[] used to be
+    undiagnosable -- 'no priors configured' and 'the fetch broke' looked
+    identical to the caller. A genuine failure now prints a DEDUP_PRIORS_FETCH_FAILED
+    marker to stderr (this repo's established UPPERCASE_MARKER convention)."""
+    client = _FakeClient(raise_exc=RuntimeError("connection reset"))
+
+    dedup_priors.fetch_recent_prior_briefs_markdown(
+        signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+    )
+
+    err = capsys.readouterr().err
+    assert "DEDUP_PRIORS_FETCH_FAILED" in err
+    assert "connection reset" in err
+
+
 def test_an_http_error_status_degrades_to_an_empty_list_not_a_raise():
     response = _FakeResponse(status_code=500)
     client = _FakeClient(response=response)
@@ -109,6 +125,26 @@ def test_an_http_error_status_degrades_to_an_empty_list_not_a_raise():
     )
 
     assert result == []
+
+
+def test_an_http_error_status_also_prints_the_stderr_diagnostic(capsys):
+    response = _FakeResponse(status_code=500)
+    client = _FakeClient(response=response)
+
+    dedup_priors.fetch_recent_prior_briefs_markdown(
+        signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+    )
+
+    assert "DEDUP_PRIORS_FETCH_FAILED" in capsys.readouterr().err
+
+
+def test_missing_env_vars_do_not_print_a_diagnostic(capsys):
+    """The 'not configured at all' path is a normal, expected state (dedup just
+    wasn't wired up for this operator yet) -- distinct from a genuine fetch
+    failure, and must stay silent."""
+    dedup_priors.fetch_recent_prior_briefs_markdown(signing_key="", delivery_base_url="", client=_FakeClient())
+
+    assert capsys.readouterr().err == ""
 
 
 def test_reads_env_vars_when_not_passed_explicitly(monkeypatch):

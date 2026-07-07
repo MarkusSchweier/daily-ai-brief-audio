@@ -12,6 +12,13 @@ __pycache__/
 # deploy/candidates/.gitignore uses for its own (uncommitted-by-design) spike outputs.
 runs/**/events.json
 
+# review-fix (security L1): ui.py's background-subprocess log for a triggered run
+# (ui._trigger_run()'s log_path) -- an operational log of the token-holding `run.py`
+# process. It could echo argv/errors that touch sensitive paths or state; the
+# Anthropic API key itself is never printed/logged by design (see run.py's own
+# discipline), but this file must never enter git history regardless.
+runs/**/subprocess.log
+
 # Anthropic API key file convention (never committed; read at runtime only) -- this
 # repo's key lives at ~/.anthropic-managed-agents/ant-api-key.txt (outside the repo)
 # but guard against an accidental local copy anyway.

@@ -396,7 +396,18 @@ def assess():
 
 @app.route("/runs/<slug>/<eval_run_id>")
 def run_detail(slug: str, eval_run_id: str):
-    run_dir = run_store.eval_run_dir(slug, eval_run_id)
+    # Explicit containment check (review-fix, security L2, defense-in-depth):
+    # Flask's default `string` route converter allows ".." as a literal path
+    # SEGMENT (it only excludes "/"), so `eval_run_id=".."` is a syntactically
+    # valid single segment. `eval-run.json`'s existence check below already
+    # makes this practically unreachable (`RUNS_ROOT/../eval-run.json` doesn't
+    # exist), but resolving and confirming containment under RUNS_ROOT first
+    # makes that guarantee explicit rather than incidental.
+    run_dir = run_store.eval_run_dir(slug, eval_run_id).resolve()
+    runs_root = run_store.RUNS_ROOT.resolve()
+    if not run_dir.is_relative_to(runs_root):
+        return render_template("not_found.html", slug=slug, eval_run_id=eval_run_id), 404
+
     if not (run_dir / "eval-run.json").is_file():
         return render_template("not_found.html", slug=slug, eval_run_id=eval_run_id), 404
 

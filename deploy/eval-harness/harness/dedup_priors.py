@@ -15,12 +15,16 @@ or the HTTP call fails -- dedup is one criterion among a SELECTABLE subset (PRD
 A caller that selected "dedup" will see the judge itself report
 `insufficient_data=True` (its own documented degrade path, see
 `eval_core/judges/dedup.py`) rather than the whole eval run failing over a
-prior-briefs fetch glitch.
+prior-briefs fetch glitch. A genuine HTTP/transport failure (as opposed to the
+env vars simply being unset) prints a `DEDUP_PRIORS_FETCH_FAILED:` diagnostic to
+stderr (review-fix: reviewer Low -- "silent degradation... undiagnosable today")
+so an operator can tell "no priors configured" apart from "the fetch broke."
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 import httpx
@@ -67,7 +71,15 @@ def fetch_recent_prior_briefs_markdown(
         response = http_client.get(url, headers=headers)
         response.raise_for_status()
         body = response.json()
-    except Exception:  # noqa: BLE001 - a prior-briefs read glitch must never abort the run
+    except Exception as e:  # noqa: BLE001 - a prior-briefs read glitch must never abort the run
+        # review-fix (reviewer Low): the silent degrade-to-empty-list above was
+        # UNDIAGNOSABLE -- a real GET /recent-briefs failure (bad signing key,
+        # DELIVERY_BASE_URL unreachable, an unexpected response shape) looked
+        # IDENTICAL to "no prior briefs exist yet" from the caller's side. Still
+        # never aborts the run (dedup just degrades to insufficient_data, per
+        # this module's own documented contract), but now leaves a clear,
+        # greppable trace of WHY.
+        print(f"DEDUP_PRIORS_FETCH_FAILED: {e!r}", file=sys.stderr)
         return []
     finally:
         if owns_client:

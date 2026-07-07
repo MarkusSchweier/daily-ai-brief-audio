@@ -116,6 +116,27 @@ def test_run_detail_404s_for_an_unknown_run(client, monkeypatch, tmp_path):
     assert response.status_code == 404
 
 
+def test_run_detail_containment_check_rejects_a_traversal_even_when_a_real_file_exists_outside_runs_root(
+    client, monkeypatch, tmp_path
+):
+    """Review-fix, security L2: build a REAL eval-run.json OUTSIDE runs_root and
+    confirm a slug/eval_run_id combination that traverses OUT to it via ".." is
+    still rejected (404) -- proving the explicit resolve()+is_relative_to()
+    containment check does real work, not just the (incidental) file-existence
+    check that happens to also fail in the common case."""
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+
+    outside_dir = tmp_path / "outside-runs-root"
+    outside_dir.mkdir()
+    (outside_dir / "eval-run.json").write_text("{}", encoding="utf-8")
+
+    response = client.get("/runs/../outside-runs-root")
+
+    assert response.status_code == 404
+
+
 def test_trigger_without_a_candidate_slug_is_a_400(client, monkeypatch, tmp_path):
     _setup_candidates_dir(monkeypatch, tmp_path)
 
