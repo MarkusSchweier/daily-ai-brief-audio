@@ -78,7 +78,7 @@ from eval_core.record import (  # noqa: E402
     aggregate_replicates,
 )
 
-from harness import cost, dedup_priors, run_store  # noqa: E402
+from harness import cost, dedup_priors, local_config, run_store  # noqa: E402
 
 _ENVIRONMENT_JSON_PATH = CANDIDATES_DIR / "environment.json"
 
@@ -379,9 +379,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        task_prompt = trigger.substitute_recent_briefs_placeholders(task_prompt)
+        # Resolve the two recent-briefs values through local_config (env var ->
+        # well-known local key file -> committed default URL) instead of relying
+        # on the raw process environment alone -- a UI/server process launched
+        # without the exports must still be able to trigger (owner-reported
+        # failure, 2026-07-07). Passing None for a missing key lets
+        # substitute_recent_briefs_placeholders() raise its usual fail-loud
+        # error, which we extend with the file-source hint below.
+        task_prompt = trigger.substitute_recent_briefs_placeholders(
+            task_prompt,
+            signing_key=local_config.resolve_recent_briefs_signing_key(),
+            delivery_base_url=local_config.resolve_delivery_base_url(),
+        )
     except trigger.RecentBriefsPlaceholderConfigError as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {e} -- {local_config.signing_key_sources_hint()}", file=sys.stderr)
         return 1
 
     environment_id = _load_shared_environment_id()
@@ -460,7 +471,13 @@ def main(argv: list[str] | None = None) -> int:
 
         prior_briefs_markdown: list[str] = []
         if "dedup" in criteria and brief_markdown:
-            prior_briefs_markdown = dedup_priors.fetch_recent_prior_briefs_markdown()
+            # Same local_config resolution as the task-prompt substitution above --
+            # missing key stays a soft degrade here (no priors, judge reports
+            # insufficient_data), never a run failure.
+            prior_briefs_markdown = dedup_priors.fetch_recent_prior_briefs_markdown(
+                signing_key=local_config.resolve_recent_briefs_signing_key() or "",
+                delivery_base_url=local_config.resolve_delivery_base_url(),
+            )
 
         judge_results = _run_selected_judges(
             anthropic_client,

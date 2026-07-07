@@ -115,13 +115,24 @@ python3 run.py multiagent-aggressive-haiku --timeout 1200
 
 If a candidate's task prompt uses the `__RECENT_BRIEFS_TOKEN__`/
 `__DELIVERY_BASE_URL__` placeholders (ADR-0014 Decision 2d — `production-baseline`,
-`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure` all do), set
-`$RECENT_BRIEFS_SIGNING_KEY`/`$DELIVERY_BASE_URL` first, exactly as
-`deploy/candidates/trigger.py` requires — `run.py` fails loud with the same clear
-error if they're needed and missing. The same two env vars, if set, also let the
-dedup judge (when selected) read real recent priors via `GET /recent-briefs`
-(`harness/dedup_priors.py`) — if unset, dedup degrades to `insufficient_data`
-rather than failing the run.
+`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure` all do), the two
+values resolve via `harness/local_config.py` in this order (added after the first
+owner UI-trigger failed because the UI's server process had no exports):
+
+1. **Signing key** (secret): `$RECENT_BRIEFS_SIGNING_KEY` if set, else the
+   well-known local file `~/.anthropic-managed-agents/recent-briefs-signing-key.txt`
+   (populate once, `chmod 600`, from the
+   `daily-ai-brief/recent-briefs-read-bearer-secret` Secrets Manager secret —
+   same convention as `ant-api-key.txt`; the harness itself never calls AWS).
+2. **Delivery base URL** (not a secret): `$DELIVERY_BASE_URL` if set, else the
+   committed default in `local_config.py`.
+
+With neither env var nor key file present, `run.py` still fails loud with a clear
+error naming both sources. The same resolution also feeds the dedup judge's
+recent-priors read via `GET /recent-briefs` (`harness/dedup_priors.py`) — a missing
+key there degrades to `insufficient_data` rather than failing the run. This is what
+lets the Flask UI trigger runs even when the server process was started without any
+exports (e.g. by a preview panel or launchd).
 
 The `--email` flag is a **deferred stub** (ADR-0016 D3): passing it exits
 immediately with an error pointing at the ADR, rather than sending anything. An
