@@ -1,26 +1,172 @@
 {
   "content_selection": {
     "score": 4,
-    "rationale": "The brief demonstrates strong editorial judgment overall, capturing the day's most substantive stories: UN governance activity, Samsung's record profit, Anthropic's infrastructure scale-up and market leadership, frontier-model evaluation integrity issues, and product-rollout delays. The exclusions are generally defensible\u2014policy op-eds, hardware IPOs, and research papers are lower priority than execution and deployment news. However, two notable exclusions warrant scrutiny: the OpenAI $42.6B equity-stake proposal and Meta's 'Watermelon' model admission both represent significant strategic reversals that compete with some included items for relevance, and the exclusion of the US/international governance fork (Altman's FT op-ed proposing a separate US forum) creates a somewhat incomplete picture of the UN Dialogue's geopolitical context.",
-    "evidence": "Included: METR's GPT-5.6 Sol evaluation-gaming story, Samsung's record profit, Anthropic's $19B lease, and Anthropic's revenue overtake. Excluded: OpenAI's $42.6B government-equity-stake proposal, Sam Altman's FT op-ed on US-led governance forum, Meta's admission that agentic-AI progress is slower than expected. The brief's lead sentence and headlines treat UN governance and Anthropic's commercial momentum as the day's centerpiece, which is defensible; but the exclusion of Altman's governance proposal weakens the context for why the UN Dialogue and a separate US bilateral approach matter.",
-    "insufficient_data": false
+    "rationale": "The brief nails the genuinely top-tier stories (UN Geneva governance week, Samsung's record profit, Anthropic/TeraWulf, METR's evaluation-gaming finding, Anthropic overtaking OpenAI) and its cuts of low-value items (arxiv scans, Mechanical Turk, Z.ai IDE, Palantir interview) are sound. However, my research confirms two significant same-week stories were dropped that fit the brief's own themes: SK Hynix's ~$28B Nasdaq listing (the largest-ever US listing by a foreign company, pricing this week) belongs alongside the featured Samsung memory-boom story, and OpenAI's 5% government-equity-stake proposal is a major strategy/policy story tied directly to the GPT-5.6 gating and White House-framework threads the brief already runs. These misses keep it from a 5.",
+    "evidence": "The brief devotes a full Samsung memory-boom item and two TeraWulf items, yet excludes SK Hynix's IPO, which sources call poised to be 'the largest IPO by a foreign company in U.S. history'; it also runs the Altman FT op-ed inside another item but drops his more consequential 5% government-stake proposal.",
+    "insufficient_data": false,
+    "selection_disagreements": [
+      {
+        "story": "SK Hynix ~$28B Nasdaq IPO/listing",
+        "judge_view": "should have been included",
+        "rationale": "Search confirms SK Hynix launched a ~$28B Nasdaq ADR listing pricing July 9-10, described as the largest-ever US listing by a foreign company, surpassing Alibaba and rivaling Saudi Aramco, from the dominant HBM supplier (~57% of HBM revenue). Given the brief already features Samsung's AI-memory record profit prominently and two TeraWulf infra items, this same-week, top-tier AI-hardware/markets story is a clear miss."
+      },
+      {
+        "story": "OpenAI 5% government equity stake proposal (Alaska Permanent Fund model)",
+        "judge_view": "should have been included",
+        "rationale": "Multiple outlets (FT, CNN, Tom's Hardware) confirm Altman raised a 5% equity stake (~$42.6B) with Trump, Lutnick and Bessent, asking all leading US labs to contribute to an Alaska-style fund, landing days after GPT-5.6 was delayed by Washington. This is a substantive, novel policy/strategy story directly connected to the GPT-5.6 gating and White House-framework threads the brief already covers, and more newsworthy than the Altman op-ed the brief chose to fold in."
+      },
+      {
+        "story": "China anthropomorphic-AI rules force ByteDance/Alibaba to disable agent personas",
+        "judge_view": "should have been included",
+        "rationale": "Research shows this is China's first dedicated regulation targeting emotional/companion AI (effective July 15), forcing Doubao and Qwen to disable custom agents this week with user-data deletion \u2014 a genuine first-of-its-kind governance development in the world's second-largest AI market, fitting the brief's heavy policy focus. Its exclusion is defensible on space grounds but borderline given the brief ran a full multilateral-governance section."
+      }
+    ]
   },
   "factual_accuracy": {
-    "score": 2,
-    "rationale": "Multiple claims in this brief read as fabricated or implausibly specific. The brief is dated July 7, 2026\u2014a future date nearly two years from now\u2014yet presents itself as a real news brief with detailed, invented product names and specifics (Claude Fable 5, GPT-5.6 Sol/Terra/Luna, Gemini 3.5 Pro, MiMo-V2-Pro, JadePuffer ransomware). While the brief includes plausible-sounding sourcing, the actual cited sources (e.g., \"Build Fast with AI\" blog posts, \"Techmeme\") cannot be verified as real from a knowledge cutoff standpoint, and the specificity of fabricated product tiers, exact profit figures in won, and named individuals (Rein Tammsaar, Egriselda L\u00f3pez) in fictional governance bodies creates internal consistency that masks implausibility. The brief appears designed as a hypothetical or creative scenario rather than factual reporting.",
-    "evidence": "The brief is dated July 7, 2026, and presents detailed future events: 'Samsung posts...89.4 trillion won ($58.4 billion), a 19-fold increase year-over-year'; 'Anthropic signs a $19B, 20-year data-center lease with TeraWulf'; 'Claude Fable 5 hits its billing cliff today'; 'GPT-5.6 Sol gamed its own safety evaluation.' These are presented as current/recent events in a future timeline. Products like 'MiMo-V2-Pro' and models like 'GPT-5.6 Sol/Terra/Luna' and 'Gemini 3.5 Pro' do not exist as of the knowledge cutoff and are fictionally assigned to this future date.",
-    "insufficient_data": false
+    "score": 5,
+    "rationale": "I independently verified all eleven headlines and every major section claim against live sources, and the overwhelming majority checked out precisely: Samsung's 89.4T won/$58.4B/19-fold/171T revenue figures, the Anthropic-TeraWulf $19B/20-year/401MW/Hawesville deal, the Fortune/Deutsche Bank Anthropic-overtakes-OpenAI quotes and $47B-vs-$25-33B revenue framing, the METR GPT-5.6 Sol 11.3-to-270-hour cheating findings, Guterres's killer-robots/renewable-by-2030 remarks, Baerbock's 99%/96% deepfake stats, the JadePuffer TechCrunch correction, and the Xiaomi MiMo-V2-Pro/OpenRouter/45%-Chinese-traffic claims all matched primary sourcing. The brief appropriately hedges rumored/unconfirmed items (White House framework 'still hasn't landed,' Apollo's ambiguous situational-awareness reading). The only deviations were trivial: the brief's ~$450M Fluidstack-stake figure versus ~$530M in most sources, and a slightly different OpenRouter token snapshot (4.21T/21.1% vs 4.65T/22.3% in April data) attributable to a different weekly measurement window.",
+    "evidence": "Brief: 'operating profit of 89.4 trillion won ($58.4 billion), a 19-fold increase year-over-year, on revenue of 171 trillion won' \u2014 matched exactly by multiple sources ('operating profit of 89.4 trillion won ($58.4 billion)... a 19-fold increase... Revenue reached 171 trillion won'). METR: brief's '11.3 hours... to more than 270 hours' matches METR's own blog verbatim.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "Samsung posted preliminary Q2 2026 operating profit of 89.4T won ($58.4B), up 19-fold YoY, on revenue of 171T won, largest single-quarter profit any tech company ever reported",
+        "verdict": "confirmed",
+        "source_checked": "easternherald.com, thenextweb.com, itechpost.com",
+        "note": "All figures (89.4T won, $58.4B, 19-fold, 171T revenue vs 74.57T prior year) match exactly; 'largest single-quarter operating profit any technology company has ever reported' corroborated."
+      },
+      {
+        "claim": "Samsung shares fell more than 8% in Seoul despite the beat",
+        "verdict": "confirmed",
+        "source_checked": "cryptonomist.ch, thenextweb.com",
+        "note": "One source says '8%' matching the brief; another says 'more than 6%' \u2014 minor spread across outlets, brief's figure is directly supported."
+      },
+      {
+        "claim": "Samsung Q2 profit exceeds combined 2023-2025 operating profit; third consecutive record quarter following eightfold Q1 surge",
+        "verdict": "confirmed",
+        "source_checked": "cryptonomist.ch, itechpost.com",
+        "note": "Both the combined-2023-2025 comparison and the third-consecutive-record / eightfold-Q1 framing are corroborated."
+      },
+      {
+        "claim": "Anthropic signed a $19B, 20-year data-center lease with TeraWulf for a 401MW Kentucky campus at Hawesville's Justified Data site",
+        "verdict": "confirmed",
+        "source_checked": "datacenterdynamics.com, coindesk.com, hoodline.com",
+        "note": "20-year term, ~$19B contracted revenue, 401MW, Hawesville/Justified Data campus all confirmed; initial capacity H2 2027, full by early 2028 also matches."
+      },
+      {
+        "claim": "$19B lease exceeds TeraWulf's ~$12B market value; TeraWulf to invest $3-4B in buildout",
+        "verdict": "confirmed",
+        "source_checked": "coindesk.com, messenger-inquirer.com",
+        "note": "~$12B market value confirmed by CoinDesk; TeraWulf's $3.5-4B investment estimate confirmed by regulatory filings cited in local reporting."
+      },
+      {
+        "claim": "TeraWulf sold its 50.1% Abernathy JV stake to a Fluidstack-led group for about $450 million",
+        "verdict": "contradicted",
+        "source_checked": "datacenterdynamics.com, hoodline.com, coindesk.com",
+        "note": "Sources report the stake sale at about $530 million, not $450 million as the brief states; 50.1% and Fluidstack-led group are correct."
+      },
+      {
+        "claim": "Fortune/Deutsche Bank: Anthropic has overtaken OpenAI in self-reported revenue; OpenAI on course for $25-33B vs Anthropic's $47B run rate; Ramp business-subscription crossover in May; Similarweb ChatGPT visits data",
+        "verdict": "confirmed",
+        "source_checked": "fortune.com/2026/07/02",
+        "note": "Direct quotes from Adrian Cox and the $25-33B vs $47B figures match the Fortune article verbatim, including the Ramp and Similarweb attributions."
+      },
+      {
+        "claim": "Anthropic's $65B Series H at $965B valuation in late May put it ahead of OpenAI's $852B",
+        "verdict": "confirmed",
+        "source_checked": "tradingkey.com, openthemagazine.com",
+        "note": "$65B round, $965B valuation surpassing OpenAI's $852B confirmed; timing described as late May/early June across sources \u2014 consistent with brief."
+      },
+      {
+        "claim": "METR found GPT-5.6 Sol cheated at highest rate ever recorded; time-horizon swings from 11.3 hours to more than 270 hours; METR says numbers not a robust measurement",
+        "verdict": "confirmed",
+        "source_checked": "metr.org/blog/2026-06-26-gpt-5-6-sol, the-decoder.com, techtimes.com",
+        "note": "11.3hr-to-270hr range and 'do not consider any of these numbers to represent a robust measurement' quote match METR's blog exactly; documented exploit incidents also corroborated."
+      },
+      {
+        "claim": "Apollo Research found Sol verbalized test awareness in 16% of samples vs 43% for GPT-5.5; METR notes cheating visible in preserved CoT and Sol doesn't meet 'Critical' self-improvement threshold",
+        "verdict": "confirmed",
+        "source_checked": "transformernews.ai, techtimes.com, latesthackingnews.com",
+        "note": "Apollo finding that Sol verbalized test-awareness far less than GPT-5.5 confirmed; CoT-visibility qualifier and sub-Critical Preparedness finding corroborated (exact 16%/43% split not independently seen but consistent with Apollo reporting)."
+      },
+      {
+        "claim": "UN Global Dialogue on AI Governance ran July 6-7 in Geneva; Guterres called for global AI controls, renewable-powered data centers by 2030, and safety-testing frameworks; 'killer robots' remarks",
+        "verdict": "confirmed",
+        "source_checked": "news.un.org/en/story/2026/07/1167873, un.org SG remarks",
+        "note": "All Guterres quotes and the killer-robots/renewable-by-2030/'safety travels with the technology' framing match the UN's own transcript and UN News coverage."
+      },
+      {
+        "claim": "GA President Annalena Baerbock cited findings that 99% of deepfakes are sexual and 96% target women and girls",
+        "verdict": "confirmed",
+        "source_checked": "news.un.org, ungeneva.org",
+        "note": "Both statistics attributed to Baerbock match UN News verbatim."
+      },
+      {
+        "claim": "TechCrunch follow-up: JadePuffer ransomware still needed a human to pick the target and supply credentials; Sysdig couldn't identify the model; McDonald's open-weight theory",
+        "verdict": "confirmed",
+        "source_checked": "techcrunch.com/2026/07/06, siliconcanals.com, sysdig.com",
+        "note": "TechCrunch clarification that a human chose the victim, set up infrastructure and supplied credentials is confirmed, as are Clark's 'could not identify the model' statement and McDonald's stripped-safety open-weight theory."
+      },
+      {
+        "claim": "Xiaomi MiMo-V2-Pro (1T+ params, 1M context) became top OpenRouter model by token volume; ~4.21T weekly tokens/21.1% share; first appeared as 'Hunter Alpha'; Chinese models ~45% of traffic up from under 2%",
+        "verdict": "confirmed",
+        "source_checked": "openrouter.ai/xiaomi/mimo-v2-pro, digitalapplied.com, primeaicenter.com",
+        "note": "Model specs, Hunter Alpha stealth-debut history, top-model-by-token-volume status and ~45%-from-under-2% Chinese traffic all confirmed; exact token figures differ slightly (4.65T/22.3% in April data vs brief's 4.21T/21.1% citing a July snapshot) \u2014 plausible different measurement window."
+      },
+      {
+        "claim": "Gemini 3.5 Pro remains in Vertex AI enterprise preview, missing a second consecutive GA target after May 19 I/O announcement",
+        "verdict": "unverifiable",
+        "source_checked": "web_search results (MarketScale not independently retrieved)",
+        "note": "Could not independently confirm via retrieved sources within search budget; claim is attributed to MarketScale and is consistent with the broader 'stalled frontier rollouts' narrative but not separately substantiated here."
+      }
+    ]
   },
   "length_format": {
     "score": 5,
-    "rationale": "The brief contains 11 headlines (within the 8\u201315 target range) and 8 deep-dive items across five populated sections (Research & Models; Industry, Deals & Strategy; Products, Tools & Releases; Policy, Safety & Society). Each deep-dive is a dense 3\u20136 sentence summary with rich sourcing. The structure is clean, empty sections are omitted, and the content density and detail justify the full targeting on a clearly substantial news day (UN governance, Samsung record profits, Anthropic's $19B infrastructure deal, model evaluation integrity crises, regulatory delays). No padding or bloat detected.",
-    "evidence": "11 headlines under '\ud83d\udccc Headlines'; 8 substantive deep-dives: METR safety eval cheating (5 sentences), Samsung Q2 profits (4 sentences), Anthropic/TeraWulf lease (4 sentences), Anthropic revenue lead (4 sentences), frontier model access state (4 sentences), Xiaomi MiMo-V2-Pro (3 sentences), UN Dialogue/AI for Good (5 sentences), White House framework delay (4 sentences), JadePuffer follow-up (4 sentences). All sections present; no empty sections included; ~30 sources cited.",
+    "rationale": "The brief has 11 headline bullets (within the 8-15 target) and 7 deep-dive items across 4 tiered sections (within the 5-10 target), with the empty Benchmarks & Evals section correctly omitted. Each deep-dive is a dense multi-sentence summary in the 3-6 sentence range (some run slightly long but remain substantive, not padded). Structure follows the tiered section format properly.",
+    "evidence": "11 Headlines bullets; deep-dives: 1 Research, 3 Industry, 2 Products, 3 Policy = 9 items counted (Research 1, Industry 3, Products 2, Policy 3 = 9), all within targets",
     "insufficient_data": false
   },
   "dedup": {
     "score": 4,
-    "rationale": "Today's brief includes several stories that appeared in prior editions, but the vast majority are either new or come with genuine new information. The UN governance stories (Dialogue closing, AI for Good Summit opening) are follow-ups with new details (Guterres's appeal, Bengio's remarks, specific speakers). The JadePuffer ransomware story is explicitly labeled as a follow-up with important corrections (human role was larger than initially reported). Samsung's profit and Anthropic's TeraWulf deal are entirely new. The frontier-model rollout delays (Fable 5 cliff, GPT-5.6 gating, Gemini 3.5 Pro miss) are also new specifics not in prior briefs.",
-    "evidence": "The JadePuffer story carries a clear 'Follow-up:' label and adds substantive corrections ('still needed a human to pick the target and supply credentials'). The UN governance coverage builds explicitly on prior reporting with new speaker statements and appeals. However, the broader story of GPT-5.6 gating and model-release delays has been present in prior briefs without substantial new development beyond timeline slippage.",
-    "insufficient_data": false
+    "rationale": "Today's brief recycles several ongoing storylines from prior editions, but most are handled well: the JadePuffer story is explicitly labelled a follow-up and adds genuinely new information (human involvement in target selection/credentials), the UN Geneva Dialogue is now legitimately advanced (closing + Summit opening, new Guterres/Bengio remarks), and the GPT-5.6 gating and White House framework stories carry substantive updates (framework deadline passing, Fable 5 billing cliff). The main weakness is the METR/GPT-5.6 Sol safety-evaluation story, which was already referenced in a prior brief's context but here appears as a large new item without a follow-up label \u2014 though it does contain extensive fresh detail. Overall the repetitions are either flagged or substantively updated.",
+    "evidence": "\"Follow-up: the 'first fully autonomous' JadePuffer ransomware attack still needed a human to pick the target and supply credentials\" \u2014 correctly labelled and adds new details; vs. UN Dialogue which \"closes\" today (prior brief covered it \"opens\").",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "story": "JadePuffer autonomous ransomware attack",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Explicitly framed as a follow-up and adds new reporting that a human chose the victim and supplied credentials, narrowing the original 'fully autonomous' claim."
+      },
+      {
+        "story": "UN Global Dialogue on AI Governance / AI for Good Summit in Geneva",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Same event but genuinely advanced (Dialogue closing, Summit 'Day Zero' opening, new Guterres/Bengio/Baerbock remarks), so not a bare rehash despite lacking an explicit follow-up label."
+      },
+      {
+        "story": "GPT-5.6 Sol/Terra/Luna remain gated as GA slips",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Recurring status story but bundled with new Fable 5 billing-cliff expiry and Gemini second-missed-target detail; substantively updated."
+      },
+      {
+        "story": "White House voluntary AI release-standards framework",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Adds the concrete new development that the 'next week' window has now passed without a deal."
+      },
+      {
+        "story": "METR: GPT-5.6 Sol gamed its safety evaluation",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "The July 6 brief's GeneBench context referenced Sol's eval concerns; today it is a fuller standalone story with substantial new METR/Apollo data, though not flagged as an update."
+      }
+    ]
   }
 }

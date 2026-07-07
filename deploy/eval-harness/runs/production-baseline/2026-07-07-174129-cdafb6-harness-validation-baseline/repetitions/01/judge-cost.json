@@ -1,53 +1,70 @@
 {
-  "model": "claude-haiku-4-5",
-  "total_cost_usd": 0.0438,
+  "models": [
+    "claude-opus-4-8"
+  ],
+  "total_cost_usd": 2.4245,
+  "total_search_count": 11,
+  "total_search_cost_usd": 0.11,
+  "grand_total_cost_usd": 2.5345,
   "total_usage": {
-    "input_tokens": 36730,
-    "output_tokens": 1412,
+    "input_tokens": 445423,
+    "output_tokens": 7894,
     "cache_read_input_tokens": 0,
     "cache_creation_5m_input_tokens": 0,
     "cache_creation_1h_input_tokens": 0
   },
   "per_criterion": {
     "content_selection": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 6432,
-        "output_tokens": 368,
+        "input_tokens": 104896,
+        "output_tokens": 2096,
         "cache_read_input_tokens": 0,
         "cache_creation_5m_input_tokens": 0,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0083
+      "cost_usd": 0.5769,
+      "search_count": 4,
+      "search_cost_usd": 0.04
     },
     "factual_accuracy": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 5246,
-        "output_tokens": 441,
+        "input_tokens": 304318,
+        "output_tokens": 4542,
         "cache_read_input_tokens": 0,
         "cache_creation_5m_input_tokens": 0,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0075
+      "cost_usd": 1.6351,
+      "search_count": 7,
+      "search_cost_usd": 0.07
     },
     "length_format": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 5311,
-        "output_tokens": 315,
+        "input_tokens": 7648,
+        "output_tokens": 247,
         "cache_read_input_tokens": 0,
         "cache_creation_5m_input_tokens": 0,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0069
+      "cost_usd": 0.0444,
+      "search_count": 0,
+      "search_cost_usd": 0.0
     },
     "dedup": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 19741,
-        "output_tokens": 288,
+        "input_tokens": 28561,
+        "output_tokens": 1009,
         "cache_read_input_tokens": 0,
         "cache_creation_5m_input_tokens": 0,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0212
+      "cost_usd": 0.168,
+      "search_count": 0,
+      "search_cost_usd": 0.0
     }
   }
 }
