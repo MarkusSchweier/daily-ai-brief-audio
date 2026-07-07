@@ -2,9 +2,24 @@
 
 The current active PRD for this project:
 
-@agent-system-redesign.md
+@cost-optimization-candidates.md
 
 ---
+
+Status: **ACTIVE — agent cost-optimization epic (2026-07-07).** A **combined A/B/C epic** (owner
+decision): **A** re-integrate the eval harness with the new candidate mechanism, **B** configure &
+deploy the candidate set, **C** run the comparison & decide the future production set-up. Sequenced
+**B → A → C**. **B (candidate declarations) is BUILT** on branch `feat/cost-optimization-candidates`
+(`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure`; `production-baseline` pre-exists)
+— all content-generation only, delivery-free, **no TTS in evals**. **A is developed next in the main
+Claude Code thread** (with production-system / delivery-cut-over context); **C** follows. Full plan,
+final candidate set (incl. the aggressive-#3 split and the #5/#6 backburner), A UI requirements, and
+the decisions/flags log (no-TTS, branch topology, the multi-agent-execution A-verification item) live
+in `cost-optimization-candidates.md`, imported above.
+
+---
+
+### Previous epic — agent-system-redesign (SHIPPED; delivery decoupling live, PRs #31/#32 merged)
 
 Status: **BUILD COMPLETE — all phases shipped + Phase 6 validated (AC-1…AC-14 all PASS); PR opened for
 the owner's review on `feat/agent-system-redesign`. NOT merged (main stays owner-gated).** The

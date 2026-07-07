@@ -1,107 +1,210 @@
-# PRD: Cost-optimization candidate set for the daily AI brief pipeline
+# PRD: Agent cost optimization — eval-harness re-integration + candidate comparison
 
-- Status: **Documented, deferred.** This epic's scope is captured now so the candidate list
-  survives between sessions, but it is **not** being built next. Epic 2 (`agent-system-redesign.md`,
-  not yet written) — decoupling content generation from AWS delivery and redesigning how agent
-  systems are versioned/deployed — is being built first, since it changes the very mechanism this
-  epic would use to build and evaluate candidates. Building this epic against the current
-  architecture would mean rebuilding it again once epic 2 lands.
-- Author: product-manager (Claude), drafted directly in conversation with the owner — Date: 2026-07-05
-- Source: follow-on from the eval-harness epic (shipped, merged). That epic built the
-  *measurement infrastructure*; this epic is *what gets measured* — the actual candidate pipeline
-  configurations to compare once evaluation is possible again (post-redesign).
+- Status: **ACTIVE (2026-07-07).** The blocking dependency (Epic 2, `agent-system-redesign.md`)
+  **shipped and merged**, so this epic is now being built as **one combined epic** (owner decision
+  2026-07-07) with three steps: **A** re-integrate the eval harness with the new candidate
+  mechanism, **B** configure & deploy the candidate set, **C** run the comparison and decide the
+  future production set-up. Sequenced **B → A → C** (owner decision): B's candidate declarations are
+  built first because they de-risk A's design (they surface exactly what the harness must support).
+  **B's candidate declarations are BUILT** on branch `feat/cost-optimization-candidates` (see §3);
+  **A is developed next in the main Claude Code thread** (with production-system context); **C**
+  follows.
+- Author: product-manager (Claude), in conversation with the owner — Date: 2026-07-05, **substantially
+  updated 2026-07-07** (epic activated, combined A/B/C, candidate set finalized, A requirements added).
+- Source: follow-on from the eval-harness epic (shipped) — that epic built the *measurement
+  infrastructure*; this epic is *what gets measured* plus *re-wiring the measurement to the new
+  candidate mechanism the redesign produced*.
 
 ## 1. Problem
 
 The daily brief pipeline costs ~$2.60–2.65/run in Claude Sonnet 5 usage (real transcript-mined
-analysis, see the eval-harness epic's origin), dominated by cache-read tokens, with the
-post-research writing/delivery phase costing *more* than research (~4.2M vs ~1.2M cache-read
-tokens in the original analysis) because every subsequent turn in one long agentic session
-re-sends the accumulated research context. The owner wants to explore whether a cheaper
-configuration — a different model, a different session/task structure, or a different
-architecture entirely — can hold quality roughly constant while cutting cost.
+analysis), dominated by cache-read tokens, with the **post-research writing phase costing *more*
+than research** (~4.2M vs ~1.2M cache-read tokens) because every subsequent turn in one long
+agentic session re-sends the accumulated research context. The owner wants to find a cheaper
+configuration — a different model, a different session/task structure, or a different architecture —
+that holds quality roughly constant while cutting cost.
 
-This PRD does not decide which candidate is best. It exists so the candidate list itself —
-contributed by both the owner and Claude during a 2026-07-05 discussion — is a durable,
-git-tracked artifact, not something reconstructed from a chat transcript later.
+The redesign (Epic 2) delivered the *mechanism* to declare/deploy/run candidates cheaply
+(`deploy/candidates/`, cloud, artifact retrieval via Claude-Platform APIs) — but it deliberately did
+**not** re-wire the existing `deploy/eval/` harness to that mechanism. The harness's trigger still
+fires at a hardcoded `PRODUCTION_AGENT_ID`/`PRODUCTION_ENVIRONMENT_ID` and has **no** awareness of
+`deploy/candidates/`. So today you can *run* a candidate and read its cost, but you cannot
+systematically *judge quality-vs-cost* across candidates. This epic closes that gap and then uses it.
 
-## 2. Candidate set
+## 2. Epic structure — A / B / C
 
-Each candidate is a distinct pipeline **configuration** to be run through the eval harness (once
-epic 2's redesign makes that possible again) and compared against the others on the harness's v1
-criteria (content selection, factual accuracy, length/format, dedup) and full cost breakdown.
+- **A — Re-integrate the eval harness with the new candidate mechanism.** Five seams (§4). Delivered
+  with a UI (§4.1) for defining/triggering eval runs and assessing/comparing them. Built next, in the
+  main thread.
+- **B — Configure & deploy the candidate set.** The declarations in `deploy/candidates/` + syncing
+  them to real Platform `agent_id`s. Declarations **built** (§3); **sync/deploy pending owner review**.
+- **C — Run & decide.** Run the candidates through A, compare on quality + cost, and decide the future
+  production set-up (which may or may not trigger a production cut-over — a separate, owner-gated
+  decision).
 
-### Owner-contributed candidates
+## 3. B — Candidate set (BUILT as declarations; not yet synced)
 
-1. **Baseline — keep as-is.** The current single-agent, Sonnet 5, one-long-session design.
-   Always the reference point every other candidate is compared against.
-2. **Same single-agent structure, Haiku 4.5 backing model.** Simplest possible lever: swap the
-   model, change nothing else. Cheapest to try, highest risk to quality/judgment (research
-   source selection, hallucination avoidance) since Haiku is a materially less capable model on
-   exactly the tasks this pipeline leans on most.
-3. **Multi-agent, split by phase, model-per-task.** Decompose into: orchestration, research +
-   content selection, story writing, final Markdown review, HTML conversion, listening-script
-   generation, and triggering delivery — each phase gets the model appropriate to its judgment
-   requirements (e.g., Sonnet for research/selection/writing, a cheaper model for mechanical
-   conversion steps). The most structurally different candidate; also the one most directly
-   enabled by epic 2's multi-agent support.
+Each candidate is a git-tracked declaration under `deploy/candidates/<slug>/` (per-dimension files;
+multi-agent adds `multiagent.json`). All are **content-generation only**: they hold **no** AWS/delivery
+role (FR-1), never fan out to subscribers, and **never synthesize audio** (no TTS in evals — owner-
+confirmed 2026-07-06, reaffirmed 2026-07-07). Each candidate's only delivery-side contact is the
+read-only `GET /recent-briefs` route; **every eval run always fetches recent priors** (owner
+requirement) exactly as production does, via that route (Step 0 of each task prompt).
 
-### Claude-contributed candidates
+**Design principle (owner requirement 2026-07-07):** for the decomposition candidates, the
+`daily-ai-brief` skill is **unchanged** and every sub-agent references it, scoped by a thin task-prompt
+to a slice of the skill's own numbered Daily workflow. Prompt **wording is preserved verbatim** from
+the baseline wherever possible, so a comparison contrasts *structure/model*, never reworded prompts.
 
-4. **Same model throughout, but restructure the session instead of the model.** Break the one
-   long agentic session into phases that don't each replay the full accumulated history (e.g.,
-   research writes findings to a file; a fresh turn/session picks up a digest, not the whole
-   transcript). Isolates "did splitting the session help" from "did a cheaper model help" — the
-   root cause identified in the original cost analysis (repeated full-context replay) is
-   structural, not model-dependent, so this candidate tests whether fixing the structure alone
-   recovers most of the savings without touching quality-sensitive model choice at all.
-5. **Hybrid model split (a more conservative version of #3).** Keep Sonnet for research,
-   selection, and writing — where judgment and hallucination risk matter most — and use Haiku
-   only for the narrow, mechanical, low-risk subtasks: HTML conversion, listening-script rewrite.
-   A middle ground between "all Sonnet" (#1) and "fully decomposed, model-per-task" (#3).
-6. **Pull mechanical subtasks out of the agentic session entirely**, into direct, stateless
-   Messages API calls (no tool use, no accumulated context) rather than more turns in the same
-   session — HTML conversion and listening-script generation don't need an agent, just one
-   prompt in, one output out. This eliminates their share of the cache-replay problem rather
-   than just cheapening it. Since the PRD for the original migration already established that
-   latency doesn't matter for this unattended overnight batch job, these calls could also go
-   through the Message Batches API for an additional discount, stacked with prompt caching.
-7. **Effort / thinking-budget as its own axis**, crossed with any of the above — e.g. capping or
-   disabling extended-thinking budget for the low-judgment subtasks, independent of which model
-   runs them. Not a standalone candidate so much as a parameter every other candidate should be
-   swept over once the harness can vary it.
+| # | Slug | Structure | Models | Isolates | Built |
+|---|------|-----------|--------|----------|-------|
+| 1 | `production-baseline` | single agent, skill end-to-end | Sonnet | reference point | pre-existing (Epic 2 Phase 5) |
+| 2 | `haiku-swap` | single agent, skill end-to-end | **all Haiku** | pure model swap, no structure change | ✅ |
+| 3 | `multiagent-aggressive-haiku` | coordinator + 4 sub-agents | Sonnet coord+**selection**; **Haiku** research+writing+listening-script | how far Haiku goes with Sonnet only where editorial judgment lives | ✅ |
+| 4 | `session-restructure` | coordinator + 4 sub-agents (**byte-identical prompts to #3**) | **all Sonnet** | does structural decomposition *alone* (no full-context replay) cut cost? | ✅ |
 
-### Related, complementary, but explicitly out of scope for this epic
+**#3 model split (made aggressive per owner direction 2026-07-07):** Sonnet retained **only** for
+coordination and editorial **selection** (skill steps 4–5, where source/dedup judgment and
+hallucination risk concentrate); **Haiku** does gathering (steps 1–3), the token-heavy writing (steps
+6–7, the biggest cost phase), and the mechanical listening-script rewrite. The **factual-accuracy
+judge is the make-or-break metric** for #3 (Haiku-on-research concentrates fabrication risk; Sonnet-
+selection is an imperfect safety net that vets what Haiku gathered). #3 is bracketed by #2 (100% Haiku)
+and #4 (0% Haiku, same structure) so a regression is attributable.
 
-- **Source-list trimming** (tracked separately as GitHub issue #28): pruning `sources.md` entries
-  that are never featured in a real generated brief, to cut research-phase input volume. Orthogonal
-  to which candidate above is chosen — applies underneath any of them.
+**#4** realizes the doc's original "session restructuring" idea: multi-agent **is** the mechanism —
+each sub-agent is a fresh context that picks up only its predecessor's `/workspace` output file, not
+the whole transcript. It is #3 with every sub-agent forced to Sonnet, so **#3-vs-#4 isolates the Haiku
+lever** and **#4-vs-baseline isolates the decomposition structure**.
 
-## 3. Non-goals
+**#7 (thinking-budget)** is not a standalone candidate — it is a `parameters.json` sweep applied across
+the above, added once the bases are locked.
 
-- **No candidate is built, deployed, or evaluated in this epic.** This document exists to capture
-  the candidate list, not to run it.
-- **No decision about which candidate is "best."** That is the eval harness's job, once epic 2
-  makes running these candidates possible again.
-- **No re-litigation of the eval harness's v1 criteria set** (content selection, factual accuracy,
-  length/format, dedup) — those are inherited as-is from the eval-harness epic.
+### Backburnered (owner decision 2026-07-07) — recorded, not built
 
-## 4. Dependencies
+- **#5 "hybrid split" (Haiku listening-script only, kept in-session).** LOW potential: it changes only
+  the *model* of one small end-of-run step while still paying the in-session context-replay cost, and
+  is strictly dominated by #3 (which already runs the listening-script on Haiku in a decomposed,
+  no-replay way). Not worth the multi-agent complexity.
+- **#6 "pull mechanical subtasks into stateless Messages/Batches calls."** LOW potential *now*:
+  candidate **#4's full decomposition already eliminates the per-step context replay** its thesis
+  targets (the listening-script sub-agent starts fresh with just the brief). #6's only marginal gain
+  over that is the Batches 50% discount on one small call, at the cost of out-of-agent pipeline
+  plumbing. **Latent value:** it is the proof-of-concept for the pattern *"move mechanical work out of
+  the agent entirely into cheap Batches"* — revisit as a fast-follow **if** #3/#4 results show the
+  mechanical steps still cost meaningfully.
 
-- **Epic 2 (agent-system redesign)**, not yet written as a PRD: decouples content generation from
-  AWS delivery and redesigns how candidate agent systems are versioned, deployed, and run against
-  the eval harness. This epic's candidates are the first real thing epic 2's new mechanism needs
-  to support — multi-agent (candidate #3), model-per-task (#3, #5), and session/context
-  restructuring (#4) all need to be expressible in whatever versioned-candidate format epic 2
-  introduces.
-- **The eval harness** (`deploy/eval/`, shipped): will need re-integration once epic 2 changes how
-  candidate configurations are triggered — explicitly flagged as a known follow-up, not addressed
-  here (see the owner's own framing: "we'll likely re-design the deployment of the production
-  agent on Claude platform, which will require a re-design of the evals later").
+### Finding that reshaped the set (2026-07-07)
 
-## 5. Rollout
+The original candidate list (2026-07-05) predated the redesign making HTML deterministic. Candidates
+#3/#5/#6 all listed **"HTML conversion"** as an LLM subtask to split off or cheapen — but HTML is now
+`deploy/delivery/functions/deliver/delivery_core.py::derive_html()`, **zero-LLM**. That lever is
+**void**; the only genuine "mechanical subtask" left is the listening-script, which is why #3/#4 keep
+it as one Haiku/Sonnet sub-agent and #5/#6 lost most of their reason to exist.
 
-Not applicable yet — this epic starts once epic 2 ships and the eval harness is re-integrated
-against its new candidate-deployment mechanism. At that point: build each candidate above in
-epic 2's format, run 3 replicates of each through the eval harness against the same frozen
-research (where applicable), and compare on the harness's comparison/leaderboard view (FR-24).
+## 4. A — Eval-harness re-integration (built next, in the main thread)
+
+Re-wire `deploy/eval/` to target arbitrary candidates from `deploy/candidates/` and judge their
+Claude-Platform-retrieved artifacts. Five seams:
+
+1. **Trigger targeting** — `functions/trigger/handler.py` must resolve a **named candidate** (its real
+   `agent_id` + the shared `cloud` environment) instead of the hardcoded
+   `PRODUCTION_AGENT_ID`/`PRODUCTION_ENVIRONMENT_ID`; the candidate id must actually drive what runs.
+2. **Artifact retrieval** — replace the S3 poll path with the redesign's **Sessions-events-API**
+   retrieval (already in `candidate_sync/trigger.py`); candidates are delivery-free (no S3). Biggest
+   rewrite; also a **consolidation** opportunity (one retrieval path).
+3. **Record schema** (`eval_core/record.py`) — store real candidate identity (slug + `agent_id` + git
+   ref) + retrieved artifacts, not a bare label.
+4. **Judges + cost-miner** — point the 4 judges at the new artifact source; cost from Sessions-events
+   token data.
+5. **Review/comparison UI** (§4.1).
+
+### 4.1 UI requirements (owner, 2026-07-07)
+
+**Conducting eval runs** — from the UI you can define and trigger an eval run, configuring:
+- **Select the agent**: a candidate **or** production; single-agent **or** multi-agent.
+- **A name** for the eval run.
+- **Number of repetitions.**
+- **Whether an eval email is sent to `mail@mschweier.com`** for the run, **or not**. *(Owner decision
+  2026-07-07: exclude TTS/Polly from evals — so the eval email, when enabled, is **HTML-only, no
+  audio**. Architecturally this is the delivery boundary's `POST /deliver` invoked in **owner-only
+  mode** (subscriber fan-out OFF) — which unlocks `POST /deliver` for eval use. **Invariant: an eval
+  run NEVER fans out to subscribers.**)*
+- **Which eval criteria** the judges test against (a **subset** — no need to test all every run).
+- **Trigger** the run.
+- **Run states:** `configured`, `running`, `completed`, `failed`.
+
+**Assessing eval runs** — a one-page overview listing/comparing all eval runs in a table:
+- Columns: eval-run **name**, **model**, **thinking parameters**, **agent vs multi-agent**, **# of
+  repetitions**.
+- Runs conducted with the **current production configuration are marked** as such.
+- The **full set of criteria** is shown as columns (blank for criteria a run didn't test), plus the
+  **cost** of the run.
+- The **human eval** for the run is shown if applicable.
+
+**Deep dive into an eval run** — clicking a run opens a detail page where you can:
+- explore individual **repetitions**;
+- see the **candidate configuration**, including the **prompts for the main and sub-agents**;
+- **render the MD or HTML** of the brief.
+
+## 5. C — Run & decide
+
+Run the candidates through A (replicates each; judge on the selected criteria + cost), compare on the
+comparison table, and **decide the future production set-up**. A decision to move production onto a
+cheaper candidate is a **separate, owner-gated cut-over** (mirrors the delivery-decoupling cut-over
+discipline) — not automatic from a good eval result.
+
+## 6. Key decisions, flags & open items
+
+- **[DECIDED] Combined A/B/C epic**, sequenced **B → A → C** (owner, 2026-07-07).
+- **[DECIDED] No TTS/Polly in evals** (owner, reaffirmed 2026-07-07). Eval email, when enabled, is
+  HTML-only to the owner via `POST /deliver` owner-only mode. Evals never touch Polly and never fan out
+  to subscribers.
+- **[DECIDED] Aggressive #3** (Haiku on research+write+script; Sonnet only coord+select) and
+  **backburner #5/#6** (owner, 2026-07-07 — rationale in §3).
+- **[FLAG — A-verification item] Multi-agent execution semantics.** The candidate *declarations*
+  (models, structure, which skill-steps each sub-agent runs) are final, but **how** the coordinator
+  delegates and **whether sub-agents share the `/workspace` working folder** for artifact passing is
+  **not yet confirmed on the Platform**. A must verify this end-to-end; it may refine the sub-agent
+  *delegation* wording (not the structure/models). If sub-agents do **not** share `/workspace`, A must
+  adapt the coordinator to pass artifacts through the delegation messages.
+- **[BRANCH TOPOLOGY]** B is built on `feat/cost-optimization-candidates`, branched off `origin/main`
+  (which has the delivery-**decoupling** work, PR #33, but **not** the later production-delivery-
+  **cut-over** branch). A is to be developed in the main thread, which carries the cut-over context.
+  Whoever integrates must reconcile these branches.
+- **[NOT DONE] B deploy (sync).** The declarations are written but **not synced** to the Platform
+  (no real `agent_id`s minted yet) — pending owner review of the declarations.
+
+## 7. Non-goals
+
+- **No production cut-over in this epic.** Choosing a cheaper config for production is a separate,
+  owner-gated decision after C.
+- **No change to the `daily-ai-brief` skill content.** Decomposition candidates reference the
+  unchanged skill, scoped by prompt (preserves the wording-contrast discipline).
+- **No re-litigation of the eval v1 criteria** (content selection, factual accuracy, length/format,
+  dedup) beyond letting a run test a **subset** of them.
+- **Source-list trimming** (GitHub issue #28) stays separate/orthogonal (applies under any candidate).
+
+## 8. Dependencies
+
+- **Epic 2 (agent-system-redesign) — SHIPPED/merged.** Delivered `deploy/candidates/` (declarations +
+  `sync.py`/`trigger.py`), the shared `cloud` environment, and `GET /recent-briefs`. Its native
+  update-in-place agent versioning (one stable `agent_id` per candidate) is what B's declarations sync
+  into.
+- **`deploy/eval/` (shipped).** A re-wires it (§4). Its fail-closed `ENABLE_SUBSCRIBER_FANOUT` gate
+  remains the correct guard for the **production** delivery path; eval runs use `POST /deliver`
+  owner-only.
+- **`deploy/delivery/` (live).** `GET /recent-briefs` used by every eval run; `POST /deliver` (owner-
+  only) is what an "email this eval to me" run invokes. `POST /deliver`'s bearer secret is currently
+  undistributed — A must arrange eval-side access without granting subscriber fan-out.
+
+## 9. Rollout / status
+
+- **B (declarations): DONE** — `haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure` built
+  and loader-validated on `feat/cost-optimization-candidates`; `production-baseline` pre-exists.
+  **Pending:** owner review → sync/deploy (mint `agent_id`s) → `#7` parameter-sweep variants.
+- **A (eval re-integration): NEXT** — in the main thread (§4 + §4.1).
+- **C (run & decide): after A** — run replicates, compare, decide future production set-up (§5).
+- **Success metric:** the owner can trigger an eval of any candidate from the UI, compare candidates on
+  quality + cost in one table, and make an evidence-based call on a cheaper production config — with
+  zero risk to the live daily send at any point (evals are content-only, delivery-free except an
+  optional owner-only HTML email).
