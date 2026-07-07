@@ -40,7 +40,6 @@ never includes it in any log line, template, or response.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 import subprocess
