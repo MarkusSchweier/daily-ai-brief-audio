@@ -12,6 +12,7 @@
           <th>Name</th>
           <th>State</th>
           <th>Model(s)</th>
+          <th>Thinking params</th>
           <th>Agent / Multi-agent</th>
           <th>Repetitions</th>
           <th>Production config</th>
@@ -28,6 +29,7 @@
             <td><a href="{{ url_for('run_detail', slug=row.slug, eval_run_id=row.eval_run_id) }}">{{ row.name }}</a></td>
             <td><span class="state state-{{ row.state }}">{{ row.state }}</span></td>
             <td>{{ row.models | join(", ") }}</td>
+            <td>{{ row.parameters_display }}</td>
             <td>{{ row.composition }}</td>
             <td>{{ row.repetitions }}</td>
             <td>{% if row.is_production_config %}yes{% else %}—{% endif %}</td>

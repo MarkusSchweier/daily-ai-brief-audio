@@ -157,6 +157,28 @@ def test_trigger_launches_a_subprocess_and_redirects_to_the_run_detail_page(clie
     assert captured["env"]["ANTHROPIC_API_KEY"] == "sk-ant-fake"
 
 
+def test_format_parameters_renders_a_dash_when_everything_is_empty():
+    assert ui_app._format_parameters({"agent": {}, "sub_agents": []}) == "—"
+
+
+def test_format_parameters_renders_the_agents_own_effort_setting():
+    display = ui_app._format_parameters({"agent": {"effort": "high"}, "sub_agents": []})
+    assert display == "effort=high"
+
+
+def test_format_parameters_includes_named_sub_agent_parameters():
+    display = ui_app._format_parameters(
+        {
+            "agent": {},
+            "sub_agents": [
+                {"name": "research-sub-agent", "model": "claude-haiku-4-5-20251001", "parameters": {"effort": "low"}},
+                {"name": "selection-sub-agent", "model": "claude-sonnet-5", "parameters": {}},
+            ],
+        }
+    )
+    assert display == "research-sub-agent: effort=low"
+
+
 def test_render_markdown_converts_headings_and_returns_empty_string_for_none():
     html = ui_app.render_markdown("# Title\n\nBody text.")
     assert "<h1>Title</h1>" in html

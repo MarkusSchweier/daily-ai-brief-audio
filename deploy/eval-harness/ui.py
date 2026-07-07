@@ -101,6 +101,24 @@ def list_candidate_options(*, candidates_dir: Path | None = None) -> list[dict[s
 # --- Assess page ------------------------------------------------------------------
 
 
+def _format_parameters(parameters: dict[str, Any]) -> str:
+    """Compact display string for `eval-run.json`'s `parameters` field (D4:
+    "model(s) + thinking/effort params") -- the Assess table's "thinking
+    parameters" column (PRD §4.1). `parameters` shape:
+    `{"agent": {...effort/thinking params...}, "sub_agents": [{"name", "model",
+    "parameters"}, ...]}` (see `run._declared_parameters()`)."""
+    parts: list[str] = []
+    agent_params = parameters.get("agent") or {}
+    if agent_params:
+        parts.append(", ".join(f"{k}={v}" for k, v in agent_params.items()))
+    for sub_agent in parameters.get("sub_agents") or []:
+        sub_params = sub_agent.get("parameters") or {}
+        if sub_params:
+            name = sub_agent.get("name", "?")
+            parts.append(name + ": " + ", ".join(f"{k}={v}" for k, v in sub_params.items()))
+    return " | ".join(parts) if parts else "—"
+
+
 def _load_run_row(run_dir: Path) -> dict[str, Any]:
     """One `runs/<slug>/<eval-run-id>/` directory's summary row for the Assess
     table -- PRD §4.1: name, model, thinking params, agent vs multi-agent,
@@ -130,6 +148,7 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         "name": meta.name,
         "models": meta.models,
         "parameters": meta.parameters,
+        "parameters_display": _format_parameters(meta.parameters),
         "composition": meta.composition,
         "repetitions": meta.repetitions,
         "is_production_config": meta.is_production_config,
