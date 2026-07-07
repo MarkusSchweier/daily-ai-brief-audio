@@ -146,6 +146,28 @@ python3 ui.py
 # -> http://127.0.0.1:5151 (binds to 127.0.0.1 explicitly; no auth, localhost-only)
 ```
 
+### Running it permanently (macOS LaunchAgent — owner's setup, 2026-07-07)
+
+The owner runs the UI as a login-persistent, auto-restarting launchd service so
+`http://127.0.0.1:5151` is always up on the operator Mac (localhost-only —
+deliberately NOT hosted publicly; the trigger endpoint spends real money and the
+records are written into this git working tree, per ADR-0016 D1/D5). The agent
+definition lives OUTSIDE the repo at
+`~/Library/LaunchAgents/com.mschweier.eval-harness-ui.plist` (ProgramArguments =
+this package's `.venv/bin/python ui.py`, `RunAtLoad` + `KeepAlive` on non-zero
+exit, logs to `~/Library/Logs/eval-harness-ui.log`). Manage it with:
+
+```bash
+launchctl bootout gui/$UID/com.mschweier.eval-harness-ui     # stop
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.mschweier.eval-harness-ui.plist  # start
+launchctl kickstart -k gui/$UID/com.mschweier.eval-harness-ui  # restart (e.g. after a ui.py change)
+tail -f ~/Library/Logs/eval-harness-ui.log                    # logs
+```
+
+Note the service serves whatever branch this working tree has checked out — the
+same live-repo semantics as the CLI. After pulling/switching branches, `kickstart -k`
+it so template/code changes take effect.
+
 - **Conduct** (`/conduct`) — pick a candidate (or the production-marked one),
   name the run, set repetitions, pick a criteria subset, and trigger. Triggering
   launches `run.py` as a **background subprocess** (a real run takes ~15 minutes;
