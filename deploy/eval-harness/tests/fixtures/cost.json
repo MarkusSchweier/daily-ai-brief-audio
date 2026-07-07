@@ -1,0 +1,82 @@
+{
+  "total_cost_usd": 2.317,
+  "all_sonnet_ref_usd": 2.8211,
+  "per_thread": [
+    {
+      "role": "coordinator",
+      "model": "sonnet-5",
+      "tokens": {
+        "inp": 49,
+        "out": 9249,
+        "c5": 121321,
+        "c1": 0,
+        "cr": 1032281
+      },
+      "cost_usd": 0.6023
+    },
+    {
+      "role": "research",
+      "model": "haiku-4-5",
+      "tokens": {
+        "inp": 62,
+        "out": 10724,
+        "c5": 208221,
+        "c1": 0,
+        "cr": 430518
+      },
+      "cost_usd": 0.357
+    },
+    {
+      "role": "selection",
+      "model": "sonnet-5",
+      "tokens": {
+        "inp": 22,
+        "out": 34871,
+        "c5": 254097,
+        "c1": 0,
+        "cr": 1132640
+      },
+      "cost_usd": 1.2105
+    },
+    {
+      "role": "writing",
+      "model": "haiku-4-5",
+      "tokens": {
+        "inp": 52,
+        "out": 8979,
+        "c5": 32124,
+        "c1": 0,
+        "cr": 178168
+      },
+      "cost_usd": 0.1029
+    },
+    {
+      "role": "listening-script",
+      "model": "haiku-4-5",
+      "tokens": {
+        "inp": 34,
+        "out": 2697,
+        "c5": 19564,
+        "c1": 0,
+        "cr": 62081
+      },
+      "cost_usd": 0.0442
+    }
+  ],
+  "aggregate_tokens": {
+    "inp": 219,
+    "out": 66520,
+    "c5": 635327,
+    "c1": 0,
+    "cr": 2835688
+  },
+  "session_usage": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 635327
+    },
+    "cache_read_input_tokens": 2835688,
+    "input_tokens": 219,
+    "output_tokens": 66520
+  }
+}
