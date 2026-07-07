@@ -147,7 +147,9 @@ def test_first_sync_multi_agent_creates_sub_agent_then_coordinator_and_writes_bo
     assert "multiagent" not in sub_agent_create_body
     assert coordinator_create_body["model"] == "claude-example-coordinator-model"
     assert coordinator_create_body["multiagent"]["type"] == "coordinator"
-    assert coordinator_create_body["multiagent"]["agents"][0]["entry"]["agent"] == "agent_SUB_NEW"
+    # Platform-confirmed roster shape: each agents[] item is DIRECTLY {"type":"agent","id":<id>}
+    # (no `entry` wrapper) -- platform.claude.com/docs/en/managed-agents/multi-agent.
+    assert coordinator_create_body["multiagent"]["agents"][0] == {"type": "agent", "id": "agent_SUB_NEW"}
 
     # The skill was pushed on the skills client, not the agents client.
     skill_push_calls = [c for c in skills_client.calls if c.path.startswith("/v1/skills/")]
@@ -748,7 +750,7 @@ def test_multi_agent_update_orders_sub_agent_before_coordinator(multi_agent_dir)
     # And the coordinator's update body re-pins its roster to reference the
     # (unchanged, in this test) sub-agent id -- the actual re-pinning mechanism.
     coordinator_update_body = agents_client.calls[3].kwargs["json"]
-    assert coordinator_update_body["multiagent"]["agents"][0]["entry"]["agent"] == "agent_SUB_SYNCED"
+    assert coordinator_update_body["multiagent"]["agents"][0] == {"type": "agent", "id": "agent_SUB_SYNCED"}
 
 
 def test_multi_agent_update_is_a_full_no_op_when_nothing_changed(multi_agent_dir):
@@ -918,7 +920,9 @@ def test_partial_failure_resumption_does_not_recreate_sub_agent(multi_agent_dir)
     coordinator_create_body = agents_client_retry.calls[0].kwargs["json"]
     # The coordinator's create body references the ORIGINAL sub-agent id, never a
     # second, freshly-minted one -- confirming no duplicate sub-agent was created.
-    assert coordinator_create_body["multiagent"]["agents"][0]["entry"]["agent"] == "agent_SUB_NEW"
+    # Platform-confirmed roster shape: each agents[] item is DIRECTLY {"type":"agent","id":<id>}
+    # (no `entry` wrapper) -- platform.claude.com/docs/en/managed-agents/multi-agent.
+    assert coordinator_create_body["multiagent"]["agents"][0] == {"type": "agent", "id": "agent_SUB_NEW"}
 
     updated_multiagent = json.loads((multi_agent_dir / "multiagent.json").read_text())
     assert updated_multiagent["agents"][0]["agent_id"] == "agent_SUB_NEW"  # unchanged, no rewrite needed
