@@ -255,6 +255,101 @@ def test_worker_invocation_marks_failed_on_exception_not_duplicate_skipped(deliv
     assert "error" in row
 
 
+class _FailingSesClient:
+    """Every send raises -- simulates a TOTAL SES outage. `send_all()` catches per-send,
+    so this yields sent_count=0 (nobody, not even the owner, received the brief)."""
+
+    def send_raw_email(self, **kwargs):
+        raise RuntimeError("simulated total SES outage")
+
+
+def _worker_event_with_key(delivery_id: str, key: str) -> dict:
+    event = _worker_event(delivery_id)
+    event["body"]["metadata"]["idempotency_key"] = key
+    return event
+
+
+def _seed_idempotent_delivery(table, delivery_id: str, key: str) -> None:
+    table.put_item(Item={"deliveryId": delivery_id, "status": "pending"})
+    table.put_item(Item={"deliveryId": f"idem#{key}", "mappedDeliveryId": delivery_id, "expiresAt": 9999999999})
+
+
+def test_total_send_failure_is_marked_failed_not_succeeded_and_releases_the_claim(delivery_table):
+    """MEDIUM-B + MEDIUM-A: if NOBODY received the brief (sent_count=0, a total SES
+    outage), the delivery is FAILED (never silently `succeeded`), AND its idempotency
+    claim is released so a same-day re-drive is possible -- safe because nobody got it,
+    so a re-drive cannot double-send."""
+    key = "2026-07-06"
+    delivery_id = "delivery-total-outage"
+    _seed_idempotent_delivery(delivery_table, delivery_id, key)
+
+    result = handler_module._handle_worker_invocation(
+        _worker_event_with_key(delivery_id, key),
+        table=delivery_table,
+        polly_client=_NoOpPollyClient(),
+        s3_client=_NoOpS3Client(),
+        ses_client=_FailingSesClient(),
+        dynamodb_client=_EmptyDynamoDBClient(),
+        secretsmanager_client=_NoOpSecretsManagerClient(),
+    )
+
+    assert result["status"] == "failed"
+    assert delivery_table.get_item(Key={"deliveryId": delivery_id})["Item"]["status"] == "failed"
+    # The idempotency claim is gone -> a retry re-claims fresh rather than replaying the
+    # dead delivery forever.
+    assert delivery_table.get_item(Key={"deliveryId": f"idem#{key}"}).get("Item") is None
+
+
+def test_pre_send_failure_also_releases_the_idempotency_claim(delivery_table, monkeypatch):
+    """The other raise path: derive_html failing (nothing sent) must likewise release
+    the claim so the run is re-drivable."""
+    key = "2026-07-07"
+    delivery_id = "delivery-derive-fail"
+    _seed_idempotent_delivery(delivery_table, delivery_id, key)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("derive boom")
+
+    monkeypatch.setattr(handler_module.delivery_core, "derive_html", _boom)
+
+    result = handler_module._handle_worker_invocation(
+        _worker_event_with_key(delivery_id, key),
+        table=delivery_table,
+        polly_client=_NoOpPollyClient(),
+        s3_client=_NoOpS3Client(),
+        ses_client=_CountingSesClient(),
+        dynamodb_client=_EmptyDynamoDBClient(),
+        secretsmanager_client=_NoOpSecretsManagerClient(),
+    )
+
+    assert result["status"] == "failed"
+    assert delivery_table.get_item(Key={"deliveryId": f"idem#{key}"}).get("Item") is None
+
+
+def test_partial_send_still_succeeds_and_does_not_release_the_claim(delivery_table):
+    """The safety counterpart: when the owner send SUCCEEDS (sent_count>=1), the run is
+    NOT a total failure even if some subscriber send failed, so it stays `succeeded` and
+    the idempotency claim is RETAINED -- a re-drive of a partial send would double-send
+    to those who already got it."""
+    key = "2026-07-08"
+    delivery_id = "delivery-partial"
+    _seed_idempotent_delivery(delivery_table, delivery_id, key)
+
+    result = handler_module._handle_worker_invocation(
+        _worker_event_with_key(delivery_id, key),
+        table=delivery_table,
+        polly_client=_NoOpPollyClient(),
+        s3_client=_NoOpS3Client(),
+        ses_client=_CountingSesClient(),  # owner send succeeds -> sent_count>=1
+        dynamodb_client=_EmptyDynamoDBClient(),
+        secretsmanager_client=_NoOpSecretsManagerClient(),
+    )
+
+    assert result["status"] == "succeeded"
+    # Claim retained (not released) -> a duplicate trigger still dedupes, no double-send.
+    assert delivery_table.get_item(Key={"deliveryId": f"idem#{key}"}).get("Item") is not None
+
+
 def test_run_delivery_archives_all_four_artifacts_from_the_request_body(delivery_table, briefs_bucket):
     """ADR-0015 D2 wiring: the worker leg archives candidates.json and
     source-usage.json from the REQUEST BODY (not this Lambda's empty local

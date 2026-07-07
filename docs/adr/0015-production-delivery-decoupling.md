@@ -112,13 +112,22 @@ No new delivery grants are minted anywhere — the delivery Lambda already holds
 `ses:FromAddress: aibriefing@mschweier.com`; DynamoDB `Query` on the `status-index` GSI). D1's strip
 of `MicroVmExecutionRole` is the only IAM change. **No new static access key** is created.
 
-### D6 — Secret provisioning for the two tokens the MicroVM now needs
+### D6 — Secret provisioning for the two secrets the MicroVM now needs
 The MicroVM run needs two secrets it does not hold today: the **`POST /deliver` send bearer** and the
-**`GET /recent-briefs` read token** signing key. Both are provided the same way the Anthropic
-environment key already is — a Secrets Manager secret read by the launcher and injected into the run
-environment — created empty in CDK and **populated out-of-band** (no secret in git). The read token
-is short-lived and minted per-run (the existing `recent_briefs_token` scheme); the send bearer is the
-delivery stack's existing `delivery_auth` secret, now also distributed to production.
+**`GET /recent-briefs` signing key**. **AMENDED 2026-07-07 (owner decision) — Option B, "the MicroVM
+reads the secrets itself," chosen over the original launcher-injection design.** The `MicroVmExecutionRole`
+gets **two ARN-scoped Secrets Manager read grants** (delivery bearer + recent-briefs signing key) —
+exactly like it already reads the environment-key secret — and `delivery_client.py` reads the bearer
+and **mints the short-lived (20 min) recent-briefs token itself** (`recent_briefs_token`, hand-duplicated
+into the pipeline, with a test proving sign/verify compatibility with the endpoint's copy). This was
+preferred over having the **launcher** read the values and inject them into the run payload, because it
+(a) requires **no change to the live launcher**, (b) keeps the launcher's existing "forward only secret
+*references*, never *values*" credential boundary intact (`payload.py`'s `_FORBIDDEN_KEYS` guard), and
+(c) puts **no secret value in the run payload** (removing the payload-logging risk the security review's
+MEDIUM-2b flagged). FR-1 holds identically either way — the two grants are auth-token reads, not delivery
+capability (no Polly/S3/SES/DynamoDB). Secrets stay **populated out-of-band** (no secret in git). The
+grants are added **always**; the D1 delivery-capability strip is separately gated by the
+`deliveryDecoupled` CDK context flag.
 
 ### D7 — Idempotency across a caller retry (new; the current guard is insufficient alone)
 The live idempotency guard (`_claim_delivery`, a conditional `UpdateItem`) dedupes the **async

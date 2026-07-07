@@ -401,89 +401,115 @@ class ManagedAgentSandboxStack(Stack):
             )
         )
 
-        # -- Pipeline permissions, verbatim from deploy/iam-policy.json ------------------
-        # Sid "PollySynthesis" (unchanged, Resource "*" — Polly synthesis tasks have no
-        # resource-level ARN to scope to; identical to the live cowork-polly-tts policy).
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="PollySynthesis",
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "polly:StartSpeechSynthesisTask",
-                    "polly:GetSpeechSynthesisTask",
-                    "polly:ListSpeechSynthesisTasks",
-                    "polly:SynthesizeSpeech",
-                ],
-                resources=["*"],
-            )
-        )
-
-        # Sid "S3AudioReadWrite" (unchanged) plus the ADR-0005 s3:ListBucket addition,
-        # prefix-scoped to `briefs/*` (the only new grant ADR-0005 requires; "yesterday's
-        # brief" listing is a bucket-level action, not covered by object-level rw).
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="S3AudioReadWrite",
-                effect=iam.Effect.ALLOW,
-                actions=["s3:PutObject", "s3:GetObject"],
-                resources=[f"arn:{self.partition}:s3:::{PIPELINE_BUCKET_NAME}/*"],
-            )
-        )
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="S3ListBriefsPrefix",
-                effect=iam.Effect.ALLOW,
-                actions=["s3:ListBucket"],
-                resources=[f"arn:{self.partition}:s3:::{PIPELINE_BUCKET_NAME}"],
-                conditions={"StringLike": {"s3:prefix": ["briefs/*"]}},
-            )
-        )
-
-        # SES send, gated by ses:FromAddress — mirrors deploy/iam-policy.json's
-        # "SesSendFromMschweier" Sid exactly: one sender, aibriefing@mschweier.com, used
-        # for both the owner's copy and the subscriber fan-out (CLAUDE.md: "SES From must
-        # be exactly aibriefing@mschweier.com"). mail@mschweier.com is never a From
-        # address, so it is deliberately not granted here.
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="SesSendFromMschweier",
-                effect=iam.Effect.ALLOW,
-                actions=["ses:SendEmail", "ses:SendRawEmail"],
-                resources=["*"],
-                conditions={"StringEquals": {"ses:FromAddress": SENDER}},
-            )
-        )
-
-        # Sid "DynamoDBSubscribersQuery" (unchanged) — Query only, on the status-index GSI.
-        role.add_to_policy(
-            iam.PolicyStatement(
-                sid="DynamoDBSubscribersQuery",
-                effect=iam.Effect.ALLOW,
-                actions=["dynamodb:Query"],
-                resources=[
-                    SUBSCRIBERS_TABLE_STATUS_INDEX_ARN_TEMPLATE.format(
-                        region=self.region, account=self.account
-                    )
-                ],
-            )
-        )
-
-        # Sid "ReadFeedbackTokenSecret" — optional, backward-compatible (PRD
-        # docs/prd/reader-feedback.md, ADR-0011/ADR-0012 §B): only added when the
-        # feedback stack's secret ARN has been supplied via the `feedbackTokenSecretArn`
-        # context value (this stack takes no build-time dependency on the feedback
-        # stack's own synthesis, matching ADR-0012's "independent deploy lifecycles"
-        # decision -- the ARN is a plain string, not a CDK cross-stack import). Scoped to
-        # exactly that one secret ARN, same shape as ReadEnvironmentKey above.
-        if self.feedback_token_secret_arn:
+        # -- Delivery-decoupling (ADR-0015 D6, Option B) — ALWAYS granted ----------------
+        # The decoupled delivery_client.py reads the POST /deliver bearer + the
+        # recent-briefs signing key from Secrets Manager itself (via THIS role, exactly
+        # like ReadEnvironmentKey above), rather than the launcher injecting their values
+        # into the run payload — keeping the launcher's "references only, never values"
+        # credential boundary intact. Scoped to exactly those two secret names (the `-*`
+        # covers Secrets Manager's random ARN suffix). Granted unconditionally: the new
+        # path needs them whether or not the OLD in-VM delivery grants below have been
+        # stripped yet, and they are harmless to the current audio_email.py path (which
+        # never reads them). These are AUTH-token reads, NOT delivery capability — no
+        # Polly/S3/SES/DynamoDB — so FR-1 (no direct delivery IAM) holds once the strip
+        # below is applied.
+        for sid, secret_name in (
+            ("ReadDeliveryBearerSecret", "daily-ai-brief/delivery-bearer-secret"),
+            ("ReadRecentBriefsSigningSecret", "daily-ai-brief/recent-briefs-read-bearer-secret"),
+        ):
             role.add_to_policy(
                 iam.PolicyStatement(
-                    sid="ReadFeedbackTokenSecret",
+                    sid=sid,
                     effect=iam.Effect.ALLOW,
                     actions=["secretsmanager:GetSecretValue"],
-                    resources=[self.feedback_token_secret_arn],
+                    resources=[
+                        f"arn:{self.partition}:secretsmanager:{self.region}:{self.account}:secret:{secret_name}-*"
+                    ],
                 )
             )
+
+        # -- OLD in-VM delivery grants — STRIPPED when `deliveryDecoupled` is set ---------
+        # These are the delivery capability audio_email.py uses today (Polly/S3/SES/
+        # DynamoDB + the feedback-token read). The ADR-0015 D1 strip removes them so the
+        # content-generation MicroVM keeps only env-key + logs + the two AUTH-token reads
+        # above. Gated behind the `deliveryDecoupled` CDK context flag (default OFF =
+        # today's behavior): flip it ON **together with** the deployment.json swap to
+        # delivery_client.py and the image rebuild (deploying the strip while audio_email.py
+        # is still the live entrypoint would break the send — it would have no delivery
+        # IAM). Scoped verbatim to deploy/iam-policy.json + ADR-0005.
+        if not bool(self.node.try_get_context("deliveryDecoupled")):
+            # Sid "PollySynthesis" (Resource "*" — Polly synthesis tasks have no
+            # resource-level ARN to scope to; identical to the live cowork-polly-tts policy).
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="PollySynthesis",
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "polly:StartSpeechSynthesisTask",
+                        "polly:GetSpeechSynthesisTask",
+                        "polly:ListSpeechSynthesisTasks",
+                        "polly:SynthesizeSpeech",
+                    ],
+                    resources=["*"],
+                )
+            )
+
+            # Sid "S3AudioReadWrite" plus the ADR-0005 s3:ListBucket addition,
+            # prefix-scoped to `briefs/*`.
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="S3AudioReadWrite",
+                    effect=iam.Effect.ALLOW,
+                    actions=["s3:PutObject", "s3:GetObject"],
+                    resources=[f"arn:{self.partition}:s3:::{PIPELINE_BUCKET_NAME}/*"],
+                )
+            )
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="S3ListBriefsPrefix",
+                    effect=iam.Effect.ALLOW,
+                    actions=["s3:ListBucket"],
+                    resources=[f"arn:{self.partition}:s3:::{PIPELINE_BUCKET_NAME}"],
+                    conditions={"StringLike": {"s3:prefix": ["briefs/*"]}},
+                )
+            )
+
+            # SES send, gated by ses:FromAddress — one sender, aibriefing@mschweier.com.
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="SesSendFromMschweier",
+                    effect=iam.Effect.ALLOW,
+                    actions=["ses:SendEmail", "ses:SendRawEmail"],
+                    resources=["*"],
+                    conditions={"StringEquals": {"ses:FromAddress": SENDER}},
+                )
+            )
+
+            # Sid "DynamoDBSubscribersQuery" — Query only, on the status-index GSI.
+            role.add_to_policy(
+                iam.PolicyStatement(
+                    sid="DynamoDBSubscribersQuery",
+                    effect=iam.Effect.ALLOW,
+                    actions=["dynamodb:Query"],
+                    resources=[
+                        SUBSCRIBERS_TABLE_STATUS_INDEX_ARN_TEMPLATE.format(
+                            region=self.region, account=self.account
+                        )
+                    ],
+                )
+            )
+
+            # Sid "ReadFeedbackTokenSecret" — optional, only when the feedback stack's
+            # secret ARN is supplied via the `feedbackTokenSecretArn` context value.
+            if self.feedback_token_secret_arn:
+                role.add_to_policy(
+                    iam.PolicyStatement(
+                        sid="ReadFeedbackTokenSecret",
+                        effect=iam.Effect.ALLOW,
+                        actions=["secretsmanager:GetSecretValue"],
+                        resources=[self.feedback_token_secret_arn],
+                    )
+                )
 
         return role
 

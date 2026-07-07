@@ -308,9 +308,13 @@ def test_unsubscribe_footer_present_for_subscribers_not_owner():
     owner_entry = next(e for e in ses_client.sent_to if e["recipient"] == delivery_core.RECIP)
     subscriber_entry = next(e for e in ses_client.sent_to if e["recipient"] == "henry@example.com")
 
-    assert "Unsubscribe" not in _html_body_text(owner_entry["raw"])
+    # Unsubscribe now lives in the top meta box (not a footer): present for subscribers,
+    # absent for the owner (not a subscriber).
+    owner_body = _html_body_text(owner_entry["raw"])
+    assert "unsubscribe</a>" not in owner_body
+    assert "tok-h" not in owner_body
     subscriber_body = _html_body_text(subscriber_entry["raw"])
-    assert "Unsubscribe" in subscriber_body
+    assert "unsubscribe</a>" in subscriber_body
     assert "tok-h" in subscriber_body
 
 

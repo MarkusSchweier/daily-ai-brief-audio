@@ -11,23 +11,33 @@ decision): **A** re-integrate the eval harness with the new candidate mechanism,
 deploy the candidate set, **C** run the comparison & decide the future production set-up. Sequenced
 **B → A → C**. **B (candidate declarations) is BUILT** on branch `feat/cost-optimization-candidates`
 (`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure`; `production-baseline` pre-exists)
-— all content-generation only, delivery-free, **no TTS in evals**. **A is developed next in the main
-Claude Code thread** (with production-system / delivery-cut-over context); **C** follows. Full plan,
-final candidate set (incl. the aggressive-#3 split and the #5/#6 backburner), A UI requirements, and
-the decisions/flags log (no-TTS, branch topology, the multi-agent-execution A-verification item) live
-in `cost-optimization-candidates.md`, imported above.
+— all content-generation only, delivery-free, **no TTS in evals**. **A is developed next in this
+thread**; **C** follows. Full plan, final candidate set (incl. the aggressive-#3 split and the #5/#6
+backburner), A UI requirements, and the decisions/flags log (no-TTS, branch topology, the
+multi-agent-execution A-verification item) live in `cost-optimization-candidates.md`, imported above.
+**This branch was reconciled with `main` on 2026-07-07 (merge): it now carries the shipped
+agent-system-redesign + the live ADR-0015 delivery cut-over described below.**
 
 ---
 
-### Previous epic — agent-system-redesign (SHIPPED; delivery decoupling live, PRs #31/#32 merged)
+### Previous epic — agent-system-redesign + ADR-0015 delivery cut-over (SHIPPED + LIVE)
 
-Status: **BUILD COMPLETE — all phases shipped + Phase 6 validated (AC-1…AC-14 all PASS); PR opened for
-the owner's review on `feat/agent-system-redesign`. NOT merged (main stays owner-gated).** The
-agent-system-redesign PRD (rev. 2) is the active planning doc; ADR-0014 records the
-decisions. It decouples content generation (Claude Platform) from AWS delivery so a candidate agent
-system deploys via a **pure API call with no container build** and is triggered/retrieved with **zero
-AWS infrastructure**, git-tracked and declarative. **Built, each reviewed + security-cleared, all on
-branch `feat/agent-system-redesign`:**
+Status: **DONE (live).** The agent-system-redesign epic **shipped and merged to main (PRs #31/#32)**,
+decoupling content generation from AWS delivery (the `deploy/delivery/` boundary, git-native
+candidates in `deploy/candidates/`, the shared `cloud` environment; topology ADR-0014 Decision 1 =
+**hybrid** — `cloud` for candidate/eval, `self_hosted` for production). Its deferred Phase 7 —
+**ADR-0015 production delivery decoupling — was CUT OVER TO PRODUCTION 2026-07-07** (owner-approved,
+PRs #34/#35/#36): production DELIVERY now runs on the `deploy/delivery/` boundary (contract v2), the
+content MicroVM holds **zero AWS delivery IAM** (`deliveryDecoupled=true`; FR-1/AC-1), the scheduled
+weekday deployment runs the decoupled `delivery_client.py` → `POST /deliver` prompt (new
+`depl_01VP2gkocBheZF9dybQQ8aUN`; old in-VM deployment archived), and the welcome-send Lambda ships the
+new chrome. Validated owner-only on the stripped role first (all four artifacts archived,
+`SUBSCRIBER_FANOUT_SKIPPED`, `DELIVERY_SUCCEEDED`); first real subscriber send via the new path = Wed
+2026-07-08 06:07 Europe/Berlin. Rollback: re-point the scheduled deployment at the archived in-VM
+prompt + `cdk deploy ManagedAgentSandboxStack` WITHOUT `-c deliveryDecoupled=true` (image v13 still
+has `audio_email.py`). The build-history detail below (Phases 1–6) predates the ADR-0015 refinements —
+e.g. "`POST /deliver` locked" and "one fixed HTML template" are now superseded by contract v2 and the
+refined template. **Built, each reviewed + security-cleared, on the merged branch `feat/agent-system-redesign`:**
 - **Phase 1** — `deploy/delivery/`: standalone CDK stack, async bearer-authed `POST /deliver` +
   `GET /deliver/{id}` (async trigger/poll — API Gateway's 30s cap can't hold a multi-minute send),
   deterministic no-LLM Markdown→HTML via one fixed template (the "reproduce THE standardized design"
