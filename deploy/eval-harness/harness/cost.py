@@ -273,6 +273,38 @@ def price_usage(usage: dict[str, int], *, model: str, pricing_table: dict[str, A
     return price_tier.cost_usd(ThreadUsage.from_dict(usage))
 
 
+def price_web_searches(search_count: int, *, pricing_table: dict[str, Any]) -> float:
+    """Price `search_count` server-side web-search tool invocations against
+    `pricing.json`'s flat `web_search.cost_per_1000_searches_usd` rate.
+
+    Anthropic bills the web-search tool per-CALL, not per-token and not
+    model-dependent ("$10 per 1,000 searches", confirmed live 2026-07-07 against
+    the web-search-tool docs page) -- a completely separate cost axis from
+    `price_usage()`'s token-based pricing above, which is why this is its own
+    function rather than folded into `PriceTier`/`resolve_price_tier` (those are
+    keyed by MODEL; this is keyed by nothing but a flat rate). The web-FETCH tool
+    is deliberately NOT priced here -- it is billed at ordinary token cost only,
+    no separate per-call fee (confirmed live the same day against the
+    web-fetch-tool docs page: "available... at no additional cost... you only pay
+    standard token costs") -- fetched-page content already flows through
+    `price_usage()`'s normal input-token accounting.
+
+    Fails loud (raises `PricingError`) if `pricing.json` has no top-level
+    `web_search` entry at all, rather than silently pricing search usage as
+    $0 -- mirrors `resolve_price_tier()`'s "never silently price an unknown/
+    unconfigured thing as free" discipline."""
+    if search_count <= 0:
+        return 0.0
+    web_search_pricing = pricing_table.get("web_search")
+    if web_search_pricing is None:
+        raise PricingError(
+            "pricing.json has no top-level 'web_search' entry -- cannot price web-search "
+            "tool usage (add a 'web_search': {'cost_per_1000_searches_usd': ...} block)"
+        )
+    rate_per_search = float(web_search_pricing["cost_per_1000_searches_usd"]) / 1000
+    return search_count * rate_per_search
+
+
 def check_pricing_drift(pricing_table: dict[str, Any], *, on_date: date) -> list[str]:
     """`--check-pricing-drift`'s core logic: for every model family declared in
     `pricing.json`, confirm SOME tier covers `on_date`. Returns a list of issue
@@ -526,6 +558,7 @@ __all__ = [
     "load_pricing_table",
     "resolve_price_tier",
     "price_usage",
+    "price_web_searches",
     "check_pricing_drift",
     "mine_session_cost",
     "fetch_threads",

@@ -23,6 +23,20 @@ ported judge test keeps working unchanged (`make_fake_client()` still takes plai
 response-text strings and gets a default, non-zero `FakeUsage()` for free); tests
 that need to assert on a SPECIFIC usage value pass `(text, FakeUsage(...))` tuples
 instead of bare strings.
+
+AMENDED (judge methodology v2, 2026-07-07): two more additions, both additive to
+the shapes above --
+
+1. `FakeUsage` gains an optional `server_tool_use` attribute (a `FakeServerToolUse`
+   with `web_search_requests`/`web_fetch_requests` counts) so tests can exercise
+   `base._extract_search_count()`'s capture path. Defaults to `None` (no server
+   tools used), matching a response that never called web_search/web_fetch.
+2. `FakeMessagesResource.create()` now also accepts a queued `FakeMixedMessage`
+   item -- a response whose `.content` is a CALLER-SUPPLIED list of blocks
+   (`FakeContentBlock`), for tests that need to prove `run_judge()` finds the
+   LAST text block among interleaved server_tool_use/tool_result/text blocks
+   (mixed-content responses from server-side tools), rather than joining every
+   text block or grabbing the first one.
 """
 
 from __future__ import annotations
@@ -45,13 +59,27 @@ class FakeTextBlock:
         self.text = text
 
 
+class FakeServerToolUse:
+    """Mirrors the real Anthropic SDK's `usage.server_tool_use` shape (confirmed
+    live 2026-07-07 against the web-search-tool docs page's own example response:
+    `"usage": {..., "server_tool_use": {"web_search_requests": 1}}`)."""
+
+    def __init__(self, web_search_requests: int = 0, web_fetch_requests: int = 0):
+        self.web_search_requests = web_search_requests
+        self.web_fetch_requests = web_fetch_requests
+
+
 class FakeUsage:
     """Mirrors the real Anthropic SDK's flat `Usage` shape (NOT the nested
     `cache_creation: {...}` shape the Sessions/Threads API uses -- see
     `eval_core.judges.base._extract_usage()`'s docstring for why both are
     tolerated). Defaults to small, non-zero, deterministic values so a test that
     doesn't care about usage still gets a realistic, priceable `JudgeResult.usage`
-    for free."""
+    for free.
+
+    `server_tool_use` (judge methodology v2) defaults to `None` -- a response
+    that never used web_search/web_fetch -- matching a real response's own
+    absence of the field when no server-side tool was invoked."""
 
     def __init__(
         self,
@@ -59,11 +87,13 @@ class FakeUsage:
         output_tokens: int = 50,
         cache_creation_input_tokens: int = 0,
         cache_read_input_tokens: int = 0,
+        server_tool_use: "FakeServerToolUse | None" = None,
     ):
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.cache_creation_input_tokens = cache_creation_input_tokens
         self.cache_read_input_tokens = cache_read_input_tokens
+        self.server_tool_use = server_tool_use
 
 
 class FakeMessage:
@@ -72,14 +102,41 @@ class FakeMessage:
         self.usage = usage if usage is not None else FakeUsage()
 
 
+class FakeContentBlock:
+    """A single content block for a `FakeMixedMessage` -- mirrors whichever real
+    SDK block type `type` names (`text`, `server_tool_use`,
+    `web_search_tool_result`, `web_fetch_tool_result`, ...). Only `text` blocks
+    carry a `.text` attribute (matching the real SDK: non-text blocks expose
+    other fields `run_judge()` never reads)."""
+
+    def __init__(self, block_type: str, text: str | None = None):
+        self.type = block_type
+        if text is not None:
+            self.text = text
+
+
+class FakeMixedMessage:
+    """A canned response whose `.content` is a CALLER-SUPPLIED list of blocks
+    (judge methodology v2) -- for tests that need interleaved
+    server_tool_use/tool_result/text blocks, proving `run_judge()`'s
+    `_extract_final_text_block()` finds the LAST text block specifically, not the
+    first, and not a join of every text block. Queue one via
+    `make_fake_client(FakeMixedMessage([...]))` exactly like any other response."""
+
+    def __init__(self, content_blocks: list, usage: "FakeUsage | None" = None):
+        self.content = content_blocks
+        self.usage = usage if usage is not None else FakeUsage()
+
+
 class FakeMessagesResource:
     """Records every call's kwargs and returns queued canned responses in order,
     mirroring the Anthropic SDK's `client.messages.create(...)` shape closely enough
     for the judges under test (which only read `.content[].type`/`.text`/`.usage`).
 
-    Each queued response is either a plain text string (gets a default
-    `FakeUsage()`) or a `(text, FakeUsage(...))` tuple (for a test that asserts on
-    a specific usage value)."""
+    Each queued response is a plain text string (gets a default `FakeUsage()`), a
+    `(text, FakeUsage(...))` tuple (for a test that asserts on a specific usage
+    value), or a `FakeMixedMessage(...)` (for a test that needs a caller-supplied,
+    interleaved content-block list -- judge methodology v2)."""
 
     def __init__(self, responses: list):
         self._responses = list(responses)
@@ -90,6 +147,8 @@ class FakeMessagesResource:
         if not self._responses:
             raise AssertionError("FakeMessagesResource ran out of queued responses")
         item = self._responses.pop(0)
+        if isinstance(item, FakeMixedMessage):
+            return item
         if isinstance(item, tuple):
             text, usage = item
         else:

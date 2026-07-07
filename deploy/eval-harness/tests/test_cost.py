@@ -207,6 +207,69 @@ def test_price_usage_fails_loud_for_an_unrecognized_judge_model():
         cost.price_usage(usage, model="claude-some-future-judge-model", pricing_table=_pricing_table(), on_date=date(2026, 7, 7))
 
 
+# --- claude-opus-4-8 pricing (judge methodology v2, 2026-07-07) -----------------------
+
+
+def test_resolve_price_tier_finds_opus_4_8_at_standard_non_introductory_pricing():
+    tier = cost.resolve_price_tier(_pricing_table(), "claude-opus-4-8", on_date=date(2026, 7, 7))
+    assert tier.label == "standard"
+    assert tier.input_per_million_usd == 5.00
+    assert tier.output_per_million_usd == 25.00
+    assert tier.effective_until is None  # not an introductory/expiring tier
+
+
+def test_price_usage_prices_opus_4_8_correctly():
+    usage = {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0,
+    }
+    cost_usd = cost.price_usage(usage, model="claude-opus-4-8", pricing_table=_pricing_table(), on_date=date(2026, 7, 7))
+    # Opus 4.8: $5/M input, $25/M output -> 1000*5e-6 + 500*25e-6 = 0.005 + 0.0125 = 0.0175
+    assert cost_usd == pytest.approx(0.0175)
+
+
+def test_opus_4_8_cache_multipliers_reproduce_the_uniform_ratios():
+    """The pricing page's own $6.25/$10/$0.50 cache rates for Opus 4.8 are exactly
+    1.25x/2.0x/0.1x its $5 base input rate -- the SAME uniform cache_multipliers
+    this table already applies to every other model family, confirming no
+    per-model override was needed."""
+    tier = cost.resolve_price_tier(_pricing_table(), "claude-opus-4-8", on_date=date(2026, 7, 7))
+    assert tier.cache_write_5m_multiplier == pytest.approx(1.25)
+    assert tier.cache_write_1h_multiplier == pytest.approx(2.0)
+    assert tier.cache_read_multiplier == pytest.approx(0.1)
+
+
+def test_check_pricing_drift_covers_opus_4_8_with_no_issues():
+    issues = cost.check_pricing_drift(_pricing_table(), on_date=date(2026, 7, 7))
+    assert issues == []
+    assert "claude-opus-4-8" not in " ".join(issues)
+
+
+# --- price_web_searches (judge methodology v2: web-search tool cost) ------------------
+
+
+def test_price_web_searches_prices_at_ten_dollars_per_thousand_searches():
+    cost_usd = cost.price_web_searches(6, pricing_table=_pricing_table())
+    assert cost_usd == pytest.approx(0.06)
+
+
+def test_price_web_searches_of_zero_costs_nothing():
+    assert cost.price_web_searches(0, pricing_table=_pricing_table()) == 0.0
+
+
+def test_price_web_searches_of_a_thousand_costs_exactly_ten_dollars():
+    assert cost.price_web_searches(1000, pricing_table=_pricing_table()) == pytest.approx(10.0)
+
+
+def test_price_web_searches_fails_loud_when_pricing_json_has_no_web_search_entry():
+    table = {"models": {}}  # deliberately missing the top-level "web_search" key
+    with pytest.raises(cost.PricingError):
+        cost.price_web_searches(5, pricing_table=table)
+
+
 # --- --check-pricing-drift ------------------------------------------------------------
 
 
