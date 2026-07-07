@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import subprocess
 import time
 from dataclasses import asdict, dataclass
@@ -57,20 +58,51 @@ def current_git_ref(cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def candidate_declaration_is_dirty(candidate_dir: Path) -> bool:
+    """True if `git status --porcelain` reports ANY uncommitted change (modified,
+    staged, or untracked) under `candidate_dir` -- the guard against a recorded
+    `git_ref` silently NOT matching what `candidate_sync.loader.load_candidate()`
+    actually read (review-fix: reviewer Medium, "dirty-working-tree guard on the
+    recorded git_ref" -- `current_git_ref()` above records HEAD, but the loader
+    reads LIVE files; an uncommitted edit to e.g. `task-prompt.md` makes those two
+    silently disagree, and the recorded ref would then lie about what actually
+    ran).
+
+    `candidate_dir` must be a real, existing directory inside SOME git working
+    tree (true for every real `deploy/candidates/<slug>/`); raises
+    `subprocess.CalledProcessError` if it is not (a genuine setup error, not a
+    "dirty" verdict -- this function does not silently treat "not a repo" as
+    either clean or dirty)."""
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "."],
+        cwd=str(candidate_dir),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return bool(result.stdout.strip())
+
+
 def slugify(text: str) -> str:
     """A filesystem/URL-safe slug for an eval-run NAME, used only as a readability
-    aid inside the generated eval-run-id (uniqueness comes from the timestamp
-    prefix, not this slug -- two runs given the same name never collide)."""
+    aid inside the generated eval-run-id (uniqueness comes from the timestamp +
+    random suffix, not this slug -- two runs given the same name never collide)."""
     slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
     return slug or "run"
 
 
 def make_eval_run_id(name: str, *, now: float | None = None) -> str:
-    """`<timestamp>-<slugified-name>`, mirroring
+    """`<timestamp>-<random-suffix>-<slugified-name>`, mirroring
     `deploy/candidates/runs/<slug>/<timestamp>/`'s own naming convention (e.g. the
-    real spike dir `2026-07-07-142718`)."""
+    real spike dir `2026-07-07-142718`) with one addition: a short random hex
+    suffix (review-fix: reviewer Low, "run-id collision" -- two runs triggered in
+    the SAME wall-clock second, e.g. two rapid double-clicks of the UI's Trigger
+    button, previously produced the IDENTICAL directory, silently clobbering the
+    first run's files). `secrets.token_hex()` (not `random`) for a collision
+    probability low enough to ignore even under rapid repeated triggers."""
     timestamp = time.strftime("%Y-%m-%d-%H%M%S", time.localtime(now))
-    return f"{timestamp}-{slugify(name)}"
+    suffix = secrets.token_hex(3)  # 6 hex chars -- readable, collision-proof in practice
+    return f"{timestamp}-{suffix}-{slugify(name)}"
 
 
 def eval_run_dir(slug: str, eval_run_id: str, *, runs_root: Path | None = None) -> Path:
@@ -88,7 +120,16 @@ def repetition_dir(run_dir: Path, index: int) -> Path:
 
 @dataclass
 class EvalRunMeta:
-    """Run-level metadata -- `eval-run.json`'s full content (ADR-0016 D4)."""
+    """Run-level metadata -- `eval-run.json`'s full content (ADR-0016 D4).
+
+    `declaration_dirty` (review-fix: reviewer Medium): True when
+    `candidate_declaration_is_dirty()` found uncommitted changes under the
+    candidate's directory at trigger time AND the run proceeded anyway via
+    `--allow-dirty` -- meaning `git_ref` above is NOT reproducible (`git show
+    git_ref:<path>` will NOT return what actually ran). Defaults to False so
+    every prior construction of this dataclass (before this field existed)
+    remains valid.
+    """
 
     name: str
     slug: str
@@ -103,6 +144,7 @@ class EvalRunMeta:
     email_sent: bool
     is_production_config: bool
     created_at: int
+    declaration_dirty: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -181,6 +223,21 @@ def read_scores(run_dir: Path, index: int) -> dict[str, dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_judge_cost(run_dir: Path, index: int, judge_cost: dict[str, Any]) -> None:
+    """`repetitions/<NN>/judge-cost.json` -- the judge CALLS' own token usage +
+    cost, kept as a SIBLING file to `cost.json` (never folded in) so it is never
+    confused with pipeline cost (review-fix: ADR-0016 reviewer Medium, "judge cost
+    accounting"). See `run.py`'s judge-cost block for the exact shape written."""
+    _write_json(repetition_dir(run_dir, index) / "judge-cost.json", judge_cost)
+
+
+def read_judge_cost(run_dir: Path, index: int) -> dict[str, Any] | None:
+    path = repetition_dir(run_dir, index) / "judge-cost.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def write_run_meta(run_dir: Path, index: int, meta: dict[str, Any]) -> None:
     _write_json(repetition_dir(run_dir, index) / "run-meta.json", meta)
 
@@ -223,6 +280,7 @@ __all__ = [
     "STATE_COMPLETED",
     "STATE_FAILED",
     "current_git_ref",
+    "candidate_declaration_is_dirty",
     "slugify",
     "make_eval_run_id",
     "eval_run_dir",
@@ -237,6 +295,8 @@ __all__ = [
     "write_cost",
     "write_scores",
     "read_scores",
+    "write_judge_cost",
+    "read_judge_cost",
     "write_run_meta",
     "write_events",
     "write_summary",

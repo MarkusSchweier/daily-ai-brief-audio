@@ -127,6 +127,7 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
 
     criterion_scores: dict[str, float | None] = {c: None for c in V1_CRITERIA}
     mean_cost_usd: float | None = None
+    mean_judge_cost_usd: float | None = None
     summary_path = run_dir / "summary.json"
     if summary_path.is_file():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -134,6 +135,9 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
             if criterion in criterion_scores:
                 criterion_scores[criterion] = aggregate.get("mean")
         mean_cost_usd = summary.get("mean_cost_usd")
+        # Judge cost is a SEPARATE block (never folded into mean_cost_usd above --
+        # review-fix: "do NOT fold it into the pipeline cost column").
+        mean_judge_cost_usd = (summary.get("judge_cost") or {}).get("mean_cost_usd")
 
     human_eval_path = run_dir / "human-eval.md"
     human_eval_present = human_eval_path.is_file() and human_eval_path.read_text(encoding="utf-8").strip() not in (
@@ -154,6 +158,7 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         "criteria": meta.criteria,
         "criterion_scores": criterion_scores,
         "mean_cost_usd": mean_cost_usd,
+        "mean_judge_cost_usd": mean_judge_cost_usd,
         "state": meta.state,
         "human_eval_present": human_eval_present,
         "created_at": meta.created_at,
@@ -294,6 +299,7 @@ def run_detail(slug: str, eval_run_id: str):
         run_meta = json.loads(run_meta_path.read_text(encoding="utf-8")) if run_meta_path.is_file() else {}
         cost_path = rep_dir / "cost.json"
         cost_data = json.loads(cost_path.read_text(encoding="utf-8")) if cost_path.is_file() else None
+        judge_cost_data = run_store.read_judge_cost(run_dir, index)
         scores = run_store.read_scores(run_dir, index)
         artifacts = run_store.read_artifacts(run_dir, index)
         brief_markdown = next((v for k, v in artifacts.items() if k.startswith("AI Brief") and k.endswith(".md")), None)
@@ -302,6 +308,7 @@ def run_detail(slug: str, eval_run_id: str):
                 "index": index,
                 "run_meta": run_meta,
                 "cost": cost_data,
+                "judge_cost": judge_cost_data,
                 "scores": scores,
                 "artifacts": artifacts,
                 "brief_html": render_markdown(brief_markdown) if brief_markdown else None,

@@ -10,6 +10,12 @@
     — agent_id <code>{{ meta.agent_id }}</code>
     — git ref <code>{{ meta.git_ref }}</code>
   </p>
+  {% if meta.declaration_dirty %}
+    <p class="error" title="deploy/candidates/&lt;slug&gt; had uncommitted changes at trigger time (--allow-dirty was used) -- git show &lt;git_ref&gt;:&lt;path&gt; will NOT reproduce what actually ran.">
+      &#9888; declaration_dirty -- this run's candidate directory had uncommitted changes at trigger time; the
+      configuration shown below (read at the recorded git ref) is NOT guaranteed to match what actually ran.
+    </p>
+  {% endif %}
   <p>Repetitions requested: {{ meta.repetitions }} — Criteria judged: {{ meta.criteria | join(", ") }}</p>
 
   {% if meta.state in ("configured", "running") %}
@@ -67,6 +73,14 @@
       Mean cost:
       {% if summary.mean_cost_usd is not none %}${{ "%.4f" | format(summary.mean_cost_usd) }}{% else %}—{% endif %}
     </p>
+    <p title="The judge calls' own cost -- separate from pipeline cost, never folded in">
+      Mean judge cost:
+      {% if summary.judge_cost and summary.judge_cost.mean_cost_usd is not none %}
+        ${{ "%.4f" | format(summary.judge_cost.mean_cost_usd) }}
+      {% else %}
+        —
+      {% endif %}
+    </p>
   {% endif %}
 
   <h3>Human evaluation</h3>
@@ -110,7 +124,7 @@
       {% endif %}
 
       {% if rep.cost %}
-        <h4>Cost by thread</h4>
+        <h4>Cost by thread (pipeline)</h4>
         <table>
           <thead><tr><th>Role</th><th>Model</th><th>Cost</th></tr></thead>
           <tbody>
@@ -121,6 +135,25 @@
                 <td>${{ "%.4f" | format(thread.cost_usd) }}</td>
               </tr>
             {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+
+      {% if rep.judge_cost %}
+        <h4 title="Kept separate from pipeline cost above -- never folded in">Judge cost (separate from pipeline cost)</h4>
+        <table>
+          <thead><tr><th>Criterion</th><th>Cost</th></tr></thead>
+          <tbody>
+            {% for criterion, entry in rep.judge_cost.per_criterion.items() %}
+              <tr>
+                <td>{{ criterion }}</td>
+                <td>${{ "%.4f" | format(entry.cost_usd) }}</td>
+              </tr>
+            {% endfor %}
+            <tr>
+              <td><strong>Total ({{ rep.judge_cost.model }})</strong></td>
+              <td><strong>${{ "%.4f" | format(rep.judge_cost.total_cost_usd) }}</strong></td>
+            </tr>
           </tbody>
         </table>
       {% endif %}

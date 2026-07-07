@@ -20,6 +20,7 @@
             <th>{{ criterion }}</th>
           {% endfor %}
           <th>Cost (mean)</th>
+          <th title="The judge calls' own cost -- SEPARATE from pipeline cost, never folded in">Judge cost (mean)</th>
           <th>Human eval</th>
         </tr>
       </thead>
@@ -45,6 +46,13 @@
             <td>
               {% if row.mean_cost_usd is not none %}
                 ${{ "%.4f" | format(row.mean_cost_usd) }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="judge-cost">
+              {% if row.mean_judge_cost_usd is not none %}
+                ${{ "%.4f" | format(row.mean_judge_cost_usd) }}
               {% else %}
                 —
               {% endif %}

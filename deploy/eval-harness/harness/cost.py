@@ -252,6 +252,27 @@ def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date:
     )
 
 
+def price_usage(usage: dict[str, int], *, model: str, pricing_table: dict[str, Any], on_date: date) -> float:
+    """Price a plain, flat usage dict (the SAME shape `ThreadUsage.to_dict()`/
+    `from_dict()` and `eval_core.judges.base.JudgeResult.usage` use) against
+    `model`'s `pricing.json` tier for `on_date`. Full precision (unrounded) --
+    callers round for display, matching `mine_session_cost()`'s own
+    sum-before-rounding discipline.
+
+    Review-fix (ADR-0016 reviewer Medium, "judge cost accounting"): this is the
+    ONE place judge-call cost is priced, reusing the EXACT same price table and
+    arithmetic as pipeline cost -- `run.py` calls this once per judge call with
+    `model=eval_core.judges.base.JUDGE_MODEL` and writes the result to a SEPARATE
+    `judge-cost.json`, never folded into `SessionCostBreakdown`/`cost.json` (the
+    whole point is that it isn't confused with pipeline cost, per PRD §7).
+
+    Raises `UnknownModelPriceError`/`PricingDriftError` (via `resolve_price_tier`)
+    if `model` has no pricing.json entry -- FAILS LOUD rather than silently
+    pricing an unrecognized model as $0, per the task's explicit requirement."""
+    price_tier = resolve_price_tier(pricing_table, model, on_date=on_date)
+    return price_tier.cost_usd(ThreadUsage.from_dict(usage))
+
+
 def check_pricing_drift(pricing_table: dict[str, Any], *, on_date: date) -> list[str]:
     """`--check-pricing-drift`'s core logic: for every model family declared in
     `pricing.json`, confirm SOME tier covers `on_date`. Returns a list of issue
@@ -504,6 +525,7 @@ __all__ = [
     "SessionCostBreakdown",
     "load_pricing_table",
     "resolve_price_tier",
+    "price_usage",
     "check_pricing_drift",
     "mine_session_cost",
     "fetch_threads",

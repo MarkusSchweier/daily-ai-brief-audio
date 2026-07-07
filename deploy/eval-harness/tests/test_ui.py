@@ -224,6 +224,11 @@ def test_run_detail_renders_a_completed_run_end_to_end(client, monkeypatch, tmp_
         1,
         type("B", (), {"to_dict": lambda self: {"session_id": "sesn_x", "total_cost_usd": 2.317, "total_usage": {}, "threads": [{"thread_id": "t1", "role": "coordinator", "agent_id": "a1", "model": "claude-sonnet-5", "usage": {}, "cost_usd": 0.6}]}})(),
     )
+    run_store.write_judge_cost(
+        run_dir,
+        1,
+        {"model": "claude-haiku-4-5", "total_cost_usd": 0.0031, "total_usage": {}, "per_criterion": {"factual_accuracy": {"cost_usd": 0.0031, "usage": {}}}},
+    )
 
     response = client.get(f"/runs/multiagent-aggressive-haiku/{run_dir.name}")
 
@@ -232,3 +237,34 @@ def test_run_detail_renders_a_completed_run_end_to_end(client, monkeypatch, tmp_
     assert "end to end render test" in body
     assert "<h1>Daily AI Brief</h1>" in body  # rendered from Markdown
     assert "research" in body.lower()  # a real sub-agent name surfaced from git_show
+    assert "0.0031" in body  # the judge cost, rendered separately from pipeline cost
+    assert "declaration_dirty" not in body  # a clean run -- no dirty badge
+
+
+def test_run_detail_shows_a_dirty_badge_when_declaration_dirty_is_true(client, monkeypatch, tmp_path):
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+
+    run_dir = run_store.eval_run_dir("test-candidate", "2026-07-07-999999-dirty", runs_root=runs_root)
+    meta = run_store.EvalRunMeta(
+        name="a dirty run",
+        slug="test-candidate",
+        agent_id="agent_x",
+        git_ref="a" * 40,
+        composition="single-agent",
+        models=["claude-sonnet-5"],
+        parameters={"agent": {}, "sub_agents": []},
+        repetitions=1,
+        criteria=["factual_accuracy"],
+        state=run_store.STATE_COMPLETED,
+        email_sent=False,
+        is_production_config=False,
+        created_at=1000,
+        declaration_dirty=True,
+    )
+    run_store.write_eval_run_meta(run_dir, meta)
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    assert b"declaration_dirty" in response.data

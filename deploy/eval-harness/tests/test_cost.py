@@ -182,6 +182,31 @@ def test_price_tier_cost_usd_matches_the_documented_multiplier_arithmetic():
     assert usage and tier.cost_usd(usage) == pytest.approx(2.0 + 10.0 + 2.5 + 4.0 + 0.20)
 
 
+# --- price_usage (review-fix: judge cost accounting, ADR-0016 D2 cross-cutting) --------
+
+
+def test_price_usage_prices_a_flat_usage_dict_against_the_judge_models_rate():
+    """The judge model (claude-haiku-4-5, no date suffix) resolves via
+    pricing.json's existing 'claude-haiku-4-5' family -- no pricing.json change
+    needed for judge pricing to work."""
+    usage = {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0,
+    }
+    cost_usd = cost.price_usage(usage, model="claude-haiku-4-5", pricing_table=_pricing_table(), on_date=date(2026, 7, 7))
+    # Haiku: $1/M input, $5/M output -> 1000*1e-6 + 500*5e-6 = 0.001 + 0.0025 = 0.0035
+    assert cost_usd == pytest.approx(0.0035)
+
+
+def test_price_usage_fails_loud_for_an_unrecognized_judge_model():
+    usage = {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0}
+    with pytest.raises(cost.UnknownModelPriceError):
+        cost.price_usage(usage, model="claude-some-future-judge-model", pricing_table=_pricing_table(), on_date=date(2026, 7, 7))
+
+
 # --- --check-pricing-drift ------------------------------------------------------------
 
 

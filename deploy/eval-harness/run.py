@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 import time
 from datetime import date
@@ -68,7 +69,7 @@ from eval_core.judges import (  # noqa: E402
     judge_factual_accuracy,
     judge_length_format,
 )
-from eval_core.judges.base import JudgeResult  # noqa: E402
+from eval_core.judges.base import JUDGE_MODEL, JudgeResult  # noqa: E402
 from eval_core.record import (  # noqa: E402
     V1_CRITERIA,
     CostBreakdownRecord,
@@ -203,6 +204,38 @@ def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str
     }
 
 
+def _price_judge_results(
+    judge_results: dict[str, JudgeResult], *, pricing_table: dict[str, Any], on_date: date
+) -> dict[str, Any]:
+    """Build one repetition's `judge-cost.json` (review-fix: ADR-0016 reviewer
+    Medium, "judge cost accounting") -- prices EVERY judge call's captured usage
+    against `pricing.json`'s `JUDGE_MODEL` entry via `cost.price_usage()`, kept
+    entirely SEPARATE from `harness.cost.mine_session_cost()`'s pipeline cost (this
+    function never touches `SessionCostBreakdown`/`cost.json`). Raises
+    `cost.UnknownModelPriceError` (fails loud, per the task's explicit
+    requirement) if `JUDGE_MODEL` has no pricing.json entry -- this SHOULD never
+    happen in practice (pricing.json's `claude-haiku-4-5` family already lists the
+    bare `claude-haiku-4-5` judge model id as one of its own aliases), but is not
+    silently tolerated if it ever drifts."""
+    total_usage = cost.ThreadUsage()
+    per_criterion: dict[str, Any] = {}
+    total_cost_usd = 0.0
+
+    for criterion, result in judge_results.items():
+        usage = result.usage
+        criterion_cost = cost.price_usage(usage, model=JUDGE_MODEL, pricing_table=pricing_table, on_date=on_date)
+        total_cost_usd += criterion_cost
+        total_usage = total_usage + cost.ThreadUsage.from_dict(usage)
+        per_criterion[criterion] = {"usage": usage, "cost_usd": round(criterion_cost, 4)}
+
+    return {
+        "model": JUDGE_MODEL,
+        "total_cost_usd": round(total_cost_usd, 4),
+        "total_usage": total_usage.to_dict(),
+        "per_criterion": per_criterion,
+    }
+
+
 # --- CLI -------------------------------------------------------------------------
 
 
@@ -230,6 +263,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="DEFERRED (ADR-0016 D3) -- this flag exits with an error, it does not send anything.",
     )
     parser.add_argument("--check-pricing-drift", action="store_true", help="Check pricing.json for staleness and exit.")
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help=(
+            "Proceed even if deploy/candidates/<slug> has uncommitted changes (the recorded "
+            "git_ref would then NOT match what actually ran -- eval-run.json is marked "
+            "declaration_dirty=true so the UI can flag it as not-reproducible-from-ref)."
+        ),
+    )
     parser.add_argument(
         "--timeout",
         type=float,
@@ -274,10 +316,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
 
+    candidate_dir = CANDIDATES_DIR / args.candidate_slug
     try:
-        candidate = load_candidate(CANDIDATES_DIR / args.candidate_slug)
+        candidate = load_candidate(candidate_dir)
     except CandidateLoadError as e:
         print(f"error loading candidate: {e}", file=sys.stderr)
+        return 1
+
+    # Dirty-working-tree guard (review-fix: reviewer Medium) -- load_candidate()
+    # above just read LIVE files; current_git_ref() below records HEAD. An
+    # uncommitted edit under deploy/candidates/<slug> makes those two silently
+    # disagree, and the recorded git_ref would then lie about what actually ran.
+    # FAIL LOUD by default; --allow-dirty proceeds and marks the record instead.
+    declaration_dirty = run_store.candidate_declaration_is_dirty(candidate_dir)
+    if declaration_dirty and not args.allow_dirty:
+        print(
+            f"error: deploy/candidates/{candidate.slug} has uncommitted changes -- the recorded "
+            "git ref would not match what load_candidate() actually read. Commit your changes, "
+            "or pass --allow-dirty to proceed anyway (the run will be marked declaration_dirty=true "
+            "and is not reproducible via `git show <ref>:<path>`).",
+            file=sys.stderr,
+        )
         return 1
 
     if candidate.agent.agent_id is None:
@@ -320,8 +379,11 @@ def main(argv: list[str] | None = None) -> int:
         email_sent=False,
         is_production_config=_is_production_config(candidate),
         created_at=int(time.time()),
+        declaration_dirty=declaration_dirty,
     )
     run_store.write_eval_run_meta(run_dir, meta)
+    if declaration_dirty:
+        print(f"EVAL_RUN_DECLARATION_DIRTY: {candidate.slug} {eval_run_id} -- proceeding via --allow-dirty", file=sys.stderr)
     print(f"EVAL_RUN_CONFIGURED: {candidate.slug} {eval_run_id} ({args.repetitions} repetition(s), criteria={criteria})")
 
     run_store.update_state(run_dir, run_store.STATE_RUNNING)
@@ -330,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     anthropic_client = _build_anthropic_client(api_key)
 
     records: list[EvalRecord] = []
+    judge_cost_totals: list[float] = []
     any_repetition_failed = False
 
     for index in range(1, args.repetitions + 1):
@@ -382,6 +445,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         run_store.write_scores(run_dir, index, _scores_to_dict(judge_results))
 
+        judge_cost_data = _price_judge_results(judge_results, pricing_table=pricing_table, on_date=date.today())
+        run_store.write_judge_cost(run_dir, index, judge_cost_data)
+        judge_cost_totals.append(judge_cost_data["total_cost_usd"])
+
         run_store.write_run_meta(
             run_dir,
             index,
@@ -414,11 +481,24 @@ def main(argv: list[str] | None = None) -> int:
                 listening_script=listening_script,
             )
         )
-        print(f"EVAL_REPETITION_COMPLETE: {index}/{args.repetitions} cost=${breakdown.total_cost_usd}")
+        print(
+            f"EVAL_REPETITION_COMPLETE: {index}/{args.repetitions} cost=${breakdown.total_cost_usd} "
+            f"judge_cost=${judge_cost_data['total_cost_usd']}"
+        )
 
     if records:
         aggregate = aggregate_replicates(records)
-        run_store.write_summary(run_dir, _aggregate_to_dict(aggregate))
+        summary = _aggregate_to_dict(aggregate)
+        # Judge cost is rolled up SEPARATELY from `aggregate_replicates()`'s own
+        # `mean_cost_usd`/`cost_stdev_usd` (the PIPELINE cost) -- a distinct
+        # top-level `judge_cost` block, never merged into it (review-fix: "do NOT
+        # fold it into the pipeline cost column").
+        summary["judge_cost"] = {
+            "n": len(judge_cost_totals),
+            "mean_cost_usd": statistics.mean(judge_cost_totals) if judge_cost_totals else None,
+            "stdev_cost_usd": statistics.stdev(judge_cost_totals) if len(judge_cost_totals) >= 2 else None,
+        }
+        run_store.write_summary(run_dir, summary)
 
     run_store.write_human_eval_placeholder(run_dir)
 
