@@ -208,3 +208,58 @@ def test_build_send_payload_missing_required_artifact_raises(tmp_path, monkeypat
     monkeypatch.setenv("LISTENING_SCRIPT_PATH", str(tmp_path / "s.txt"))
     with pytest.raises(delivery_client.DeliveryError, match="BRIEF_MARKDOWN_PATH is required"):
         delivery_client.build_send_payload()
+
+
+# ---------------------------------------------------------------------------
+# Secret resolution (ADR-0015 D6, Option B) -- the client reads the bearer + mints the
+# recent-briefs token from Secrets Manager via the MicroVM's own scoped role.
+# ---------------------------------------------------------------------------
+
+
+class FakeSecretsClient:
+    def __init__(self, values):
+        self._values = values  # {arn: secret_string}
+
+    def get_secret_value(self, SecretId):
+        if SecretId not in self._values:
+            raise RuntimeError(f"no such secret: {SecretId}")
+        return {"SecretString": self._values[SecretId]}
+
+
+def test_resolve_bearer_reads_the_secret_value(monkeypatch):
+    monkeypatch.setenv("DELIVERY_BEARER_SECRET_ARN", "arn:bearer")
+    client = FakeSecretsClient({"arn:bearer": "the-bearer-value"})
+    assert delivery_client.resolve_bearer(sm_client=client) == "the-bearer-value"
+
+
+def test_resolve_bearer_raises_when_arn_unset(monkeypatch):
+    monkeypatch.delenv("DELIVERY_BEARER_SECRET_ARN", raising=False)
+    with pytest.raises(delivery_client.DeliveryError):
+        delivery_client.resolve_bearer(sm_client=FakeSecretsClient({}))
+
+
+def test_resolve_bearer_raises_on_read_failure(monkeypatch):
+    monkeypatch.setenv("DELIVERY_BEARER_SECRET_ARN", "arn:missing")
+    with pytest.raises(delivery_client.DeliveryError):
+        delivery_client.resolve_bearer(sm_client=FakeSecretsClient({}))  # arn not present -> read raises
+
+
+def test_resolve_recent_briefs_token_mints_a_token_the_endpoint_will_accept(monkeypatch):
+    """Critical for the cut-over: the token this client mints must verify against the
+    SAME signing key the delivery endpoint checks (sign/verify compatibility across the
+    hand-duplicated recent_briefs_token copies)."""
+    monkeypatch.setenv("RECENT_BRIEFS_SIGNING_SECRET_ARN", "arn:key")
+    signing_key = "a-shared-signing-key-value"
+    client = FakeSecretsClient({"arn:key": signing_key})
+
+    token = delivery_client.resolve_recent_briefs_token(sm_client=client)
+
+    # Verifies under the same key (what GET /recent-briefs does), and NOT under a wrong key.
+    assert delivery_client.recent_briefs_token.verify(signing_key, token) is True
+    assert delivery_client.recent_briefs_token.verify("a-different-key", token) is False
+
+
+def test_resolve_recent_briefs_token_raises_when_signing_arn_unset(monkeypatch):
+    monkeypatch.delenv("RECENT_BRIEFS_SIGNING_SECRET_ARN", raising=False)
+    with pytest.raises(delivery_client.DeliveryError):
+        delivery_client.resolve_recent_briefs_token(sm_client=FakeSecretsClient({}))

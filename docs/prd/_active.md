@@ -6,13 +6,53 @@ The current active PRD for this project:
 
 ---
 
-Status: **BUILD COMPLETE — all phases shipped + Phase 6 validated (AC-1…AC-14 all PASS); PR opened for
-the owner's review on `feat/agent-system-redesign`. NOT merged (main stays owner-gated).** The
-agent-system-redesign PRD (rev. 2) is the active planning doc; ADR-0014 records the
-decisions. It decouples content generation (Claude Platform) from AWS delivery so a candidate agent
-system deploys via a **pure API call with no container build** and is triggered/retrieved with **zero
-AWS infrastructure**, git-tracked and declarative. **Built, each reviewed + security-cleared, all on
-branch `feat/agent-system-redesign`:**
+Status: **ACTIVE — ADR-0015 "production delivery decoupling" (the agent-system-redesign epic's
+deferred Phase 7, now executed). Built + reviewer/security-cleared + live-staged + HTML-refined on
+branch `feat/production-delivery-cutover` (PR #35, includes review-fix PR #34). The live cut-over is
+owner-gated and NOT yet flipped — production still delivers in-VM, unchanged.**
+
+**ADR-0015 (Option 2, full decouple — owner-approved 2026-07-06/07).** Production content generation
+stays self-hosted, but production DELIVERY (Polly/SES/S3/fan-out + deterministic HTML) moves off the
+in-VM `audio_email.py` path onto the standalone `deploy/delivery/` boundary, so the content MicroVM
+ends with **zero AWS delivery IAM** (FR-1). Secret delivery uses **Option B** (owner's choice): the
+MicroVM reads the `POST /deliver` bearer + the recent-briefs signing key via its own ARN-scoped role
+grants and mints the short-lived read token itself — no launcher change, the launcher's
+"references-only" credential boundary intact.
+
+Built/staged (reviewer + security **GO**, PR #34, no Critical/High; their Medium/Low all fixed):
+- **Delivery boundary contract v2** — four artifacts (brief md + listening script + candidates +
+  source-usage), caller **idempotency key**, total-send-failure = hard-fail + auto re-drive, a fixed
+  latent self-invoke-ARN bug. Deployed live + validated end-to-end (owner-only, fan-out OFF).
+- **`deploy/managed-agent/pipeline/delivery_client.py`** — the MicroVM-side trigger/poll API client
+  (reads secrets, mints the read token, fails loud) — baked into microVM **image v13**
+  (`audio_email.py`/skill unchanged → the live scheduled run is unaffected).
+- **`MicroVmExecutionRole`** — two ARN-scoped delivery-secret reads deployed (flag OFF, legacy grants
+  intact); the delivery-capability strip is gated behind a `deliveryDecoupled` CDK context flag
+  (default OFF = today's behavior), flipped ON only at cut-over.
+- **`deploy/managed-agent/deployment-validation.json`** — the new decoupled prompt (fan-out OFF,
+  on-demand) for the owner-only validation run.
+- **HTML template (delivery-side, FR-2a; owner feedback):** responsive card + 17px body for mobile; a
+  single unified **14px top "meta" box** carrying feedback + subscribe + **unsubscribe** + AI
+  disclaimer (unsubscribe moved from a bottom footer INTO the top box; footer removed); the welcome
+  mail (`deploy/subscribers/welcome-send`) now renders EXACTLY like a daily subscriber email + a
+  welcome intro at the top. Validated by real emails to `mail@mschweier.com`.
+
+**Live on AWS now (production UNCHANGED — still in-VM):** the `deploy/delivery/` stack (contract v2 +
+new template), the two additive `MicroVmExecutionRole` secret-grants, microVM image v13.
+**NOT done (owner-gated live flip):** the validation run, then swap the scheduled deployment to the new
+prompt + `ENABLE_SUBSCRIBER_FANOUT=1` + flip `deliveryDecoupled=true` (the IAM strip) + deploy the
+welcome-send Lambda. Full runbook: `deploy/delivery/CUTOVER-production-decoupling.md`. Tests: 261
+delivery + 78 managed-agent + 3 CDK + 71 subscribers pass.
+
+---
+
+**agent-system-redesign epic — MERGED to main (PRs #31/#32).** Decoupled content generation from AWS
+delivery: the `deploy/delivery/` boundary, git-native candidates (`deploy/candidates/`), and the shared
+`cloud` environment. Topology (ADR-0014 Decision 1): **hybrid** — `cloud` for candidate/eval,
+`self_hosted` retained for production. ADR-0015 above executes its deferred Phase 7. Its
+build-history detail (retained below for reference) predates the ADR-0015 changes — e.g. "`POST
+/deliver` locked" and "one fixed HTML template" are now superseded by contract v2 and the refined
+template above. **Built, each reviewed + security-cleared, on the merged branch `feat/agent-system-redesign`:**
 - **Phase 1** — `deploy/delivery/`: standalone CDK stack, async bearer-authed `POST /deliver` +
   `GET /deliver/{id}` (async trigger/poll — API Gateway's 30s cap can't hold a multi-minute send),
   deterministic no-LLM Markdown→HTML via one fixed template (the "reproduce THE standardized design"

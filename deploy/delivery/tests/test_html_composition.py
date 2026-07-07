@@ -43,15 +43,16 @@ def _load_fixture_markdown(filename: str = "2026-07-06-brief.md") -> str:
 
 def _compose_subscriber_html(brief_markdown: str, *, feedback_link=None, unsubscribe_link="https://briefing.mschweier.com/unsubscribe?email=alice%40example.com&token=tok-123") -> str:
     """Exactly the chain `send_all()` applies for a real subscriber
-    (`delivery_core.py`'s subscriber-fanout branch): derive -> header -> footer."""
+    (`delivery_core.py`'s subscriber-fanout branch): derive -> ONE header call carrying
+    feedback + subscribe + unsubscribe (the unsubscribe moved into the top box; there is
+    no separate footer any more)."""
     derived = delivery_core.derive_html(brief_markdown)
-    with_header = delivery_core._html_with_header(derived, feedback_link)
-    return delivery_core._html_with_unsubscribe_footer(with_header, unsubscribe_link)
+    return delivery_core._html_with_header(derived, feedback_link, unsubscribe_link)
 
 
 def _compose_owner_html(brief_markdown: str, *, feedback_link=None) -> str:
-    """Exactly the chain `send_all()` applies for the owner's own copy: derive ->
-    header only (the owner never gets `_html_with_unsubscribe_footer()`)."""
+    """Exactly the chain `send_all()` applies for the owner's own copy: derive -> header
+    with NO unsubscribe link (the owner is not a subscriber)."""
     derived = delivery_core.derive_html(brief_markdown)
     return delivery_core._html_with_header(derived, feedback_link)
 
@@ -174,58 +175,42 @@ def test_header_banner_is_the_first_thing_inside_body_and_before_the_original_co
     assert body_open_position < banner_position < original_h1_position
 
 
-def test_footer_is_the_last_thing_inside_body_and_after_the_original_content():
-    brief_markdown = _load_fixture_markdown()
-    derived = delivery_core.derive_html(brief_markdown)
-    with_header = delivery_core._html_with_header(derived, feedback_link=None)
-
-    subscriber_html = delivery_core._html_with_unsubscribe_footer(with_header, "https://example.com/unsub")
-
-    body_close_position = subscriber_html.index("</body>")
-    footer_position = subscriber_html.index("Unsubscribe")
-    original_h1_position = subscriber_html.index("<h1>")
-
-    assert original_h1_position < footer_position < body_close_position
-
-
-def test_header_and_footer_are_inside_the_centered_card_aligned_with_the_body():
-    """ALIGNMENT FIX (first rendered eyeball): the banner/footer used to be
-    spliced at the raw `<body>` level -- OUTSIDE `derive_html()`'s centered 640px
-    card -- so they rendered full-width and left-aligned while the brief body sat
-    centered, and the two visibly didn't line up. They must now be composed
-    INSIDE the card cell, sharing its width/padding and lining up with the body.
-
-    Pinned structurally: both the banner and the footer must fall AFTER the card
-    content cell opens (`padding:32px 40px`), i.e. inside the card -- not before
-    the centered outer table (which was the bug: banner at offset < the outer
-    table)."""
+def test_unsubscribe_is_in_the_top_meta_box_inside_the_card_before_the_brief():
+    """Unsubscribe moved from a bottom footer INTO the top meta box (owner request
+    2026-07-07): it must appear in the header box -- inside the centered card, BEFORE the
+    brief h1 -- alongside feedback + subscribe + disclaimer, not after the brief. And the
+    whole box is inside the centered card (not spliced at the raw <body> level)."""
     brief_markdown = _load_fixture_markdown()
     subscriber_html = _compose_subscriber_html(
-        brief_markdown, feedback_link="https://feedback.mschweier.com/?t=abc123"
+        brief_markdown,
+        feedback_link="https://feedback.mschweier.com/?t=abc123",
+        unsubscribe_link="https://briefing.mschweier.com/unsubscribe?email=a%40b.com&token=t",
     )
 
-    outer_table_pos = subscriber_html.index('width="100%"')     # centered outer table
-    card_cell_pos = subscriber_html.index("padding:32px 40px")  # the card content cell
-    banner_pos = subscriber_html.index("curated and written by an AI agent")
-    footer_pos = subscriber_html.index(">Unsubscribe<")
+    outer_table_pos = subscriber_html.index('width="100%"')      # centered outer table
+    card_cell_pos = subscriber_html.index("padding:32px 40px")   # the card content cell
+    feedback_pos = subscriber_html.index("Share feedback")
+    unsubscribe_pos = subscriber_html.index("unsubscribe</a>")
+    disclaimer_pos = subscriber_html.index("curated and written by an AI agent")
+    h1_pos = subscriber_html.index("<h1")
 
-    # The card cell is inside the centered table; the chrome is inside the card.
-    assert outer_table_pos < card_cell_pos < banner_pos
-    assert card_cell_pos < footer_pos
+    # Every meta line (feedback -> unsubscribe -> disclaimer) is inside the centered card
+    # and BEFORE the brief headline -- one top box, no bottom footer.
+    assert outer_table_pos < card_cell_pos < feedback_pos < unsubscribe_pos < disclaimer_pos < h1_pos
+    assert unsubscribe_pos < subscriber_html.index("</html>")
 
 
 def test_no_unfilled_insertion_slot_markers_remain_in_a_composed_subscriber_email():
-    """A subscriber gets both header and footer, so BOTH slots must have been
-    consumed -- no raw `<!--BRIEF_*_SLOT-->` comment may leak into the sent
-    email."""
+    """The single header slot must be consumed, and there is no footer slot any more --
+    no raw `<!--BRIEF_*_SLOT-->` comment may leak into the sent email."""
     brief_markdown = _load_fixture_markdown()
     subscriber_html = _compose_subscriber_html(
         brief_markdown, feedback_link="https://feedback.mschweier.com/?t=abc123"
     )
 
     assert delivery_core._HEADER_SLOT not in subscriber_html
-    assert delivery_core._FOOTER_SLOT not in subscriber_html
     assert "BRIEF_HEADER_SLOT" not in subscriber_html
+    # The footer slot was removed entirely (unsubscribe moved into the header box).
     assert "BRIEF_FOOTER_SLOT" not in subscriber_html
 
 
@@ -262,7 +247,7 @@ def test_original_derive_html_content_is_still_fully_present_after_composition()
     # markers, which are deliberately consumed (replaced by the banner/footer)
     # during composition. Everything else is a pure insertion, never a
     # replacement of real content.
-    consumed_slots = {delivery_core._HEADER_SLOT, delivery_core._FOOTER_SLOT}
+    consumed_slots = {delivery_core._HEADER_SLOT}
     for original_line in derived.splitlines():
         if original_line.strip() in consumed_slots:
             continue

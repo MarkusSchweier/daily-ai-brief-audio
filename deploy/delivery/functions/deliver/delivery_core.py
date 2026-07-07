@@ -159,22 +159,30 @@ _DEFAULT_EMAIL_TITLE = "Daily AI Brief"
 # look, applied consistently on every future run.
 _EMAIL_BODY_STYLE = "margin:0;padding:0;background-color:#f4f4f5;"
 _EMAIL_OUTER_TABLE_STYLE = "background-color:#f4f4f5;padding:24px 0;"
+# Responsive width (`width:100%` + `max-width:640px`) rather than a hard 640px: a fixed
+# 640px card is wider than a phone viewport, so mobile mail clients scale the whole card
+# DOWN to fit -- shrinking the body text well below its nominal size (the "too small on
+# mobile" complaint). Full-width-up-to-640 lets the card be the phone's full width with
+# the text at true size, and stay a centered 640px card on desktop.
 _EMAIL_CARD_TABLE_STYLE = (
+    "width:100%;max-width:640px;margin:0 auto;"
     "background-color:#ffffff;border-radius:8px;overflow:hidden;"
     "box-shadow:0 1px 3px rgba(0,0,0,0.08);"
 )
+# Base body size bumped 16px -> 17px for comfortable mobile reading (paired with the
+# responsive width above so it is not then scaled back down).
 _EMAIL_CARD_CELL_STYLE = (
-    "padding:32px 40px;color:#1a1a1a;font-size:16px;line-height:1.6;"
+    "padding:32px 40px;color:#1a1a1a;font-size:17px;line-height:1.65;"
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
 )
 _EMAIL_CONTENT_STYLE_BLOCK = (
     "<style>\n"
-    "  h1 { font-size:22px; line-height:1.3; margin:0 0 12px 0; color:#111111; }\n"
-    "  h2 { font-size:18px; margin:28px 0 12px 0; color:#111111; border-bottom:2px solid #eeeeee; padding-bottom:6px; }\n"
-    "  h3 { font-size:16px; margin:22px 0 8px 0; color:#111111; }\n"
-    "  p { margin:0 0 14px 0; color:#2b2b2b; }\n"
+    "  h1 { font-size:23px; line-height:1.3; margin:0 0 12px 0; color:#111111; }\n"
+    "  h2 { font-size:19px; margin:28px 0 12px 0; color:#111111; border-bottom:2px solid #eeeeee; padding-bottom:6px; }\n"
+    "  h3 { font-size:17px; margin:22px 0 8px 0; color:#111111; }\n"
+    "  p { margin:0 0 14px 0; font-size:17px; color:#2b2b2b; }\n"
     "  ul { margin:0 0 16px 0; padding-left:22px; }\n"
-    "  li { margin-bottom:8px; color:#2b2b2b; }\n"
+    "  li { margin-bottom:8px; font-size:17px; color:#2b2b2b; }\n"
     "  hr { border:none; border-top:1px solid #e5e5e5; margin:24px 0; }\n"
     "  a { color:#2563eb; text-decoration:none; }\n"
     "  a:hover { text-decoration:underline; }\n"
@@ -207,7 +215,9 @@ _EMAIL_CONTENT_STYLE_BLOCK = (
 # byte-identical across both hand-duplicated copies (module docstring's sync
 # note) and only this template-specific placement fast-path is new here.
 _HEADER_SLOT = "<!--BRIEF_HEADER_SLOT-->"
-_FOOTER_SLOT = "<!--BRIEF_FOOTER_SLOT-->"
+# NOTE: there is no separate footer slot any more -- the unsubscribe line moved INTO the
+# top meta box (`_html_with_header`, owner request 2026-07-07), so a per-recipient
+# subscriber email needs only ONE insertion point (the header slot).
 
 
 def _extract_email_title(brief_markdown: str) -> str:
@@ -344,12 +354,11 @@ def derive_html(brief_markdown: str) -> str:
         f'<body style="{_EMAIL_BODY_STYLE}">\n'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_EMAIL_OUTER_TABLE_STYLE}">\n'
         "<tr><td align=\"center\">\n"
-        f'<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="{_EMAIL_CARD_TABLE_STYLE}">\n'
         f'<tr><td style="{_EMAIL_CARD_CELL_STYLE}">\n'
         f"{_EMAIL_CONTENT_STYLE_BLOCK}"
         f"{_HEADER_SLOT}\n"
         f"{body_html}\n"
-        f"{_FOOTER_SLOT}\n"
         "</td></tr>\n"
         "</table>\n"
         "</td></tr>\n"
@@ -605,47 +614,43 @@ def _insert_before_body_close_tag(html_document: str, fragment_to_insert: str) -
     return html_document[:insertion_point] + fragment_to_insert + html_document[insertion_point:]
 
 
-def _html_with_header(html_body, feedback_link=None):
-    """Insert the top banner immediately after the document's opening `<body>`
-    tag: feedback prompt (when available) + forward-friendly sign-up prompt +
-    AI-curation disclaimer, all in one box.
+def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
+    """Insert the top "meta" box at the `_HEADER_SLOT` marker `derive_html()` emits
+    inside the card cell (falling back to just-after-`<body>` for a bare/old-format
+    document). ONE box carries every recipient-facing meta line, in one consistent
+    font size (14px), flush-left with the brief body:
 
-    The feedback link is per-recipient (each person's own token), so this is called
-    once per recipient rather than once shared across the whole send. Omitted
-    gracefully when unavailable (fail-safe: never blocks or degrades the send).
+      - feedback prompt (when a per-recipient feedback link is available),
+      - forward/subscribe prompt (everyone),
+      - **unsubscribe** (when a per-recipient unsubscribe link is available -- i.e. real
+        subscribers; NOT the owner's own copy) -- moved here from a separate bottom
+        footer so it lives in the prominent top box (owner request 2026-07-07),
+      - AI-curation disclaimer.
 
-    Added to every recipient's copy (owner included) since the owner is the most
-    likely person to forward their own copy along to someone else.
-
-    COMPOSITION FIX (reviewer-found bug): previously prepended via
-    `header + html_body` (correct only when `html_body` was a bare fragment,
-    not a complete document) -- then inserted via `_insert_after_body_open_tag()`,
-    placing the banner as the first thing inside `<body>`, still visually "at the
-    top" but now actually inside the document root.
-
-    ALIGNMENT FIX (first rendered eyeball): inserting at the `<body>` level put
-    the banner OUTSIDE `derive_html()`'s centered 640px content card -- it ran
-    full-width and left-aligned while the brief body sat centered, so the two
-    didn't line up. The banner is now placed at the `_HEADER_SLOT` marker
-    `derive_html()` emits INSIDE the card cell (after the content `<style>`
-    block, before the brief body), so it shares the card's width and 40px side
-    padding and lines up with the body text. Falls back to the old
-    `_insert_after_body_open_tag()` body-level insertion when no slot is present
-    (a bare fragment, or production `audio_email.py`'s agent-improvised document,
-    which has no card). Banner text/styling are unchanged.
-    """
+    Both links are per-recipient, so this is called once per recipient. Each line is
+    omitted gracefully when its link is absent (fail-safe: never blocks the send)."""
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
         f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
         if feedback_link
         else ""
     )
+    unsubscribe_line = (
+        f'<p style="margin:0 0 6px 0;">✉️ You\'re subscribed to the daily AI brief — '
+        f'<a href="{unsubscribe_link}">unsubscribe</a> any time.</p>'
+        if unsubscribe_link
+        else ""
+    )
     header = (
-        '<div style="background:#f5f5f7;border-radius:8px;padding:12px 16px;'
-        'margin-bottom:20px;font-size:12px;color:#555;line-height:1.5;">'
+        # A flush, divider-separated top box (no inset): all lines share the card cell's
+        # content edge, so they line up with the headlines/body below, and every line is
+        # the SAME 14px size (owner request: align the sizes in the top box).
+        '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
+        'font-size:14px;color:#666;line-height:1.5;">'
         f"{feedback_line}"
         '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
         f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
+        f"{unsubscribe_line}"
         '<p style="margin:0;">This brief is curated and written by an AI agent, '
         "which may make mistakes. For anything important, please verify with "
         "original sources and do your own research.</p>"
@@ -654,36 +659,6 @@ def _html_with_header(html_body, feedback_link=None):
     if _HEADER_SLOT in html_body:
         return html_body.replace(_HEADER_SLOT, header, 1)
     return _insert_after_body_open_tag(html_body, header)
-
-
-def _html_with_unsubscribe_footer(html_body, unsubscribe_link):
-    """Insert the unsubscribe footer immediately before the document's closing
-    `</body>` tag.
-
-    COMPOSITION FIX (reviewer-found bug): previously appended via
-    `html_body + footer` (correct only when `html_body` was a bare fragment) --
-    then inserted via `_insert_before_body_close_tag()`, placing the footer as
-    the last thing inside `<body>`, so the unsubscribe link it carries is part
-    of the rendered message rather than stranded past `</html>`.
-
-    ALIGNMENT FIX (first rendered eyeball): inserting at the `</body>` level put
-    the footer OUTSIDE `derive_html()`'s centered content card (full-width,
-    left-aligned, not lined up with the brief body). The footer is now placed at
-    the `_FOOTER_SLOT` marker `derive_html()` emits INSIDE the card cell (after
-    the brief body), so it shares the card's width/padding and lines up with the
-    body. Falls back to the old `_insert_before_body_close_tag()` body-level
-    insertion when no slot is present (a bare fragment, or production
-    `audio_email.py`'s agent-improvised document). Footer text/styling are
-    unchanged.
-    """
-    footer = (
-        '<hr><p style="font-size:12px;color:#666;">'
-        f'You are receiving this because you subscribed to the daily AI brief. '
-        f'<a href="{unsubscribe_link}">Unsubscribe</a> at any time.</p>'
-    )
-    if _FOOTER_SLOT in html_body:
-        return html_body.replace(_FOOTER_SLOT, footer, 1)
-    return _insert_before_body_close_tag(html_body, footer)
 
 
 # ---------------------------------------------------------------------------
@@ -763,8 +738,9 @@ def send_all(
                 subscriber_feedback_link = _feedback_link(
                     secretsmanager_client, email, brief_date, feedback_base_url, feedback_token_secret_arn
                 )
-                subscriber_html = _html_with_header(brief_html, subscriber_feedback_link)
-                subscriber_html = _html_with_unsubscribe_footer(subscriber_html, unsubscribe_link)
+                # Unsubscribe now lives in the top meta box (not a separate footer), so a
+                # single _html_with_header call carries feedback + subscribe + unsubscribe.
+                subscriber_html = _html_with_header(brief_html, subscriber_feedback_link, unsubscribe_link)
                 subscriber_msg = _build_message(SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename)
                 r = ses_client.send_raw_email(
                     Source=SUBSCRIBER_SENDER, Destinations=[email], RawMessage={"Data": subscriber_msg.as_string()}
@@ -864,7 +840,6 @@ __all__ = [
     "send_confirmation_email",
     "_build_confirmation_email",
     "_html_with_header",
-    "_html_with_unsubscribe_footer",
     "_query_confirmed_subscribers",
     "_unsubscribe_link",
     "_feedback_link",

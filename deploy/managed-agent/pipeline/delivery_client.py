@@ -7,8 +7,14 @@ content artifacts (brief markdown, listening script, candidates.json,
 source-usage.json), and this client hands them across the network to the
 `deploy/delivery/` boundary's `POST /deliver` (which derives HTML, synthesizes
 audio, sends, and archives all four) and reads recent priors via
-`GET /recent-briefs`. It holds NO AWS credentials or IAM at all (PRD FR-1) -- its
-only capabilities are two bearer-authed HTTP calls.
+`GET /recent-briefs`. It holds NO AWS DELIVERY IAM (PRD FR-1) -- no Polly/S3/SES/
+DynamoDB. Its only AWS access (ADR-0015 D6, Option B) is two ARN-scoped Secrets
+Manager reads -- the `POST /deliver` bearer (`DELIVERY_BEARER_SECRET_ARN`) and the
+recent-briefs signing key (`RECENT_BRIEFS_SIGNING_SECRET_ARN`) -- read via the MicroVM's
+own stripped role exactly like it already reads the environment-key secret, so no secret
+value ever transits the launcher/run payload. It reads the bearer for `POST /deliver` and
+MINTS a short-lived signed token itself for `GET /recent-briefs`. `DELIVERY_BASE_URL` is
+plain (non-secret) config from the run environment.
 
 It mirrors `audio_email.py`'s two CLI shapes so `deployment.json` swaps
 `audio_email.py` -> `delivery_client.py` with no other prompt change:
@@ -48,8 +54,20 @@ import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import boto3
+
+import recent_briefs_token  # hand-duplicated into the pipeline, see recent_briefs_token.py
+
 CONTRACT_VERSION = 2
 DEFAULT_RECENT_BRIEFS_COUNT = 3
+REGION = "us-east-1"
+
+# TTL for the recent-briefs read token this client mints per run (ADR-0015 D6, Option B:
+# the MicroVM reads the signing key via its own scoped role and mints the token itself,
+# rather than the launcher injecting it). Short by design -- the priors read happens in
+# the first minute of the run -- so a transcript-leaked token is dead within minutes.
+# Mirrors deploy/candidates/candidate_sync/trigger.py's RECENT_BRIEFS_TOKEN_TTL_SECONDS.
+RECENT_BRIEFS_TOKEN_TTL_SECONDS = 20 * 60
 
 # Poll budget for a real delivery: Polly's own ~5-minute allowance plus the SES
 # fan-out loop -- generously above the real runtime, matching the delivery Lambda's
@@ -66,6 +84,43 @@ class DeliveryError(RuntimeError):
 
 def _today_local_date(timezone: str) -> str:
     return datetime.now(ZoneInfo(timezone)).strftime("%Y-%m-%d")
+
+
+# ---------------------------------------------------------------------------
+# Secret resolution (ADR-0015 D6, Option B) -- the MicroVM's stripped execution role
+# holds ARN-scoped Secrets Manager grants on exactly the delivery bearer + the
+# recent-briefs signing key (like it already reads the environment-key secret), so this
+# client reads their VALUES itself rather than the launcher injecting them. Keeps the
+# launcher's "references only, never values" credential boundary intact.
+# ---------------------------------------------------------------------------
+
+
+def _read_secret_value(arn: str, *, sm_client=None) -> str:
+    """Read a Secrets Manager secret's string value by ARN. Raises DeliveryError (loud)
+    on a missing ARN or a read failure -- the caller decides whether that is fatal (the
+    send bearer is; the recent-briefs signing key degrades gracefully in read mode)."""
+    if not arn:
+        raise DeliveryError("secret ARN not configured")
+    client = sm_client or boto3.client("secretsmanager", region_name=REGION)
+    try:
+        return client.get_secret_value(SecretId=arn)["SecretString"]
+    except Exception as e:  # noqa: BLE001
+        raise DeliveryError(f"cannot read secret {arn}: {e!r}") from e
+
+
+def resolve_bearer(*, sm_client=None) -> str:
+    """The `POST /deliver` bearer, read from `DELIVERY_BEARER_SECRET_ARN`. Required for a
+    send -- a failure here raises DeliveryError (loud, non-zero exit)."""
+    return _read_secret_value(os.environ.get("DELIVERY_BEARER_SECRET_ARN", ""), sm_client=sm_client)
+
+
+def resolve_recent_briefs_token(*, sm_client=None, now=None) -> str:
+    """Mint a short-lived signed `GET /recent-briefs` token from the signing key in
+    `RECENT_BRIEFS_SIGNING_SECRET_ARN` (same scheme the delivery endpoint verifies and
+    `deploy/candidates/trigger.py` uses). Raises DeliveryError on a read failure; the
+    read-mode caller catches it and degrades to "no priors" (never aborts the run)."""
+    signing_key = _read_secret_value(os.environ.get("RECENT_BRIEFS_SIGNING_SECRET_ARN", ""), sm_client=sm_client)
+    return recent_briefs_token.generate(signing_key, ttl_seconds=RECENT_BRIEFS_TOKEN_TTL_SECONDS, now=now)
 
 
 def _http_request(method: str, url: str, headers: dict, body: bytes | None = None, timeout: int = HTTP_TIMEOUT_SECONDS):
@@ -245,7 +300,10 @@ def build_send_payload() -> dict:
 
 def _send_mode() -> int:
     base_url = os.environ.get("DELIVERY_BASE_URL", "").rstrip("/")
-    bearer = os.environ.get("DELIVERY_BEARER_TOKEN", "")
+    # The bearer is read from Secrets Manager (Option B). A failure raises DeliveryError
+    # -> loud non-zero exit: a send cannot proceed without it, and a silently-skipped
+    # send would be exactly the "dropped brief" D8 forbids.
+    bearer = resolve_bearer()
     payload = build_send_payload()
     summary = trigger_and_poll(base_url, bearer, payload)
     # A successful delivery whose audio failed is still a success (text-only
@@ -257,8 +315,15 @@ def _send_mode() -> int:
 
 def _read_recent_briefs_mode(count: int) -> int:
     base_url = os.environ.get("DELIVERY_BASE_URL", "").rstrip("/")
-    read_token = os.environ.get("RECENT_BRIEFS_TOKEN", "")
     working_folder = os.environ.get("WORKING_FOLDER", "/workspace")
+    # Mint the read token from the signing key (Option B). GRACEFUL degrade: a resolution
+    # failure logs and proceeds with no priors -- a missing priors read must never abort
+    # the run (cold-start is the normal case), matching read_recent_briefs()'s contract.
+    try:
+        read_token = resolve_recent_briefs_token()
+    except Exception as e:  # noqa: BLE001 - priors read must never abort the run
+        print("DELIVERY_RECENT_BRIEFS_SKIPPED: cannot resolve read token:", repr(e))
+        return 0
     read_recent_briefs(base_url, read_token, working_folder, count)
     return 0
 
