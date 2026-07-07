@@ -9,12 +9,19 @@ The current active PRD for this project:
 Status: **ACTIVE — agent cost-optimization epic (2026-07-07).** A **combined A/B/C epic** (owner
 decision): **A** re-integrate the eval harness with the new candidate mechanism, **B** configure &
 deploy the candidate set, **C** run the comparison & decide the future production set-up. Sequenced
-**B → A → C**. **B (candidate declarations) is BUILT** on branch `feat/cost-optimization-candidates`
-(`haiku-swap`, `multiagent-aggressive-haiku`, `session-restructure`; `production-baseline` pre-exists)
-— all content-generation only, delivery-free, **no TTS in evals**. **A is developed next in this
-thread**; **C** follows. Full plan, final candidate set (incl. the aggressive-#3 split and the #5/#6
-backburner), A UI requirements, and the decisions/flags log (no-TTS, branch topology, the
-multi-agent-execution A-verification item) live in `cost-optimization-candidates.md`, imported above.
+**B → A → C**. **B is DONE** (all four candidates declared AND synced to real Platform `agent_id`s —
+the multi-agent coordinator roster shape was fixed against the live API in the process). **A is
+BUILT + reviewed + security-cleared + live-validated** (PR #37): the local-first, git-native
+`deploy/eval-harness/` per **ADR-0016** (Accepted) — per-thread model-aware cost, run CLI, Flask UI
+(runs permanently as a local launchd service on 127.0.0.1:5151), three real judged run records
+committed. **Judge methodology v2** (owner-directed 2026-07-07, ADR-0016 amendment; branch
+`feat/judge-methodology`, reviewer + security GO): all-Opus judges, the accuracy judge WEB-VERIFIES
+claims via server-side search/fetch (kills the v1 knowledge-cutoff bias — all three candidates
+re-scored factual=5), content-selection sharpens disagreements via search, dedup gets a strictly
+prior-days one-per-day feed + labelled/justified findings, prompt caching on every judge call
+(measured −45%). **C (run & decide) is NEXT.** Full plan, final candidate set (incl. the
+aggressive-#3 split and the #5/#6 backburner), A UI requirements, and the decisions/flags log live
+in `cost-optimization-candidates.md`, imported above.
 **This branch was reconciled with `main` on 2026-07-07 (merge): it now carries the shipped
 agent-system-redesign + the live ADR-0015 delivery cut-over described below.**
 

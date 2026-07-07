@@ -1,53 +1,70 @@
 {
-  "model": "claude-haiku-4-5",
-  "total_cost_usd": 0.0411,
+  "models": [
+    "claude-opus-4-8"
+  ],
+  "total_cost_usd": 1.6906,
+  "total_search_count": 13,
+  "total_search_cost_usd": 0.13,
+  "grand_total_cost_usd": 1.8206,
   "total_usage": {
-    "input_tokens": 33928,
-    "output_tokens": 1432,
-    "cache_read_input_tokens": 0,
-    "cache_creation_5m_input_tokens": 0,
+    "input_tokens": 22,
+    "output_tokens": 7157,
+    "cache_read_input_tokens": 274100,
+    "cache_creation_5m_input_tokens": 219915,
     "cache_creation_1h_input_tokens": 0
   },
   "per_criterion": {
     "content_selection": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 5301,
-        "output_tokens": 364,
-        "cache_read_input_tokens": 0,
-        "cache_creation_5m_input_tokens": 0,
+        "input_tokens": 8,
+        "output_tokens": 2493,
+        "cache_read_input_tokens": 118537,
+        "cache_creation_5m_input_tokens": 82303,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0071
+      "cost_usd": 0.636,
+      "search_count": 5,
+      "search_cost_usd": 0.05
     },
     "factual_accuracy": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 4689,
-        "output_tokens": 443,
-        "cache_read_input_tokens": 0,
-        "cache_creation_5m_input_tokens": 0,
+        "input_tokens": 10,
+        "output_tokens": 3752,
+        "cache_read_input_tokens": 155563,
+        "cache_creation_5m_input_tokens": 102903,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0069
+      "cost_usd": 0.8148,
+      "search_count": 8,
+      "search_cost_usd": 0.08
     },
     "length_format": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 4754,
-        "output_tokens": 373,
+        "input_tokens": 2,
+        "output_tokens": 274,
         "cache_read_input_tokens": 0,
-        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 6898,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0066
+      "cost_usd": 0.05,
+      "search_count": 0,
+      "search_cost_usd": 0.0
     },
     "dedup": {
+      "model": "claude-opus-4-8",
       "usage": {
-        "input_tokens": 19184,
-        "output_tokens": 252,
+        "input_tokens": 2,
+        "output_tokens": 638,
         "cache_read_input_tokens": 0,
-        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 27811,
         "cache_creation_1h_input_tokens": 0
       },
-      "cost_usd": 0.0204
+      "cost_usd": 0.1898,
+      "search_count": 0,
+      "search_cost_usd": 0.0
     }
   }
 }

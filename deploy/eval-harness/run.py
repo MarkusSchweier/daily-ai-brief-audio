@@ -345,12 +345,14 @@ def _price_judge_results(
 
         criterion_token_cost = cost.price_usage(usage, model=model, pricing_table=pricing_table, on_date=on_date)
         search_count = result.search_count
-        # search_count reflects the max_uses cap the judge's tools declared (an
-        # upper bound the caller can always see on the judge module itself, e.g.
-        # accuracy.py's `_MAX_TOOL_USES`) even when the actual count is 0 or the
-        # response didn't report server_tool_use at all -- price_web_searches()
-        # itself returns 0.0 for search_count<=0, so this is never silently
-        # dropped, just correctly zero when no searches were made/reported.
+        # search_count is the ACTUAL number of billed searches, captured from the
+        # API response's usage.server_tool_use.web_search_requests by
+        # base._extract_search_count() (defaulting to 0 when the response carries
+        # no server_tool_use at all -- e.g. a tool-less judge). It is NOT the
+        # judge's declared max_uses cap; that cap only bounds it from above.
+        # price_web_searches() returns 0.0 for search_count<=0, so a zero is
+        # priced correctly, never silently dropped. (Comment corrected per the
+        # 2026-07-07 security review's L-2 note -- the code was always right.)
         criterion_search_cost = cost.price_web_searches(search_count, pricing_table=pricing_table)
 
         total_token_cost_usd += criterion_token_cost
