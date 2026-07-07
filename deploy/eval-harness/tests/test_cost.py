@@ -305,6 +305,68 @@ def test_mine_session_cost_falls_back_to_the_threads_own_agent_when_not_in_the_d
     assert orphan.role == "writing"  # keyword-derived from its own name
 
 
+def test_mine_session_cost_falls_back_to_a_pure_positional_label_when_no_keyword_matches():
+    """review-fix, item 10: a sub-agent thread whose name/description contain
+    NONE of the daily-ai-brief phase keywords (_PHASE_LABELS) -- unlike the
+    orphan-thread test above, which still matches "writing" -- must fall back to
+    the pure positional f"sub-agent-{index}" label, never an invented/guessed
+    phase name."""
+    threads = [
+        _thread("sthr_1", agent_id="agent_coord", model_id="claude-sonnet-5", parent_thread_id=None, created_at="1"),
+        _thread(
+            "sthr_2",
+            agent_id="agent_mystery_1",
+            model_id="claude-haiku-4-5-20251001",
+            name="totally-unrelated-agent-name",
+            description="Does something the phase vocabulary has no word for.",
+            parent_thread_id="sthr_1",
+            created_at="2",
+        ),
+        _thread(
+            "sthr_3",
+            agent_id="agent_mystery_2",
+            model_id="claude-haiku-4-5-20251001",
+            name="another-unrelated-agent-name",
+            description="Also nothing recognizable here.",
+            parent_thread_id="sthr_1",
+            created_at="3",
+        ),
+    ]
+
+    breakdown = cost.mine_session_cost("sesn_1", threads, pricing_table=cost.load_pricing_table(), on_date=date(2026, 7, 7))
+
+    roles_by_agent_id = {t.agent_id: t.role for t in breakdown.threads}
+    assert roles_by_agent_id["agent_mystery_1"] == "sub-agent-1"
+    assert roles_by_agent_id["agent_mystery_2"] == "sub-agent-2"
+
+
+def test_mine_session_cost_declaration_path_also_falls_back_to_a_positional_label():
+    """The SAME positional fallback (`_declaration_agent_id_map`, cost.py) applies
+    when resolving via the PRIMARY (candidate-declaration) path too, not just the
+    thread-fallback path covered above -- a declared sub-agent whose name/
+    description match no phase keyword gets f"sub-agent-{index}", never a guess."""
+    declaration = CandidateDeclaration(
+        slug="synthetic",
+        directory=Path("."),
+        candidate_json={},
+        agent=_agent(name="coordinator", model="claude-sonnet-5", agent_id="agent_coord"),
+        sub_agents=[
+            _agent(name="totally-unrelated-agent-name", model="claude-haiku-4-5-20251001", agent_id="agent_mystery")
+        ],
+    )
+    threads = [
+        _thread("sthr_1", agent_id="agent_coord", model_id="claude-sonnet-5", parent_thread_id=None, created_at="1"),
+        _thread("sthr_2", agent_id="agent_mystery", model_id="claude-haiku-4-5-20251001", parent_thread_id="sthr_1", created_at="2"),
+    ]
+
+    breakdown = cost.mine_session_cost(
+        "sesn_1", threads, pricing_table=cost.load_pricing_table(), on_date=date(2026, 7, 7), candidate_declaration=declaration
+    )
+
+    mystery = next(t for t in breakdown.threads if t.agent_id == "agent_mystery")
+    assert mystery.role == "sub-agent-1"
+
+
 def test_mine_session_cost_single_agent_root_thread_is_labeled_primary_not_coordinator():
     threads = [_thread("sthr_1", agent_id="agent_solo", model_id="claude-sonnet-5", parent_thread_id=None, created_at="1")]
 

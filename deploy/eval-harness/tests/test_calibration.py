@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval_core.calibration import (  # noqa: E402
-    CriterionCorrelation,
     correlate_judge_vs_reader,
     extract_free_text_feedback,
     query_feedback_table,

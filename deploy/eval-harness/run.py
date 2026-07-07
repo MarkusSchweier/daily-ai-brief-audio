@@ -143,7 +143,23 @@ def _extract_named_artifacts(artifacts: dict[str, str]) -> tuple[str | None, str
     `deploy/candidates/production-baseline/task-prompt.md`'s output contract) from
     the raw `{filename: content}` map `fetch_catted_file_contents()` returns.
     Returns `(brief_markdown, listening_script, candidates_json_raw,
-    source_usage_raw)`, any of which may be None if that file was never `cat`'d."""
+    source_usage_raw)`, any of which may be None if that file was never `cat`'d.
+
+    INVARIANT this function relies on (reviewer note, review-fix pass): every
+    candidate task prompt (see `deploy/candidates/*/task-prompt.md`'s explicit
+    "After [writing/the sub-agents have written] each of the four files, run
+    `cat` on each one individually... Stop once the brief, the listening script,
+    candidates.json, and source-usage.json are all written") instructs the
+    agent/coordinator to `cat` ONLY those four named files -- it never cats a
+    PRIOR brief written earlier in Step 0 (those are read as research input, not
+    re-emitted). So `f.startswith("AI Brief") and f.endswith(".md")` below can
+    only ever match ONE entry in `artifacts` in real usage; the "first match by
+    dict insertion order wins" behavior (see
+    `test_extract_named_artifacts_picks_out_the_four_named_files`'s own comment)
+    is unreachable ambiguity today ONLY because this invariant holds. If a future
+    candidate's task prompt ever cats a prior brief too, this function would need
+    a real disambiguation rule (e.g. match today's actual date), not silently
+    pick whichever happens to come first."""
     brief_markdown = _find_artifact(artifacts, predicate=lambda f: f.startswith("AI Brief") and f.endswith(".md"))
     listening_script = _find_artifact(artifacts, predicate=lambda f: f == "listening-script.txt")
     candidates_json_raw = _find_artifact(artifacts, predicate=lambda f: f == "candidates.json")
