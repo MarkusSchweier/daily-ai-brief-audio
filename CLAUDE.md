@@ -74,8 +74,15 @@ Loaded alongside the global operating manual (`~/.claude/CLAUDE.md`). Keep this 
   (`deliveryDecoupled=true`). `audio_email.py` remains in image v13 only as the documented rollback
   path (re-point the scheduled deployment + redeploy the CDK without the flag).
 - `deploy/candidates/` — git-native candidate declarations + `sync.py`/`trigger.py` for `cloud`
-  eval/experimentation (agent-system-redesign epic); `deploy/eval/` — the evaluation harness
-  (eval-harness epic). Both are their own deploy units with their own `README.md`.
+  eval/experimentation (agent-system-redesign epic); `deploy/eval-harness/` — the local-first,
+  git-native evaluation harness (ADR-0016): run CLI, all-Opus web-verifying judges, per-thread
+  cost, Flask UI as a local launchd service on 127.0.0.1:5151, git-tracked run records. Both are
+  their own deploy units with their own `README.md`. *(The ORIGINAL AWS-native harness,
+  `deploy/eval/` + `BriefEvalStack` (ADR-0013), was RETIRED and fully torn down on 2026-07-08 per
+  ADR-0016 phase 5 — directory removed from the tree, stack/table/secrets/bucket deleted; its old
+  eval records are archived at `docs/notes/brief-eval-records-export-2026-07-08.json` and the code
+  remains in git history. Historical references to `deploy/eval/` in ADRs/PRDs and code comments
+  are intentional provenance notes.)*
 - `deploy/scheduled-task-audio.md`, `deploy/audio_email.py`, `deploy/iam-policy.json`,
   `deploy/audio-mail-integration.md`, `deploy/validation-handoff.md` — the **now-dead local Desktop
   path** (retired, not reactivated — agent-system-redesign epic; kept as historical reference only).
