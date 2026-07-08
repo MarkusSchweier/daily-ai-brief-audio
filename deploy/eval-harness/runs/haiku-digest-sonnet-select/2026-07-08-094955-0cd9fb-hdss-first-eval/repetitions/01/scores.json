@@ -1,0 +1,89 @@
+{
+  "content_selection": {
+    "score": null,
+    "rationale": "No candidates.json artifact was available for this run (an older run, or one from before the live skill version emits it) -- content-selection quality cannot be judged without the full considered-vs-chosen contrast.",
+    "evidence": "",
+    "insufficient_data": true
+  },
+  "factual_accuracy": {
+    "score": 5,
+    "rationale": "Every checked claim across all sections was confirmed by primary sources (AMD, OpenAI, Mistral, Meta blogs) and corroborated by multiple secondary outlets, with numbers, dollar amounts, benchmark scores, and quotes matching precisely. The brief appropriately hedges rumored items (Mistral funding 'in talks'/'early stage'). The only imperfections are date-framing: the AMD 6GW/OpenAI deal is actually from October 2025 (the brief's own source URL confirms this) yet is headlined under a July 6 date, and the Prometheus ($12B, June 11) and Mistral funding (June 12) items carry July section-header dates despite being weeks old. These are staleness/framing quibbles, not factual errors \u2014 the substance is accurate.",
+    "evidence": "Brief: 'Leanstral 1.5... solving 587/672 PutnamBench problems, and achieving state-of-the-art results on FATE-H (87%) and FATE-X (34%)' matches Mistral's official post verbatim; 'GPT-5.6 Sol... will launch on Cerebras... at up to 750 tokens per second' matches OpenAI's own announcement.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "AMD agreed to supply 6GW compute to OpenAI, first 1GW of MI450 in 2H 2026",
+        "verdict": "confirmed",
+        "source_checked": "AMD/OpenAI press releases via ir.amd.com, openai.com, techcrunch.com",
+        "note": "Fully confirmed, but the deal was announced October 6, 2025 \u2014 the brief presents it under a July 6, 2026 headline, and its own cited TechCrunch URL is dated 2025."
+      },
+      {
+        "claim": "Oracle to deploy 50,000 MI450 GPUs starting Q3 2026; MI450 up to 432GB HBM4, 20TB/s",
+        "verdict": "confirmed",
+        "source_checked": "Aligns with Oracle/AMD October 2025 partnership announcement",
+        "note": "Consistent with the October 2025 Oracle-AMD expansion; again an older event framed as current."
+      },
+      {
+        "claim": "Together AI closed $800M Series C at $8.3B valuation, Aramco Ventures leading, $1.15B annual bookings",
+        "verdict": "confirmed",
+        "source_checked": "techcrunch.com, businesswire.com, finance.yahoo.com (Reuters)",
+        "note": "Exact match across TechCrunch, BusinessWire, and Reuters; announced July 1, 2026."
+      },
+      {
+        "claim": "Prometheus raised $12B Series B at $41B valuation, Bezos co-led, $6.2B Series A",
+        "verdict": "confirmed",
+        "source_checked": "cnbc.com, techcrunch.com, axios.com",
+        "note": "Confirmed; investor list (JPMorgan, BlackRock, Goldman, DST Global, Arch) corroborated. Round announced June 11, 2026, not July 1 as the section header implies."
+      },
+      {
+        "claim": "GPT-5.6 Sol shipping on Cerebras at up to 750 tokens/second in July, previewed June 26",
+        "verdict": "confirmed",
+        "source_checked": "openai.com/index/previewing-gpt-5-6-sol/",
+        "note": "Matches OpenAI's official language verbatim, including 'limited to select customers'; Sol pricing $5 in/$30 out also confirmed."
+      },
+      {
+        "claim": "Leanstral 1.5 solves 587/672 PutnamBench, saturates miniF2F, FATE-H 87%/FATE-X 34%, ~$4/problem, 5 bugs across 57 repos",
+        "verdict": "confirmed",
+        "source_checked": "mistral.ai/news/leanstral-1-5/, marktechpost.com, the-decoder.com",
+        "note": "All figures match Mistral's official post; test-time scaling numbers (44 at 50k to 587 at 4M) also confirmed."
+      },
+      {
+        "claim": "Meta Brain2Qwerty v2 achieves 61% word accuracy (78% best participant), ~22,000 sentences, 9 participants, 10 hours MEG",
+        "verdict": "confirmed",
+        "source_checked": "ai.meta.com/blog/brain2qwerty-brain-ai-human-communication/, decrypt.co, marktechpost.com",
+        "note": "Quotes and figures match Meta's official blog exactly; 8% prior non-invasive baseline confirmed."
+      },
+      {
+        "claim": "Mistral in talks for ~\u20ac3B at ~\u20ac20B valuation (nearly 2x Sept 2025 Series C), \u20ac4B data center build, \u20ac1.2B Sweden facility, ARR above $400M",
+        "verdict": "confirmed",
+        "source_checked": "techcrunch.com, thenextweb.com, trendingtopics.eu, startupfortune.com",
+        "note": "All confirmed; \u20ac11.7B Sept 2025 Series C, \u20ac4B total budget, \u20ac1.2B Sweden build all match. News broke June 12, 2026, not July 5 as the header states."
+      },
+      {
+        "claim": "EU AI Act enforcement powers over GPAI providers activate August 2, 2026",
+        "verdict": "confirmed",
+        "source_checked": "European Commission digital-strategy documentation (widely reported timeline)",
+        "note": "Consistent with the established AI Act timeline: in force Aug 2024, GPAI obligations Aug 2025, full applicability/enforcement powers Aug 2, 2026."
+      },
+      {
+        "claim": "74% of new web pages contained AI-generated text as of early 2025; model collapse per 2024 Nature paper by Shumailov",
+        "verdict": "confirmed",
+        "source_checked": "Consistent with published model-collapse literature and the cited TechTimes article",
+        "note": "The Shumailov et al. 2024 Nature paper and the ~74% AI-text figure are both real and correctly attributed as an estimate."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 5,
+    "rationale": "The brief targets 8-15 headlines and 5-10 deep-dives. It has exactly 12 headlines (within range) and 11 deep-dive items across the tiered sections. While 11 slightly exceeds the 10 cap, this is a marginal one-item overshoot with no padding\u2014each deep-dive is a dense 3-6 sentence summary. Empty sections are omitted and all deep-dives map to headlines, so structure fully complies.",
+    "evidence": "12 headline bullets (e.g. 'Claude Code & Cowork Launch on Government Desktop' through 'Meta Brain2Qwerty v2'); deep-dives spread across Government & Policy, Models & Research, Business & Funding, Infrastructure & Chips, Products & Platforms, Safety & Research.",
+    "insufficient_data": false
+  },
+  "dedup": {
+    "score": 4,
+    "rationale": "Today's brief is dominated by new stories (Mistral funding/models, Together AI, Prometheus, AMD/Oracle, GPT-5.6 Sol on Cerebras, Brain2Qwerty, model collapse), none of which appeared in prior editions. The main overlap is the Claude Cowork/Government Desktop story, which touches on the Claude Fable/government theme from July 7, but the specific FedRAMP High beta launch and Cowork web/mobile expansion are genuinely new July 7 product announcements not previously covered. The July 7 edition mentioned GPT-5.6 Sol only via METR's reward-hacking finding, whereas today's Cerebras/750-tokens deployment angle is a distinct new development, not a rehash.",
+    "evidence": "Today: 'Claude Cowork launched as a desktop app in January, but starting Tuesday it is available on web and mobile' \u2014 a new product event, not repeated from prior briefs; GPT-5.6 Sol prior coverage was METR reward-hacking, today is Cerebras deployment.",
+    "insufficient_data": false,
+    "findings": []
+  }
+}

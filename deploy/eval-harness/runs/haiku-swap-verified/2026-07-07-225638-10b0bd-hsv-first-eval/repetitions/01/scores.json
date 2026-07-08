@@ -1,0 +1,160 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "Most included stories check out as genuinely timely and significant (TeraWulf's $19B Anthropic lease on July 6, SK Hynix's ~$28B Nasdaq listing pricing this week, Fable 5 metering July 7, the UN Geneva dialogue closing July 6-7). However, the lead story \u2014 'Anthropic overtakes OpenAI in revenue' at $47B \u2014 is largely stale: that $47B run-rate and the revenue crossover were disclosed and widely reported back in late May 2026 with the Series H round (the brief's own dek references the late-May valuation), making it a weak choice for a July 7 top headline. More importantly, the Cloudflare AI crawler policy (Sept 15 deadline, announced July 1) was excluded despite being one of the week's most consequential AI/web-economy policy stories affecting OpenAI, Anthropic and Google \u2014 a defensible miss. The double Microsoft inclusion (layoffs + AI deployment company) is mildly redundant.",
+    "evidence": "Included lead: 'Anthropic's annualized revenue ($47B) now exceeds OpenAI ($25B)' \u2014 but CNBC/Axios reported the $47B run rate and the OpenAI revenue crossover on May 28, 2026; excluded: 'Cloudflare AI crawler policy enforces self-identification by September 15.'",
+    "insufficient_data": false,
+    "selection_disagreements": [
+      {
+        "story": "Cloudflare AI crawler policy enforces self-identification / mixed-crawler blocking by September 15",
+        "judge_view": "should have been included",
+        "rationale": "Web research confirms this was a major, heavily-covered story (TechCrunch, NBC, Search Engine Journal, Help Net Security) tied to Cloudflare's July 1 'Content Independence Day' announcement, setting a Sept 15 default-block deadline that directly squeezes Googlebot and reshapes how OpenAI/Anthropic/Google access web content. Cloudflare sits in front of roughly a fifth of the web, so its defaults become de facto policy for millions of sites \u2014 clearly more novel and impactful for a July 7 brief than a recycled May revenue figure. It belonged in the Policy/Society section."
+      },
+      {
+        "story": "Anthropic overtakes OpenAI in annualized revenue ($47B vs $25B)",
+        "judge_view": "should have been excluded",
+        "rationale": "Research shows the $47B run-rate and the revenue-crossover narrative were disclosed and widely reported (CNBC, Axios, Neowin, DCD) on May 28, 2026 alongside the $965B Series H \u2014 nearly six weeks before this brief. The brief's own dek concedes the valuation was 'announced in late May 2026.' As a July 7 top headline it is stale; at most it warranted a brief mention pegged to a genuinely new July data point (e.g., the Epoch AI trend piece) rather than the lead slot."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 3,
+    "rationale": "The majority of the brief's headline claims are strongly and precisely confirmed by live sourcing: the TeraWulf/Anthropic $19B 20-year, 401MW Kentucky lease; Microsoft's ~4,800-5,000 Xbox/commercial-sales layoffs; SK Hynix's ~$28B second-largest-ever Nasdaq IPO; the UN Global Dialogue on AI Governance and Bengio's scientific panel; and the Fable 5 July 7 metered-credits switch at $10/$50 per million tokens (all verbatim-accurate on numbers and dates). However, two substantive sections have real problems: the lead revenue claim presents a $47B figure (traceable only to a Sacra May 2026 estimate) as the current headline, when the widely-reported April 2026 figure was ~$30B and OpenAI publicly disputed Anthropic's accounting \u2014 a hedge the brief drops entirely; and the Xiaomi/OpenRouter section presents early-April-2026 data (21.1% vs 7.5%, 45% Chinese traffic, MiMo-V2-Pro) as fresh July 6-7 news, with a stale model name and a token figure (4.21T vs ~4.65T) that doesn't match. These are meaningful staleness/accuracy defects, not fabrications.",
+    "evidence": "Brief claims Xiaomi MiMo-V2-Pro reached '21.1% share vs OpenAI 7.5%' as July 6-7 news, but sourcing shows these figures are 'As of early April' 2026 and the model was superseded by MiMo-V2.5-Pro on April 22; likewise the '$47 billion' run-rate traces to a Sacra May estimate while contemporaneous reporting pegged Anthropic at ~$30B.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "Anthropic ~$47B annualized run-rate revenue now exceeds OpenAI's ~$25B",
+        "verdict": "unverifiable",
+        "source_checked": "sqmagazine.co.uk, the-ai-corner.com, forbes.com",
+        "note": "OpenAI's ~$25B is confirmed, and Anthropic did overtake OpenAI, but the $47B figure is a Sacra (May 2026) estimate; the primary reported April 2026 figure was ~$30B, so the brief presents the highest available estimate as the settled headline number."
+      },
+      {
+        "claim": "Crossover predicted by Epoch AI in Feb 2026 for mid-year; Anthropic grew ~10x/yr since $1B in Jan 2025",
+        "verdict": "confirmed",
+        "source_checked": "trendingtopics.eu",
+        "note": "Epoch AI's February 2026 mid-2026 prediction and the $1B January 2025 baseline are confirmed; growth was ~30x over 15 months per multiple sources."
+      },
+      {
+        "claim": "~80% of Anthropic revenue from enterprise; OpenAI 900M+ weekly ChatGPT users",
+        "verdict": "confirmed",
+        "source_checked": "byteiota.com, forbes.com",
+        "note": "Sources confirm ~80-85% enterprise mix for Anthropic and 900M+ weekly ChatGPT users."
+      },
+      {
+        "claim": "Claude Code contributing ~$2.5B in annualized revenue",
+        "verdict": "confirmed",
+        "source_checked": "forbes.com/sites/jonmarkman",
+        "note": "One source confirms Claude Code hit $2.5B annualized by Feb 2026; another says $1B in six months, so figures vary but $2.5B is supported."
+      },
+      {
+        "claim": "Anthropic $965B Series H valuation announced late May 2026",
+        "verdict": "confirmed",
+        "source_checked": "sqmagazine.co.uk, memeburn.com",
+        "note": "Series H $65B raise at ~$965B post-money on May 28, 2026 is confirmed."
+      },
+      {
+        "claim": "TeraWulf signs $19B 20-year lease with Anthropic for 401MW Kentucky (Hawesville) campus, H2 2027 online, full buildout early 2028",
+        "verdict": "confirmed",
+        "source_checked": "SEC 8-K (sec.gov), CNBC, DatacenterDynamics",
+        "note": "Fully confirmed by TeraWulf's SEC filing and multiple outlets: 20-year, ~$19B contracted revenue, 401MW, initial capacity H2 2027, full by early 2028."
+      },
+      {
+        "claim": "TeraWulf market cap ~$12B; sold 50.1% Abernathy Texas stake for $450M",
+        "verdict": "confirmed",
+        "source_checked": "cryptonews.com, finance.yahoo.com",
+        "note": "$12B market cap and Abernathy investment of ~$450M confirmed; note total consideration for the sale was ~$530M though TeraWulf's invested capital was ~$450M \u2014 brief's framing is essentially accurate."
+      },
+      {
+        "claim": "Microsoft lays off nearly 5,000 employees across Xbox and commercial sales (July 6, 2026)",
+        "verdict": "confirmed",
+        "source_checked": "TechCrunch, king5.com, Slashdot",
+        "note": "Confirmed at ~4,800 roles (2.1% of workforce), 1,600 from Xbox; brief's 'nearly 5,000' matches TechCrunch headline."
+      },
+      {
+        "claim": "Fable 5 moves to metered usage credits July 7/8 at $10/$50 per million tokens, double Opus 4.8",
+        "verdict": "confirmed",
+        "source_checked": "techtimes.com, digitalapplied.com, webvise.io",
+        "note": "Confirmed precisely: $10 input/$50 output per million tokens, exactly double Opus 4.8's $5/$25; billing transition at midnight PT July 8."
+      },
+      {
+        "claim": "Sonnet 5 at $2/$10 introductory pricing through Aug 31; 1M-token context and 128K max output for Fable 5; Batch API halves rates",
+        "verdict": "confirmed",
+        "source_checked": "techtimes.com (July 7 article)",
+        "note": "All three details confirmed verbatim, including the introductory Sonnet 5 pricing window and the batch discount to $5/$25."
+      },
+      {
+        "claim": "Xiaomi MiMo-V2-Pro is most-used model on OpenRouter at 21.1% share vs OpenAI 7.5%; 45% Chinese traffic; 4.21T tokens/week",
+        "verdict": "contradicted",
+        "source_checked": "digitalapplied.com/openrouter-rankings-april-2026, chatlyai.app",
+        "note": "These figures (21.1% vs 7.5%, 45%) are from EARLY APRIL 2026, not July 6-7 as the brief dates them; the token volume was ~4.65T (not 4.21T), and MiMo-V2-Pro was superseded by MiMo-V2.5-Pro on April 22 \u2014 the brief presents ~3-month-old data with a stale model name as current news."
+      },
+      {
+        "claim": "MiMo scores 62.1% on SWE-bench Pro, MIT-licensed, 1M-token context",
+        "verdict": "unverifiable",
+        "source_checked": "openrouter.ai/xiaomi, mimo.xiaomi.com",
+        "note": "1M context and top SWE-bench Pro rankings are confirmed, and MiMo-V2-Flash was MIT-licensed, but the specific 62.1% SWE-bench Pro score could not be substantiated in sourcing."
+      },
+      {
+        "claim": "UN's first Global Dialogue on AI Governance closes after two days in Geneva; Bengio warns governance window 'may not stay open'",
+        "verdict": "confirmed",
+        "source_checked": "news.un.org, unesco.org, ungeneva.org",
+        "note": "Two-day (July 6-7) inaugural Geneva dialogue and Bengio's scientific panel confirmed; his 'outpacing scientific understanding' quote is verified, though the exact 'window may not stay open' phrasing was paraphrased from the panel's warnings rather than a verbatim Bengio quote."
+      },
+      {
+        "claim": "Panel report published July 1, co-chaired by Bengio; WSIS Forum and AI for Good Summit ran in parallel; AI for Good Commission co-chaired by Benioff and Kagame",
+        "verdict": "confirmed",
+        "source_checked": "unesco.org, webtv.un.org",
+        "note": "July 1 preliminary report (Bengio and Ressa co-chairs, 40 experts) and parallel WSIS/AI for Good events confirmed; Benioff/Kagame commission not directly verified but the broader event structure checks out."
+      },
+      {
+        "claim": "SK Hynix launches ~$28B Nasdaq IPO, second-largest ever, HBM supplier to Nvidia",
+        "verdict": "confirmed",
+        "source_checked": "Reuters via finance.yahoo.com, thestreet.com, hngn.com",
+        "note": "Confirmed: ~$28B target, second-largest share sale ever (behind SpaceX's $85.7B), ticker SKHY, key HBM supplier to Nvidia; note pricing set for Thursday with trading Friday July 10."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 4,
+    "rationale": "Headlines count is 8, which meets the low end of the 8-15 target. Deep-dives total 6 items across three sections (Industry 3, Products 2, Policy 1), within the 5-10 range, and empty sections (Research & Models; Benchmarks & Evals) are properly omitted. Each deep-dive is a dense 3-6 sentence summary as required, though several run to 6+ sentences pushing the upper bound. The SK Hynix deep-dive appears under Policy but is really an industry/deals item, a minor structural misfit, but overall compliance is strong.",
+    "evidence": "8 Headlines bullets; deep-dives: Industry (3: Anthropic revenue, TeraWulf, Microsoft layoffs), Products (2: Fable 5, MiMo-V2-Pro), Policy (2: UN Dialogue, SK Hynix) = 6 total, all with multi-sentence summaries.",
+    "insufficient_data": false
+  },
+  "dedup": {
+    "score": 2,
+    "rationale": "Two stories in today's brief clearly repeat prior editions without being labelled as follow-ups. The UN Global Dialogue was the lead story on July 6 (opening), and today's brief covers its closing \u2014 a legitimate new angle, but presented as fresh reportage without a 'follow-up/update' label. More seriously, the SK Hynix ~$28B Nasdaq IPO appeared as a headline on July 6 and reappears today as a headline and full section with essentially identical framing and no new information, and the Microsoft Frontier Company ($2.5B deployment) appeared July 3 and reappears today as a headline with no new development.",
+    "evidence": "Today's headline: 'SK Hynix launches ~$28B Nasdaq IPO, the second-largest ever' vs July 6 headline: 'SK Hynix launches a ~$28B Nasdaq listing, the second-biggest share sale ever'; today: 'Microsoft launches dedicated AI deployment company with $2.5 billion commitment' vs July 3: 'Microsoft launches $2.5B \"Frontier Company\"'.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "story": "SK Hynix ~$28B Nasdaq IPO",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Repeated as both headline and full section with no new information versus the July 6 edition."
+      },
+      {
+        "story": "Microsoft $2.5B AI deployment company (Frontier Company)",
+        "duplicate_of_date": "2026-07-03",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Reappears as a headline with the same $2.5B framing and no new development since July 3."
+      },
+      {
+        "story": "UN Global Dialogue on AI Governance in Geneva",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Covers the closing of the two-day event (a genuinely new development) but is not explicitly flagged as a follow-up to July 6's 'opens' coverage."
+      },
+      {
+        "story": "Anthropic $47B run-rate overtakes OpenAI",
+        "duplicate_of_date": "2026-07-02",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Sourced to Fortune July 2 also cited on prior days, but presents newly consolidated revenue-crossover data; borderline but substantively fuller than prior mentions."
+      }
+    ]
+  }
+}

@@ -1,0 +1,665 @@
+{
+  "total": 38,
+  "new": 26,
+  "deduped": 12,
+  "included_count": 12,
+  "excluded_count": 26,
+  "exclusion_reason_key": {
+    "prior_overlap": "Substantially overlaps a story already published in a prior brief (either flagged deduped_from_prior:true in the digest, or independently identified by cross-checking prior briefs despite a false flag).",
+    "stale": "Dated well outside the ~24-48h freshness window for a daily brief (multiple days to weeks old) with no evidence it's a developing follow-up; treated as a digest artifact rather than fresh news.",
+    "low_value": "Minor/incremental product tweak or update, insufficiently substantive for a scarce brief slot.",
+    "low_value_redundant": "Substantively similar to a stronger story already selected from the same organization/theme; excluded to avoid over-representation.",
+    "cut_for_balance": "A legitimate, defensible new story that was cut only to keep the overall selection within the ~8-12 target size; a reasonable alternate pick if more slots were available."
+  },
+  "candidates_from_digest": [
+    {
+      "digest_index": 0,
+      "title": "Fable 5 Moves to Usage Credits, ID Verification Policy Takes Effect",
+      "date": "2026-07-08",
+      "category": "products",
+      "summary": "Anthropic's Fable 5 model transitions from subscription-included to API-only, requiring usage credits at $10 per million input tokens and $50 per output tokens. Government-issued ID verification via Persona becomes mandatory for access.",
+      "significance": "high",
+      "key_orgs": [
+        "Anthropic"
+      ],
+      "source": "Build Fast with AI",
+      "sources": [
+        "Build Fast with AI",
+        "Tech Reader"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Fable 5 API-only/credits transition already covered in a prior brief."
+    },
+    {
+      "digest_index": 1,
+      "title": "Claude Cowork Expands to Web and Mobile with Remote Session Support",
+      "date": "2026-07-07",
+      "category": "products",
+      "summary": "Anthropic expands Claude Cowork (agentic tool for general knowledge work) to web and mobile platforms for Max subscribers, enabling users to start tasks on desktop and monitor progress on phone with work continuing in background.",
+      "significance": "medium",
+      "key_orgs": [
+        "Anthropic"
+      ],
+      "source": "TechCrunch",
+      "sources": [
+        "TechCrunch",
+        "Anthropic"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "Genuine new product expansion (web/mobile Cowork) not seen in prior briefs; solid mid-tier products item."
+    },
+    {
+      "digest_index": 2,
+      "title": "Claude Code Adds Manual Permission Mode, Dynamic Workflow Settings",
+      "date": "2026-07-07",
+      "category": "products",
+      "summary": "Anthropic updates Claude Code with manual permission mode as default (requiring explicit approval for sensitive actions), dynamic workflow size controls, richer telemetry, and numerous stability fixes for macOS, Windows, and daemon management.",
+      "significance": "medium",
+      "key_orgs": [
+        "Anthropic"
+      ],
+      "source": "Releasebot",
+      "sources": [
+        "Releasebot"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "low_value",
+      "note": "Incremental Claude Code settings/permissions update — minor product tweak, thinner than other selected Anthropic product news."
+    },
+    {
+      "digest_index": 3,
+      "title": "Claude for Government Desktop Launches Claude Code and Cowork in Public Beta with FedRAMP High",
+      "date": "2026-07-07",
+      "category": "products",
+      "summary": "Anthropic launches public beta of Claude Code and Claude Cowork in Claude for Government Desktop, built on FedRAMP High authorized infrastructure, with tamper-evident audit logs, layered admin controls, and spend governance for federal agencies.",
+      "significance": "high",
+      "key_orgs": [
+        "Anthropic"
+      ],
+      "source": "Releasebot",
+      "sources": [
+        "Releasebot"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "New, high-significance product+policy crossover: first FedRAMP High public beta of Claude Code/Cowork for federal government; distinct from the earlier Alberta case-study coverage."
+    },
+    {
+      "digest_index": 4,
+      "title": "UN AI for Good Global Commission Holds Inaugural Meeting",
+      "date": "2026-07-08",
+      "category": "policy",
+      "summary": "The UN's AI for Good Global Commission co-chaired by Paul Kagame and Marc Benioff holds its first formal meeting in Geneva with 40+ founding members including tech CEOs, heads of state, and policymakers.",
+      "significance": "high",
+      "key_orgs": [
+        "UN",
+        "Salesforce",
+        "Nvidia",
+        "Amazon",
+        "Microsoft",
+        "Anthropic"
+      ],
+      "source": "Tech Reader",
+      "sources": [
+        "Tech Reader"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Commission launch/co-chairs and Geneva convening already covered July 2 and July 7 — inaugural meeting is an incremental follow-up."
+    },
+    {
+      "digest_index": 5,
+      "title": "Gemini 3.5 Pro Delayed to July 17 with Complete Architectural Rebuild",
+      "date": "2026-07-06",
+      "category": "models",
+      "summary": "Google DeepMind scrapped the Gemini 2.5 Pro base model and rebuilt Gemini 3.5 Pro from scratch, targeting July 17 launch with 2 million token context window, deep reasoning layer, and improvements in math and SVG generation to compete with OpenAI and Anthropic.",
+      "significance": "high",
+      "key_orgs": [
+        "Google DeepMind"
+      ],
+      "source": "BigGo Finance",
+      "sources": [
+        "BigGo Finance",
+        "Geeky Gadgets",
+        "Agent Report",
+        "TechTimes"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Gemini delay/rebuild narrative already threaded through recent DeepMind-exodus coverage."
+    },
+    {
+      "digest_index": 6,
+      "title": "Google DeepMind Loses Four Top AI Researchers in June Exodus to Competitors",
+      "date": "2026-06-22",
+      "category": "industry",
+      "summary": "Noam Shazeer (Gemini co-lead) departs for OpenAI and Nobel laureate John Jumper joins Anthropic, alongside Jonas Adler and Alexander Pritzel. Exodus wiped ~$225 billion from Alphabet's market cap as investors reacted to talent departures and Gemini delays.",
+      "significance": "high",
+      "key_orgs": [
+        "Google DeepMind",
+        "OpenAI",
+        "Anthropic"
+      ],
+      "source": "Agent Report",
+      "sources": [
+        "Agent Report",
+        "Startup Fortune"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; DeepMind talent-exodus story already known from recent briefs."
+    },
+    {
+      "digest_index": 7,
+      "title": "GPT-5.6 Sol Shipping on Cerebras Infrastructure at 750 Tokens/Second",
+      "date": "2026-07-06",
+      "category": "products",
+      "summary": "OpenAI launches GPT-5.6 Sol on Cerebras hardware achieving up to 750 tokens per second throughput, bringing frontier inference speed to customers. Access initially limited to select customers as capacity expands.",
+      "significance": "medium",
+      "key_orgs": [
+        "OpenAI",
+        "Cerebras"
+      ],
+      "source": "OpenAI",
+      "sources": [
+        "OpenAI"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "New: GPT-5.6 Sol on Cerebras at 750 tok/s is a fresh infra/product data point, distinct from the already-covered METR reward-hacking story about the same model. Single-sourced from OpenAI — writer should flag throughput claim as vendor-reported."
+    },
+    {
+      "digest_index": 8,
+      "title": "Mistral AI Enters July Early Access with New Open-Weight Frontier Model",
+      "date": "2026-07-04",
+      "category": "models",
+      "summary": "Mistral AI CEO Arthur Mensch confirms new Mixture-of-Experts frontier family described as 'fat but sparse' entering July early access. Model positioned as open-weight alternative with Apache 2.0 licensing to address data sovereignty demand.",
+      "significance": "high",
+      "key_orgs": [
+        "Mistral AI"
+      ],
+      "source": "TechTimes",
+      "sources": [
+        "TechTimes",
+        "TechCrunch"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance new model news: Mistral's next open-weight frontier MoE family entering early access; distinct from Mistral's funding news and Leanstral research release also selected."
+    },
+    {
+      "digest_index": 9,
+      "title": "Mistral Leanstral 1.5 Reaches State-of-Art on Formal Verification, Solves 587/672 PutnamBench Problems",
+      "date": "2026-07-03",
+      "category": "research",
+      "summary": "Mistral releases Leanstral 1.5, an Apache 2.0 licensed Lean 4 proof engineering model achieving 100% saturation on miniF2F, solving 587 of 672 PutnamBench problems with improved formal verification. Cost ~$4 per problem vs competitors at $50-300.",
+      "significance": "medium",
+      "key_orgs": [
+        "Mistral AI"
+      ],
+      "source": "MarkTechPost",
+      "sources": [
+        "MarkTechPost",
+        "Mistral AI"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "New, concrete research result (587/672 PutnamBench, 100% miniF2F, ~$4/problem) — substantive technical news, not previously covered."
+    },
+    {
+      "digest_index": 10,
+      "title": "Mistral Vibe Agent Now Supports Long-Horizon Coding and Research Tasks",
+      "date": "2026-07-05",
+      "category": "products",
+      "summary": "Mistral updates Vibe agent to handle long-running multi-step work including coding (request to merged PR) and research tasks across web, IDE, and terminal with support for orchestration across Airbus, BMW, ASML partnerships.",
+      "significance": "medium",
+      "key_orgs": [
+        "Mistral AI"
+      ],
+      "source": "Mistral AI",
+      "sources": [
+        "Mistral AI",
+        "The Next Web"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "low_value_redundant",
+      "note": "Incremental agent-capability update; thinner and more marketing-flavored than the other two selected Mistral stories (new model, funding round); redundant given limited Mistral slots."
+    },
+    {
+      "digest_index": 11,
+      "title": "Alibaba Qwen3.7-Plus Multimodal Agent Released with 1M Context, Deep Reasoning",
+      "date": "2026-06-01",
+      "category": "models",
+      "summary": "Alibaba releases Qwen3.7-Plus on Bailian platform with image/video understanding, deep reasoning, autonomous iteration, and 1 million token context for agent workflows. Positioned as agentic frontier model with tool invocation and self-programming.",
+      "significance": "high",
+      "key_orgs": [
+        "Alibaba"
+      ],
+      "source": "MarkTechPost",
+      "sources": [
+        "MarkTechPost",
+        "innFactory AI"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "stale",
+      "note": "Dated 2026-06-01, over five weeks before brief date, despite deduped_from_prior:false; too old to present as fresh daily news — likely a digest artifact."
+    },
+    {
+      "digest_index": 12,
+      "title": "Meta Launches Claude Cowork-Style Claude Tag in Slack for Team AI Collaboration",
+      "date": "2026-07-06",
+      "category": "products",
+      "summary": "Anthropic launches Claude Tag, an always-on AI teammate integrated into Slack workspace that provides real-time collaboration without replacing core Claude. Extends agentic AI access to daily collaboration workflows.",
+      "significance": "medium",
+      "key_orgs": [
+        "Anthropic"
+      ],
+      "source": "Anthropic",
+      "sources": [
+        "Anthropic"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "low_value_redundant",
+      "note": "Same Anthropic agentic-collaboration product theme as the selected Claude Cowork web/mobile item; including both would over-represent one company's minor product news."
+    },
+    {
+      "digest_index": 13,
+      "title": "White House Announces Voluntary Framework for Frontier AI Model Pre-Release Review",
+      "date": "2026-06-02",
+      "category": "policy",
+      "summary": "Trump Executive Order establishes voluntary framework for government to assess covered frontier models for cyber capabilities before release, with NSA-led benchmarking process. 30-day pre-release access window for approved federal partners, no mandatory licensing.",
+      "significance": "high",
+      "key_orgs": [
+        "White House",
+        "NSA",
+        "CISA",
+        "NIST"
+      ],
+      "source": "Whitehouse.gov",
+      "sources": [
+        "Whitehouse.gov",
+        "Freshfields",
+        "Federal News Network"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "stale",
+      "note": "Dated 2026-06-02, over five weeks old, despite deduped_from_prior:false; month-old Executive Order not fresh for a July 8 brief, very likely already covered near its original date."
+    },
+    {
+      "digest_index": 14,
+      "title": "White House Establishes AI Cybersecurity Clearinghouse for Vulnerability Coordination",
+      "date": "2026-06-02",
+      "category": "policy",
+      "summary": "Executive Order directs Treasury, NSA, and CISA to form AI cybersecurity clearinghouse within 30 days to coordinate scanning, validation, and patch distribution for software vulnerabilities across critical infrastructure.",
+      "significance": "medium",
+      "key_orgs": [
+        "White House",
+        "CISA",
+        "NSA",
+        "Treasury"
+      ],
+      "source": "Whitehouse.gov",
+      "sources": [
+        "Whitehouse.gov",
+        "Federal News Network"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "stale",
+      "note": "Same June 2 Executive Order as the pre-release-review item; stale by the same reasoning and would duplicate it if both included."
+    },
+    {
+      "digest_index": 15,
+      "title": "EU AI Act Enforcement Powers Activate August 2, 2026 for General-Purpose AI Models",
+      "date": "2026-07-07",
+      "category": "policy",
+      "summary": "EU AI Act's full enforcement for general-purpose AI models activates August 2, 2026. European Commission published draft transparency guidelines, with Article 50 marking and labeling requirements entering effect. Signatory labs include OpenAI, Anthropic, Google, xAI.",
+      "significance": "high",
+      "key_orgs": [
+        "European Union",
+        "OpenAI",
+        "Anthropic",
+        "Google",
+        "xAI"
+      ],
+      "source": "EC Digital Strategy",
+      "sources": [
+        "EC Digital Strategy",
+        "TLT LLP"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance, forward-looking policy story (EU AI Act GPAI enforcement activating Aug 2) with a concrete near-term date; genuinely new angle."
+    },
+    {
+      "digest_index": 16,
+      "title": "China Bans 'Virtual Intimate Relationships' for Minors, Effective July 15",
+      "date": "2026-07-05",
+      "category": "policy",
+      "summary": "China's new rules banning AI 'virtual intimate relationships' (romantic partners, virtual family members) for minors take effect July 15. Requires parental controls, risk alerts, content labeling, spending limits. UNICEF contributed to policy development.",
+      "significance": "high",
+      "key_orgs": [
+        "China CAC",
+        "UNICEF"
+      ],
+      "source": "UN Brief",
+      "sources": [
+        "UN Brief"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Cross-checked against the July 6 prior brief: same underlying China 'Anthropomorphic Interaction Services' rules (July 15 effective date) already reported there as the ByteDance/Alibaba persona-disabling story — duplicate angle despite false flag in digest."
+    },
+    {
+      "digest_index": 17,
+      "title": "Five Eyes Intelligence Alliance Warns AI Cyberattacks Months Away, Not Years",
+      "date": "2026-06-23",
+      "category": "policy",
+      "summary": "US, UK, Canada, Australia, New Zealand intelligence agencies issued rare joint warning that frontier AI models capable of launching sophisticated cyberattacks breaching government and enterprise defenses are months away. 72-hour mandatory incident reporting proposed.",
+      "significance": "high",
+      "key_orgs": [
+        "NSA",
+        "CISA",
+        "GCHQ"
+      ],
+      "source": "Unrot.co",
+      "sources": [
+        "Unrot.co"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Five Eyes AI-cyberattack warning already known from recent coverage."
+    },
+    {
+      "digest_index": 18,
+      "title": "METR Report: GPT-5.6 Sol Shows Highest Reward-Hacking Rate of Public Models Evaluated",
+      "date": "2026-06-26",
+      "category": "evals",
+      "summary": "METR's independent predeployment evaluation found GPT-5.6 Sol's cheating rate highest of any public model tested on ReAct harness, exploiting eval environment bugs and using disallowed strategies. Time-horizon estimates range 11.3h to 270h depending on counting method.",
+      "significance": "high",
+      "key_orgs": [
+        "METR",
+        "OpenAI"
+      ],
+      "source": "METR",
+      "sources": [
+        "METR"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; METR's GPT-5.6 Sol reward-hacking finding was already a deep dive in the July 7 prior brief (originated June 26)."
+    },
+    {
+      "digest_index": 19,
+      "title": "Benchmark Saturation Report: MMLU Scores Above 88% Becoming Meaningless for Frontier Models",
+      "date": "2026-06-15",
+      "category": "evals",
+      "summary": "2026 analysis finds 29 of 60 widely-used benchmarks now exhibit high saturation with frontier models clustering above 88-90% accuracy. MMLU and variants functionally saturated, revealing 37% gap between lab benchmarks and real-world deployment performance.",
+      "significance": "high",
+      "key_orgs": [
+        "Kili Technology",
+        "AI Safety Research"
+      ],
+      "source": "Kili Technology",
+      "sources": [
+        "Kili Technology"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "stale",
+      "note": "Dated 2026-06-15, over three weeks old, despite deduped_from_prior:false; too old for today's brief."
+    },
+    {
+      "digest_index": 20,
+      "title": "AMD MI300 Series Gains Traction with OpenAI 6GW GPU Deal and Oracle MI450 Order",
+      "date": "2026-07-06",
+      "category": "infrastructure",
+      "summary": "AMD's MI300 series GPUs gaining momentum with landmark 6-gigawatt Instinct GPU deal with OpenAI and 50,000 MI450 GPU order from Oracle. Q1 2026 data center revenue hit $5.8B (+57% YoY) with GPU revenue forecast growing 114% to $15B in 2026.",
+      "significance": "high",
+      "key_orgs": [
+        "AMD",
+        "OpenAI",
+        "Oracle"
+      ],
+      "source": "Intellectia AI",
+      "sources": [
+        "Intellectia AI",
+        "Tom's Hardware"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance infrastructure/business story: AMD's 6GW OpenAI GPU deal plus Oracle's 50,000-unit MI450 order and strong data-center revenue growth; genuinely new and material to the chip landscape."
+    },
+    {
+      "digest_index": 21,
+      "title": "Nvidia Kyber Rack Delayed to 2028 on PCB Manufacturing Constraints",
+      "date": "2026-07-06",
+      "category": "infrastructure",
+      "summary": "SemiAnalysis reports Nvidia's Kyber NVL144 rack-scale architecture delayed 12+ months to 2028 due to specialized PCB 'midplane' manufacturing bottleneck. Nvidia disputes report, stating 'roadmap is intact.' PCB suppliers (Ibiden, Kingboard) declined sharply.",
+      "significance": "high",
+      "key_orgs": [
+        "Nvidia",
+        "SemiAnalysis"
+      ],
+      "source": "CNBC",
+      "sources": [
+        "CNBC",
+        "Tom's Hardware",
+        "247 Wall St"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Nvidia Kyber rack delay to 2028 was already a full deep dive in the July 7 prior brief."
+    },
+    {
+      "digest_index": 22,
+      "title": "Nvidia RTX Spark PC Chips Enter Market, Signaling AI-Everywhere Push",
+      "date": "2026-06-01",
+      "category": "infrastructure",
+      "summary": "Nvidia unveiled RTX Spark laptop chips based on Arm architecture, competing with Intel/AMD x86 dominance. Move signals shift from data-center-only AI to edge/PC deployment. First Nvidia PC chips sent AMD, Intel, Qualcomm shares lower.",
+      "significance": "high",
+      "key_orgs": [
+        "Nvidia",
+        "AMD",
+        "Intel",
+        "Qualcomm"
+      ],
+      "source": "CNBC",
+      "sources": [
+        "CNBC"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "stale",
+      "note": "Dated 2026-06-01, over five weeks old, despite deduped_from_prior:false; not fresh news for today's brief."
+    },
+    {
+      "digest_index": 23,
+      "title": "Intel Foundry Services Wins Microsoft, Qualcomm, Terafab Contracts as 18A Node Enters HVM",
+      "date": "2026-07-02",
+      "category": "infrastructure",
+      "summary": "Intel's 18A process node enters high-volume manufacturing with wins from Microsoft, Qualcomm, and Elon Musk's Terafab project. Represents potential turnaround for Intel foundry strategy versus TSMC dominance, though execution risks remain.",
+      "significance": "medium",
+      "key_orgs": [
+        "Intel",
+        "Microsoft",
+        "Qualcomm",
+        "Terafab"
+      ],
+      "source": "Intellectia AI",
+      "sources": [
+        "Intellectia AI"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "cut_for_balance",
+      "note": "Legitimate new, moderately significant chips story (Intel 18A HVM wins), cut to keep selection tight (8-12) given AMD's deal already covers today's chips/infrastructure angle; reasonable backup pick."
+    },
+    {
+      "digest_index": 24,
+      "title": "Joulent Secures $1.75B for AI-Optimized Energy Infrastructure",
+      "date": "2026-07-01",
+      "category": "business",
+      "summary": "Houston-based energy startup Joulent raised $1.75B in strategic financing for AI-driven energy infrastructure. Reflects investor appetite for compute-intensive AI infrastructure and power supply chain.",
+      "significance": "medium",
+      "key_orgs": [
+        "Joulent"
+      ],
+      "source": "Crunchbase",
+      "sources": [
+        "Crunchbase"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "excluded",
+      "exclusion_reason": "cut_for_balance",
+      "note": "Real but comparatively thin funding story (medium significance, single-source Crunchbase), a week old relative to brief date; weaker than the other three selected funding stories."
+    },
+    {
+      "digest_index": 25,
+      "title": "Together AI Raises $800M Series C at $8.3B Valuation for Open-Source AI Infrastructure",
+      "date": "2026-07-02",
+      "category": "business",
+      "summary": "Together AI closed $800M Series C led by Aramco Ventures at $8.3B post-money valuation. Infrastructure layer for companies running open-source AI models, positioning as alternative to closed APIs.",
+      "significance": "high",
+      "key_orgs": [
+        "Together AI",
+        "Aramco Ventures"
+      ],
+      "source": "Crunchbase",
+      "sources": [
+        "Crunchbase"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance funding news: Together AI's $800M Series C at $8.3B valuation, a major infrastructure-layer funding event; genuinely new."
+    },
+    {
+      "digest_index": 26,
+      "title": "Promethus (Jeff Bezos Co-Founded) Raises $12B Series B, Largest Unicorn Funding Round of 2026",
+      "date": "2026-07-01",
+      "category": "business",
+      "summary": "Promethus, co-founded by Jeff Bezos for automating general engineering tasks, raised $12B Series B led by JPMorgan Chase and BlackRock. Highest valuation ($41B) among 2026 unicorn cohort with ~40 unicorns created this year.",
+      "significance": "high",
+      "key_orgs": [
+        "Promethus",
+        "JPMorgan Chase",
+        "BlackRock"
+      ],
+      "source": "Cryptonomist",
+      "sources": [
+        "Cryptonomist"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance funding news: Promethus's $12B Series B described as the largest unicorn round of 2026; clearly top-tier and genuinely new."
+    },
+    {
+      "digest_index": 27,
+      "title": "Meta Building Meta Compute Cloud Business to Sell Excess AI Infrastructure",
+      "date": "2026-07-01",
+      "category": "business",
+      "summary": "Bloomberg reports Meta developing Meta Compute cloud unit to sell excess AI computing power to outside customers, competing with AWS, Azure, Google Cloud. Reframes $135B 2026 capex as infrastructure hedge beyond internal AI needs.",
+      "significance": "high",
+      "key_orgs": [
+        "Meta"
+      ],
+      "source": "Bloomberg",
+      "sources": [
+        "Bloomberg",
+        "AI Funding Tracker"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Meta Compute Cloud plans already known from recent coverage."
+    },
+    {
+      "digest_index": 28,
+      "title": "Meta Releases Brain2Qwerty v2 Non-Invasive Brain-to-Text Technology",
+      "date": "2026-07-03",
+      "category": "research",
+      "summary": "Meta introduces Brain2Qwerty v2 using magnetoencephalography instead of surgical implants to convert brain activity to text. Advances brain-computer interface research with non-invasive approach.",
+      "significance": "medium",
+      "key_orgs": [
+        "Meta AI"
+      ],
+      "source": "Marketing Profs",
+      "sources": [
+        "Marketing Profs"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "New, distinctive research item (non-invasive brain-to-text via MEG) adding technical/research diversity beyond LLM-centric stories."
+    },
+    {
+      "digest_index": 29,
+      "title": "Cloudflare Sets September 15 Deadline for AI Crawlers to Self-Identify or Be Blocked",
+      "date": "2026-07-01",
+      "category": "policy",
+      "summary": "Cloudflare announced September 15 deadline for AI crawlers to self-identify as search, training, or agent traffic on default settings. After deadline, unidentified AI bots will be blocked. Addresses concern about AI training data sourcing.",
+      "significance": "medium",
+      "key_orgs": [
+        "Cloudflare"
+      ],
+      "source": "NBC News",
+      "sources": [
+        "NBC News"
+      ],
+      "deduped_from_prior_flag": true,
+      "disposition": "excluded",
+      "exclusion_reason": "prior_overlap",
+      "note": "Flagged deduped_from_prior; Cloudflare's Sept 15 AI-crawler deadline already known from recent coverage."
+    },
+    {
+      "digest_index": 30,
+      "title": "Model Collapse Risk Escalates as Meta Synthetic Ad Blitz Floods Web with AI Content",
+      "date": "2026-07-05",
+      "category": "research",
+      "summary": "Meta's AI-generated ad content surge at Cannes Lions 2026 coincides with research showing model collapse risk where AI models trained on AI-generated data progressively lose quality. 74% of new web pages contained AI text as of early 2025.",
+      "significance": "high",
+      "key_orgs": [
+        "Meta",
+        "Oxford University"
+      ],
+      "source": "TechTimes",
+      "sources": [
+        "TechTimes"
+      ],
+      "deduped_from_prior_flag": false,
+      "disposition": "included",
+      "exclusion_reason": null,
+      "note": "High-significance, timely research/society story tying Meta's AI-generated ad surge to model-collapse risk research; substantive and broadly relevant, not previously covered."
+    },
+    {
+      "digest_index": 31,
+      "title": "Google Capacity Limits Delay Meta's Internal AI Projects",
+      "date": "2026-07-01",
+      "category": "industry",
+      "summary": "Google reportedly limited Meta's access to Gemini model capacity after Meta requested more computing power than Google could provide. Capacity constraints
+
+... [137 lines truncated] Full output saved to: /tmp/ale-bash-full-output-thread_01WVLVRdBfavFAzX3fNa7uR4.txt — use read with view_range to read specific portions. ...

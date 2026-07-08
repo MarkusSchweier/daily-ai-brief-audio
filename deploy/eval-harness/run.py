@@ -173,22 +173,29 @@ def _extract_named_artifacts(artifacts: dict[str, str]) -> tuple[str | None, str
     Returns `(brief_markdown, listening_script, candidates_json_raw,
     source_usage_raw)`, any of which may be None if that file was never `cat`'d.
 
-    INVARIANT this function relies on (reviewer note, review-fix pass): every
-    candidate task prompt (see `deploy/candidates/*/task-prompt.md`'s explicit
-    "After [writing/the sub-agents have written] each of the four files, run
-    `cat` on each one individually... Stop once the brief, the listening script,
-    candidates.json, and source-usage.json are all written") instructs the
-    agent/coordinator to `cat` ONLY those four named files -- it never cats a
-    PRIOR brief written earlier in Step 0 (those are read as research input, not
-    re-emitted). So `f.startswith("AI Brief") and f.endswith(".md")` below can
-    only ever match ONE entry in `artifacts` in real usage; the "first match by
-    dict insertion order wins" behavior (see
-    `test_extract_named_artifacts_picks_out_the_four_named_files`'s own comment)
-    is unreachable ambiguity today ONLY because this invariant holds. If a future
-    candidate's task prompt ever cats a prior brief too, this function would need
-    a real disambiguation rule (e.g. match today's actual date), not silently
-    pick whichever happens to come first."""
-    brief_markdown = _find_artifact(artifacts, predicate=lambda f: f.startswith("AI Brief") and f.endswith(".md"))
+    DATE-AWARE brief disambiguation (2026-07-08, the day the reviewer-flagged
+    ambiguity became REAL): the original version relied on the invariant that a
+    task prompt never cats a PRIOR brief, so at most one "AI Brief - *.md" could
+    appear among the artifacts and first-match-by-insertion-order was safe. The
+    `haiku-swap-hardened` candidate deliberately broke that invariant (its
+    Step 1 forcing function cats every prior brief so their content is in
+    context), so its artifact map now carries SEVERAL dated brief files and
+    first-match could silently return a PRIOR brief as "today's". The brief is
+    therefore now selected as the dated `AI Brief - YYYY-MM-DD.md` entry with
+    the LEXICALLY GREATEST date (zero-padded ISO dates: lexical == chronological
+    -- today's brief always postdates every prior); an undated brief filename
+    still matches only when no dated one exists."""
+    dated: list[tuple[str, str]] = []  # (date, content)
+    undated: str | None = None
+    for filename, content in artifacts.items():
+        basename = PurePosixPath(filename).name
+        if basename.startswith("AI Brief") and basename.endswith(".md"):
+            m = _BRIEF_FILENAME_DATE_RE.search(basename)
+            if m:
+                dated.append((m.group(1), content))
+            elif undated is None:
+                undated = content
+    brief_markdown = max(dated, key=lambda pair: pair[0])[1] if dated else undated
     listening_script = _find_artifact(artifacts, predicate=lambda f: f == "listening-script.txt")
     candidates_json_raw = _find_artifact(artifacts, predicate=lambda f: f == "candidates.json")
     source_usage_raw = _find_artifact(artifacts, predicate=lambda f: f == "source-usage.json")
@@ -209,13 +216,77 @@ def _extract_brief_date(artifacts: dict[str, str]) -> str | None:
     docstring. Returns None if no brief artifact was found, or its filename
     didn't carry a recognizable date (the caller treats this as "skip the dedup
     priors fetch, let the judge degrade to insufficient_data," never a run
-    failure)."""
+    failure).
+
+    DATE-AWARE (2026-07-08, same fix as `_extract_named_artifacts()`): when a
+    candidate's prompt cats PRIOR briefs too (haiku-swap-hardened's Step 1),
+    several dated brief files appear here -- the eval brief's own date is the
+    GREATEST one, never whichever happened to be catted first."""
+    dates = []
     for filename in artifacts:
         basename = PurePosixPath(filename).name
         if basename.startswith("AI Brief") and basename.endswith(".md"):
             match = _BRIEF_FILENAME_DATE_RE.search(basename)
             if match:
-                return match.group(1)
+                dates.append(match.group(1))
+    return max(dates) if dates else None
+
+
+def _parse_candidates_json(candidates_json_raw: str | None, *, repetition: int) -> list | None:
+    """Parse a candidate run's `candidates.json` artifact TOLERANTLY -- an
+    artifact-quality problem must degrade the affected judge, never crash the
+    run (2026-07-08: a real haiku-digest-sonnet-select run's candidates.json
+    carried a raw control character inside a string -- strict json.loads raised
+    and took down the ENTIRE already-paid repetition at the judging step).
+
+    Order: strict parse -> retry with strict=False (accepts control characters
+    inside strings, the exact real-world failure) -> None with a loud stderr
+    diagnostic (the content-selection judge already treats None as
+    insufficient_data). A parse that yields anything other than a list is also
+    coerced to None -- the judge's summary-building iterates a list."""
+    if not candidates_json_raw:
+        return None
+    for kwargs in ({}, {"strict": False}):
+        try:
+            parsed = json.loads(candidates_json_raw, **kwargs)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            # Common wrapper shapes a real Haiku run produced ({"candidates":
+            # [...]}) -- unwrap a well-known key, else a SINGLE list-valued key.
+            for key in ("candidates", "stories", "items"):
+                if isinstance(parsed.get(key), list):
+                    return parsed[key]
+            list_values = [v for v in parsed.values() if isinstance(v, list)]
+            if len(list_values) == 1:
+                return list_values[0]
+        print(
+            f"CANDIDATES_JSON_UNUSABLE: repetition {repetition}: parsed to "
+            f"{type(parsed).__name__} with no unwrappable list -- content_selection will degrade",
+            file=sys.stderr,
+        )
+        return None
+    # A REAL failure mode (2026-07-08): the sandbox's bash tool truncates a cat
+    # tool_result at ~30K characters and appends a "full output at /tmp/..."
+    # notice -- the captured artifact is then structurally incomplete JSON that
+    # no parser can honestly rescue (the full file only ever existed in the
+    # now-dead sandbox). Name it precisely instead of a generic parse error.
+    if "/tmp/" in candidates_json_raw[-300:] or len(candidates_json_raw) >= 29000:
+        print(
+            f"CANDIDATES_JSON_TRUNCATED: repetition {repetition}: the cat capture was cut at the "
+            "sandbox's ~30K tool-output cap (tail carries a truncation notice) -- the artifact is "
+            "structurally incomplete; content_selection will degrade. Prevention: keep the "
+            "candidates.json schema compact in candidate prompts.",
+            file=sys.stderr,
+        )
+        return None
+    print(
+        f"CANDIDATES_JSON_UNPARSEABLE: repetition {repetition}: not valid JSON even with "
+        "strict=False -- content_selection will degrade to insufficient_data",
+        file=sys.stderr,
+    )
     return None
 
 
@@ -581,91 +652,116 @@ def main(argv: list[str] | None = None) -> int:
             any_repetition_failed = True
             continue
 
-        artifacts = trigger.fetch_catted_file_contents(result.events)
-        run_store.write_artifacts(run_dir, index, artifacts)
-        run_store.write_events(run_dir, index, result.events)
+        # CONTAINMENT (2026-07-08): everything below the trigger is post-payment
+        # bookkeeping -- artifact extraction, judging, and record writing. Two real
+        # runs crashed HERE (a str-typed candidates.json entry; a control character
+        # in candidates.json) and took the whole process down with the paid events
+        # already on disk. An exception in this phase now marks the repetition
+        # failed (run-meta records the error; state finalizes failed below) instead
+        # of killing the run -- fail loud in the record, never crash the harness.
+        try:
+            artifacts = trigger.fetch_catted_file_contents(result.events)
+            run_store.write_artifacts(run_dir, index, artifacts)
+            run_store.write_events(run_dir, index, result.events)
 
-        breakdown = cost.mine_session_cost(
-            result.session_id, threads, pricing_table=pricing_table, on_date=date.today(), candidate_declaration=candidate
-        )
-        run_store.write_threads_usage(run_dir, index, breakdown)
-        run_store.write_cost(run_dir, index, breakdown)
-
-        brief_markdown, listening_script, candidates_json_raw, _source_usage_raw = _extract_named_artifacts(artifacts)
-        candidates_json = json.loads(candidates_json_raw) if candidates_json_raw else None
-
-        prior_briefs: list[dict[str, str]] = []
-        if "dedup" in criteria and brief_markdown:
-            brief_date = _extract_brief_date(artifacts)
-            if brief_date is None:
-                print(
-                    f"DEDUP_PRIORS_SKIPPED: repetition {index}: could not parse a brief date from the "
-                    "artifact filenames -- dedup will degrade to insufficient_data",
-                    file=sys.stderr,
-                )
-            else:
-                # Same local_config resolution as the task-prompt substitution above --
-                # missing key stays a soft degrade here (no priors, judge reports
-                # insufficient_data), never a run failure. brief_date drives the v2
-                # feed fix (harness/dedup_priors.py): priors are filtered strictly
-                # relative to THIS brief's own date, not the delivery endpoint's own
-                # wall-clock "today".
-                prior_briefs = dedup_priors.fetch_recent_prior_briefs(
-                    brief_date=brief_date,
-                    signing_key=local_config.resolve_recent_briefs_signing_key() or "",
-                    delivery_base_url=local_config.resolve_delivery_base_url(),
-                )
-
-        judge_results = _run_selected_judges(
-            anthropic_client,
-            criteria,
-            brief_markdown=brief_markdown or "",
-            candidates_json=candidates_json,
-            sources_md=sources_md,
-            prior_briefs=prior_briefs,
-        )
-        run_store.write_scores(run_dir, index, _scores_to_dict(judge_results))
-
-        judge_cost_data = _price_judge_results(judge_results, pricing_table=pricing_table, on_date=date.today())
-        run_store.write_judge_cost(run_dir, index, judge_cost_data)
-        judge_cost_totals.append(judge_cost_data["total_cost_usd"])
-
-        run_store.write_run_meta(
-            run_dir,
-            index,
-            {
-                "deployment_id": result.deployment_id,
-                "session_id": result.session_id,
-                "thread_count": len(threads),
-                "final_status": result.final_status,
-                "timestamp": time.strftime("%Y-%m-%d-%H%M%S"),
-            },
-        )
-
-        records.append(
-            EvalRecord(
-                run_id=f"{eval_run_id}-{index:02d}",
-                candidate_config_id=candidate.slug,
-                session_id=result.session_id,
-                created_at=int(time.time()),
-                criterion_scores={
-                    criterion: CriterionScore(
-                        criterion=criterion, score=r.score, rationale=r.rationale, evidence=r.evidence, insufficient_data=r.insufficient_data
-                    )
-                    for criterion, r in judge_results.items()
-                },
-                cost=CostBreakdownRecord(
-                    total_cost_usd=breakdown.total_cost_usd,
-                    thread_costs_usd={t.role: t.cost_usd for t in breakdown.threads},
-                ),
-                brief_markdown=brief_markdown,
-                listening_script=listening_script,
+            breakdown = cost.mine_session_cost(
+                result.session_id, threads, pricing_table=pricing_table, on_date=date.today(), candidate_declaration=candidate
             )
-        )
-        print(
-            f"EVAL_REPETITION_COMPLETE: {index}/{args.repetitions} cost=${breakdown.total_cost_usd} "
-            f"judge_cost=${judge_cost_data['total_cost_usd']}"
-        )
+            run_store.write_threads_usage(run_dir, index, breakdown)
+            run_store.write_cost(run_dir, index, breakdown)
+
+            brief_markdown, listening_script, candidates_json_raw, _source_usage_raw = _extract_named_artifacts(artifacts)
+            candidates_json = _parse_candidates_json(candidates_json_raw, repetition=index)
+
+            prior_briefs: list[dict[str, str]] = []
+            if "dedup" in criteria and brief_markdown:
+                brief_date = _extract_brief_date(artifacts)
+                if brief_date is None:
+                    print(
+                        f"DEDUP_PRIORS_SKIPPED: repetition {index}: could not parse a brief date from the "
+                        "artifact filenames -- dedup will degrade to insufficient_data",
+                        file=sys.stderr,
+                    )
+                else:
+                    # Same local_config resolution as the task-prompt substitution above --
+                    # missing key stays a soft degrade here (no priors, judge reports
+                    # insufficient_data), never a run failure. brief_date drives the v2
+                    # feed fix (harness/dedup_priors.py): priors are filtered strictly
+                    # relative to THIS brief's own date, not the delivery endpoint's own
+                    # wall-clock "today".
+                    prior_briefs = dedup_priors.fetch_recent_prior_briefs(
+                        brief_date=brief_date,
+                        signing_key=local_config.resolve_recent_briefs_signing_key() or "",
+                        delivery_base_url=local_config.resolve_delivery_base_url(),
+                    )
+
+            judge_results = _run_selected_judges(
+                anthropic_client,
+                criteria,
+                brief_markdown=brief_markdown or "",
+                candidates_json=candidates_json,
+                sources_md=sources_md,
+                prior_briefs=prior_briefs,
+            )
+            run_store.write_scores(run_dir, index, _scores_to_dict(judge_results))
+
+            judge_cost_data = _price_judge_results(judge_results, pricing_table=pricing_table, on_date=date.today())
+            run_store.write_judge_cost(run_dir, index, judge_cost_data)
+            judge_cost_totals.append(judge_cost_data["total_cost_usd"])
+
+            run_store.write_run_meta(
+                run_dir,
+                index,
+                {
+                    "deployment_id": result.deployment_id,
+                    "session_id": result.session_id,
+                    "thread_count": len(threads),
+                    "final_status": result.final_status,
+                    "timestamp": time.strftime("%Y-%m-%d-%H%M%S"),
+                },
+            )
+
+            records.append(
+                EvalRecord(
+                    run_id=f"{eval_run_id}-{index:02d}",
+                    candidate_config_id=candidate.slug,
+                    session_id=result.session_id,
+                    created_at=int(time.time()),
+                    criterion_scores={
+                        criterion: CriterionScore(
+                            criterion=criterion, score=r.score, rationale=r.rationale, evidence=r.evidence, insufficient_data=r.insufficient_data
+                        )
+                        for criterion, r in judge_results.items()
+                    },
+                    cost=CostBreakdownRecord(
+                        total_cost_usd=breakdown.total_cost_usd,
+                        thread_costs_usd={t.role: t.cost_usd for t in breakdown.threads},
+                    ),
+                    brief_markdown=brief_markdown,
+                    listening_script=listening_script,
+                )
+            )
+            print(
+                f"EVAL_REPETITION_COMPLETE: {index}/{args.repetitions} cost=${breakdown.total_cost_usd} "
+                f"judge_cost=${judge_cost_data['total_cost_usd']}"
+            )
+        except Exception as e:  # noqa: BLE001 -- see containment note above
+            print(
+                f"EVAL_REPETITION_JUDGING_FAILED: {index}/{args.repetitions}: {e!r}",
+                file=sys.stderr,
+            )
+            # NOTE: write_run_meta is a FULL-FILE write, not a merge -- if the
+            # failure happened after the success-path run-meta was already
+            # written (only EvalRecord construction + a print follow it), this
+            # replaces it and the deployment/session ids are lost from run-meta
+            # (scores/cost/artifacts on disk are unaffected). Accepted: the
+            # failure window after that write is a few statements wide, and a
+            # failed repetition's error beats its telemetry.
+            run_store.write_run_meta(
+                run_dir, index, {"final_status": "judging_failed", "error": repr(e)}
+            )
+            any_repetition_failed = True
+            continue
 
     if records:
         aggregate = aggregate_replicates(records)

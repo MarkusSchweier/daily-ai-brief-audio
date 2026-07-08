@@ -62,6 +62,9 @@ the baseline wherever possible, so a comparison contrasts *structure/model*, nev
 | 2 | `haiku-swap` | single agent, skill end-to-end | **all Haiku** | pure model swap, no structure change | ✅ |
 | 3 | `multiagent-aggressive-haiku` | coordinator + 4 sub-agents | Sonnet coord+**selection**; **Haiku** research+writing+listening-script | how far Haiku goes with Sonnet only where editorial judgment lives | ✅ |
 | 4 | `session-restructure` | coordinator + 4 sub-agents (**byte-identical prompts to #3**) | **all Sonnet** | does structural decomposition *alone* (no full-context replay) cut cost? | ✅ |
+| 5 | `haiku-swap-verified` | Haiku-as-coordinator + 1 Sonnet verifier sub-agent | **all Haiku** pipeline + **Sonnet** verify/correct pass | does a cheap post-assembly verification pass fix haiku-swap's measured weaknesses (factual insurance + dedup labelling) at ~60% below baseline? (GitHub #38 item 1; verifier explicitly does NOT touch selection) | ✅ run 2026-07-07: **retired** — the Haiku coordinator raced past the verifier (fabricated the report, captured the uncorrected brief); $3.27, 3/3/4/2. Superseded by #6/#7's lessons (structural gates; verifier work preserved by contract). |
+| 6 | `haiku-swap-hardened` | single agent (haiku-swap + checklist-hardened task prompt ONLY) | **all Haiku** | does prompt-forcing alone (mandatory per-prior reading, explicit labelling rule, enumerated self-check + overlap-notes audit) recover Haiku's diligence at ~haiku-swap price? First run 2026-07-08: $0.52, 3/4/4/2 — labels landed but one prior was neglected; enumerate-the-priors fix applied 2026-07-08. | ✅ |
+| 7 | `haiku-digest-sonnet-select` | Haiku coordinator (file-gated) + research/writing/script on Haiku + **selection on Sonnet reading a compact digest contract** | Haiku everywhere except the selection decision | can the digest contract keep Sonnet-grade selection at ~1/4 of mah's selection cost? First run 2026-07-08: **$1.36, factual 5 / length 5 / dedup 4** (content blanked by an artifact truncation); all four file-gates executed, selection thread $0.29 vs mah's $1.21. | ✅ |
 
 **#3 model split (made aggressive per owner direction 2026-07-07):** Sonnet retained **only** for
 coordination and editorial **selection** (skill steps 4–5, where source/dedup judgment and
@@ -76,8 +79,21 @@ each sub-agent is a fresh context that picks up only its predecessor's `/workspa
 the whole transcript. It is #3 with every sub-agent forced to Sonnet, so **#3-vs-#4 isolates the Haiku
 lever** and **#4-vs-baseline isolates the decomposition structure**.
 
-**#7 (thinking-budget)** is not a standalone candidate — it is a `parameters.json` sweep applied across
-the above, added once the bases are locked.
+**#7 (thinking-budget/effort sweep) — BLOCKED BY THE PLATFORM (probed live 2026-07-07).** GitHub
+issue #38's items 2/3 (`sonnet-low-effort`, `session-restructure-low-effort`) tried to realize this
+sweep as concrete candidates, but the Managed Agents Agents API exposes **no effort/thinking knob**:
+a top-level `parameters` field is rejected (`unknown field "parameters"` — so a non-empty
+`parameters.json` fails loud at sync, never silently); `model.thinking` is rejected the same way; and
+`model.effort` is **accepted but silently DISCARDED** (proven by the no-op discriminator: re-sending
+the same model with `effort: low`, then `effort: high`, both returned the SAME version with no new
+version created — the field is parsed and dropped, never stored; the only documented model-object
+knob is `speed`, i.e. fast mode, the opposite of a cost lever). Building these candidates today would
+have produced configurations that LOOK like low-effort but run at default — silent experiment
+corruption. Parked until the Managed Agents surface exposes effort/thinking on agent definitions;
+`parameters.json` stays declaration-only until then. **#4 and its low-effort derivative are also
+deprioritized** (owner, 2026-07-07 evening): #4's cost is bounded below by #3's (same structure,
+strictly costlier models) and #3 already showed almost no saving vs. baseline — its diagnostic value
+doesn't currently justify a run.
 
 ### Backburnered (owner decision 2026-07-07) — recorded, not built
 

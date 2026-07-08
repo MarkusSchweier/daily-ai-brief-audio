@@ -1,0 +1,41 @@
+{
+  "session_id": "sesn_01H1BQUZnuc4NuXLBLuDkz13",
+  "total_cost_usd": 3.274,
+  "total_usage": {
+    "input_tokens": 226,
+    "output_tokens": 45058,
+    "cache_read_input_tokens": 9050595,
+    "cache_creation_5m_input_tokens": 687355,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "threads": [
+    {
+      "thread_id": "sthr_01HQifk1XpuWiuPnSn2EiF1D",
+      "role": "coordinator",
+      "agent_id": "agent_013zhkbzC3PGdHbbNZzKgF49",
+      "model": "claude-haiku-4-5-20251001",
+      "usage": {
+        "input_tokens": 160,
+        "output_tokens": 19241,
+        "cache_read_input_tokens": 2471784,
+        "cache_creation_5m_input_tokens": 289608,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.7056
+    },
+    {
+      "thread_id": "sthr_01E4d76aSgpwskn6M6vhDpUA",
+      "role": "selection",
+      "agent_id": "agent_012jmZoT2mwHrysBSyhGqn2x",
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 66,
+        "output_tokens": 25817,
+        "cache_read_input_tokens": 6578811,
+        "cache_creation_5m_input_tokens": 397747,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 2.5684
+    }
+  ]
+}

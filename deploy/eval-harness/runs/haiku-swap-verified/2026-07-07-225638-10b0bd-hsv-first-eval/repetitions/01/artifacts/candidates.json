@@ -1,0 +1,77 @@
+[
+  {
+    "title": "Anthropic overtakes OpenAI in annualized revenue ($47B vs $25B)",
+    "source": "Fortune / Epoch AI",
+    "disposition": "included"
+  },
+  {
+    "title": "TeraWulf signs $19 billion 20-year lease with Anthropic for Kentucky data center",
+    "source": "TeraWulf Press Release / Reuters",
+    "disposition": "included"
+  },
+  {
+    "title": "Fable 5 transitions to metered usage credits on July 7 ($10/$50 per million tokens)",
+    "source": "Anthropic / Claude Support",
+    "disposition": "included"
+  },
+  {
+    "title": "UN Global Dialogue on AI Governance closes in Geneva; Yoshua Bengio warns governance window may close",
+    "source": "UN / UNESCO / UN News",
+    "disposition": "included"
+  },
+  {
+    "title": "SK Hynix launches $28 billion Nasdaq IPO for AI memory chips",
+    "source": "Reuters",
+    "disposition": "included"
+  },
+  {
+    "title": "Xiaomi MiMo-V2-Pro becomes most-used model on OpenRouter (21.1% share)",
+    "source": "Build Fast with AI",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft lays off nearly 5,000 employees across Xbox and commercial sales",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft launches dedicated AI deployment company with $2.5 billion commitment",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Google sustainability report shows AI-driven emissions and power use increases",
+    "source": "Bloomberg / Ars Technica",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Amazon Mechanical Turk stops accepting new customers amid AI displacement",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "White House AI standards framework expected this week (July 7 or later)",
+    "source": "Build Fast with AI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta monetizing excess AI compute alongside SpaceX",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "GLM-5.2 strong coding performance; low pricing drives adoption",
+    "source": "Build Fast with AI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "LongCat-2.0 open-sourced; Chinese models 45% of OpenRouter traffic",
+    "source": "Build Fast with AI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cloudflare AI crawler policy enforces self-identification by September 15",
+    "source": "Cloudflare / TechCrunch",
+    "disposition": "excluded"
+  }
+]

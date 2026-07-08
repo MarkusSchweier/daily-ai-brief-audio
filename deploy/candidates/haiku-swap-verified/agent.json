@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-haiku-swap-verified-coordinator",
+  "description": "Cost-optimization candidate #5 coordinator (Haiku): runs the full haiku-swap content-generation pipeline itself (research + write via the daily-ai-brief skill), then delegates one factual-accuracy + dedup-labelling verification pass to the Sonnet verifier sub-agent, then writes the listening script from the corrected brief. Content generation only; holds no AWS/delivery role. SEPARATE agent resource from the real live production agent and from every other candidate -- syncing or triggering it can never mutate or invoke them. See candidate.json for the full cost-optimization-scope description.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

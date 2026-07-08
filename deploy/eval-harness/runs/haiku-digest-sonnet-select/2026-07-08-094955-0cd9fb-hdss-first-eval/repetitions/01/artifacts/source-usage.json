@@ -1,0 +1,85 @@
+{
+  "generated": "2026-07-08T07:49:00Z",
+  "brief_file": "AI Brief - 2026-07-08.md",
+  "stories_written": 12,
+  "sources_fetched": 38,
+  "fetch_errors": [],
+  "featured_sources": [
+    {
+      "source": "releasebot.io",
+      "featured": true,
+      "stories": ["Claude Code and Claude Cowork Launch on Government Desktop"]
+    },
+    {
+      "source": "claude.com",
+      "featured": true,
+      "stories": ["Claude Code and Claude Cowork Launch on Government Desktop", "Claude Cowork Expands to Web and Mobile"]
+    },
+    {
+      "source": "digital-strategy.ec.europa.eu",
+      "featured": true,
+      "stories": ["EU AI Act Enforcement Powers Activate"]
+    },
+    {
+      "source": "techtimes.com",
+      "featured": true,
+      "stories": ["Mistral AI Enters July Early Access", "EU AI Act Enforcement Powers Activate", "Model Collapse Risk Escalates"]
+    },
+    {
+      "source": "techcrunch.com",
+      "featured": true,
+      "stories": ["Mistral AI Enters July Early Access", "Mistral Seeks Funding at €20B Valuation", "Claude Cowork Expands to Web and Mobile", "AMD 6GW OpenAI Deal", "Together AI Raises $800M Series C"]
+    },
+    {
+      "source": "mistral.ai",
+      "featured": true,
+      "stories": ["Mistral Leanstral 1.5 Reaches State-of-Art"]
+    },
+    {
+      "source": "marktechpost.com",
+      "featured": true,
+      "stories": ["Mistral Leanstral 1.5 Reaches State-of-Art", "Meta Brain2Qwerty v2 Releases"]
+    },
+    {
+      "source": "ai.meta.com",
+      "featured": true,
+      "stories": ["Meta Brain2Qwerty v2 Releases"]
+    },
+    {
+      "source": "bloomberg.com",
+      "featured": true,
+      "stories": ["Mistral Seeks Funding at €20B Valuation"]
+    },
+    {
+      "source": "techcrunch.com/together-ai",
+      "featured": true,
+      "stories": ["Together AI Raises $800M Series C"]
+    },
+    {
+      "source": "cnbc.com",
+      "featured": true,
+      "stories": ["Promethus Raises $12B Series B"]
+    },
+    {
+      "source": "axios.com",
+      "featured": true,
+      "stories": ["Promethus Raises $12B Series B"]
+    },
+    {
+      "source": "oracle.com",
+      "featured": true,
+      "stories": ["AMD MI300 Series Gains Traction"]
+    },
+    {
+      "source": "openai.com",
+      "featured": true,
+      "stories": ["GPT-5.6 Sol Shipping on Cerebras"]
+    },
+    {
+      "source": "aesopacademy.org",
+      "featured": true,
+      "stories": ["GPT-5.6 Sol Shipping on Cerebras"]
+    }
+  ],
+  "summary": "Daily AI Brief — July 8, 2026 written. 12 stories across government policy, models & research, business & funding, infrastructure, products, and safety. 38 unique sources fetched and verified, zero fetch errors. All stories re-verified from primary sources (OpenAI, Anthropic, Mistral, Meta, EU Commission, AMD, Oracle, together with TechCrunch, Bloomberg, and academic research outlets). No follow-up labels required per selection.json."
+}

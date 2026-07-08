@@ -1,0 +1,143 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "The brief's core selections (UN AI Commission, OpenAI government stake, Anthropic $1T valuation, Gemini 3.5 Flash, GPT-5.6, EU AI Act) are all well-justified high-priority stories, and the inclusion of the Meta cloud business is defensible given heavy Bloomberg/CNBC/Forbes coverage. However, the exclusion of Microsoft's 4,800 layoffs is a clear miss: it was a major July 6 event covered by CNBC, TechCrunch, CNN, NBC and GeekWire, framed as the biggest Xbox restructure in history and a marquee example of AI-driven workforce cuts \u2014 more newsworthy than the Fable-5 billing mechanics or breaking out Sol Cerebras as a separate headline. The Shazeer departure was correctly folded into the Gemini section rather than run standalone (it was three weeks old), and the Tesla spending cap is a lesser secondary miss that pairs thematically with the Fable-5 pricing story.",
+    "evidence": "Microsoft layoffs excluded despite: \"Microsoft is eliminating 4,800 jobs, or 2.1% of its workforce, with its Xbox gaming unit among the hardest hit\" and being described as the \"most significant restructure in Xbox history\" \u2014 while the brief instead ran a 10th headline on \"Sol Cerebras launch (750 tokens/sec)\".",
+    "insufficient_data": false,
+    "selection_disagreements": [
+      {
+        "story": "Microsoft cuts 4,800 jobs with Xbox hardest hit (July 6 event)",
+        "judge_view": "should have been included",
+        "rationale": "Web research confirms this was a heavily-covered, front-page tech story across CNBC, TechCrunch, CNN, NBC, and GeekWire on July 6, 2026 \u2014 the largest restructuring in Xbox's history, with ~3,200 total Xbox cuts through FY27, explicitly tied to the broader AI-driven layoff wave (~154,000 tech jobs in H1 2026) and Microsoft's $190B AI capex. For a daily AI brief this is a more consequential, timely industry/society story than the Fable 5 per-token billing detail or the standalone Sol Cerebras headline that were included."
+      },
+      {
+        "story": "Tesla limits employee AI spending to $200/week (July 6 event)",
+        "judge_view": "should have been included",
+        "rationale": "Confirmed via The Information, Electrek, TechTimes and Seeking Alpha as a well-covered July 6 story with a strong angle (xAI/Grok carve-out steering employees toward Musk's own tools, mirroring caps at Uber/Meta/Walmart). It is directly thematically adjacent to the brief's own Fable 5 token-billing narrative about AI cost pressure, and would have added a real-world enterprise-cost dimension. This is a secondary miss rather than a top-tier one."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 4,
+    "rationale": "The overwhelming majority of the brief's checked claims\u2014the UN AI for Good Commission (44 members, co-chairs, July 8 meeting, membership roster), OpenAI's $42.6B/5% government stake proposal, the Anthropic $965B Series H and $47B ARR, Gemini 3.5 Flash benchmarks (76.2% Terminal-Bench, 1656 GDPval-AA, 83.6% MCP Atlas), Fable 5's July 8 usage-credits switch at $10/$50 per Mtok, GPT-5.6 limited preview details, the Cerebras 750 tok/s plan, and Meta's cloud business\u2014are precisely confirmed by primary and multiple secondary sources. Two notable deviations lower the score: the brief states prediction markets priced 'July 10' as the leading GPT-5.6 GA date, whereas every source I checked (including the brief's own TechTimes citation) consistently reports July 9; and the Anthropic $1T secondary-market valuation, which the brief frames as 'reported mid-July 2026,' actually broke on April 23, 2026, making its presentation as fresh mid-July news misleading even though the underlying figures ($1T Anthropic / $880B OpenAI on Forge) are accurate. The brief otherwise hedges appropriately (secondary-market caveats, 'unconfirmed date' language for GPT-5.6).",
+    "evidence": "Brief: 'prediction markets price July 10 as leading general-availability estimate' \u2014 but sources uniformly report July 9 (TechTimes: 'Prediction markets priced Thursday, July 9 as the leading general-availability date as of Monday'; explainx.ai: '~80% GPT-5.6 GA on July 10' shows some divergence but the dominant single-date figure across sources is July 9).",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "claim": "UN AI for Good Global Commission holds inaugural meeting in Geneva July 8 with 44 members co-chaired by Kagame and Benioff, Bogdan-Martin vice-chair",
+        "verdict": "confirmed",
+        "source_checked": "salesforce.com press release; techtimes.com; letsdatascience.com",
+        "note": "Fully confirmed including 44-member count, co-chairs, vice-chair, July 8 inaugural meeting, and named members (Huang, Jassy, Smith, Clark, Gomez, Amon)."
+      },
+      {
+        "claim": "OpenAI proposes 5% government equity stake worth $42.6B modeled on Alaska Permanent Fund, pitched to Trump, Lutnick, Bessent",
+        "verdict": "confirmed",
+        "source_checked": "cnbc.com; ft/techcrunch.com; technology.org",
+        "note": "Confirmed\u2014$42.6B based on $852B March valuation, Alaska model, named officials, and extension to Anthropic/Google/Meta all corroborated."
+      },
+      {
+        "claim": "Anthropic secondary-market valuation hits ~$1T on Forge Global, 18% above OpenAI at $880B (framed 'reported mid-July 2026')",
+        "verdict": "confirmed",
+        "source_checked": "finance.yahoo.com/Business Insider; entrepreneur.com; tomshardware.com",
+        "note": "Figures ($1T Anthropic, $880B OpenAI on Forge) are accurate, but this was originally reported April 23-24, 2026, not 'mid-July 2026' as the brief's dateline implies; the ~18% gap is a reasonable arithmetic derivation."
+      },
+      {
+        "claim": "Anthropic closed Series H at $965B in May 2026; run-rate revenue reached $47B by mid-2026",
+        "verdict": "confirmed",
+        "source_checked": "anthropic.com/news/series-h; cnbc.com; techcrunch.com",
+        "note": "Confirmed by Anthropic's own May 28, 2026 announcement: $65B Series H at $965B post-money, $47B run-rate revenue crossed earlier that month."
+      },
+      {
+        "claim": "Gemini 3.5 Flash GA with computer-use; scores 76.2% Terminal-Bench 2.1, 1656 GDPval-AA Elo, 83.6% MCP Atlas, outperforming Gemini 3.1 Pro; 3.5 Pro still in testing 'next month'",
+        "verdict": "confirmed",
+        "source_checked": "cloud.google.com Google I/O blog; blog.google; techtimes.com",
+        "note": "All three benchmark figures, the outperformance of 3.1 Pro, native computer-use, and 3.5 Pro 'coming next month/in testing' confirmed on Google's own Cloud blog."
+      },
+      {
+        "claim": "Fable 5 shifts to usage-credits-only as of July 8 at $10/$50 per million tokens, ending subscription inclusion (closed July 7), after June 12-30 export-control outage",
+        "verdict": "confirmed",
+        "source_checked": "anthropic.com/news/redeploying-fable-5; techtimes.com; codersera.com",
+        "note": "Confirmed by Anthropic: included through July 7, then usage credits; $10/$50 rate; restored July 1 after suspension. Brief says outage 'June 12-30'; Anthropic says controls lifted June 30 with access restored July 1\u2014consistent."
+      },
+      {
+        "claim": "GPT-5.6 Sol/Terra/Luna in government-coordinated limited preview since June 26 to ~20 vetted orgs; Cerebras launch at 750 tok/s in July; OpenAI says 'coming weeks'",
+        "verdict": "confirmed",
+        "source_checked": "openai.com/index/previewing-gpt-5-6-sol; venturebeat.com; techcrunch.com",
+        "note": "All confirmed by OpenAI's own post and VentureBeat: limited preview to ~20 orgs, June 26, Cerebras at up to 750 tok/s in July, 'coming weeks' GA language."
+      },
+      {
+        "claim": "Prediction markets price July 10 as the leading general-availability date for GPT-5.6",
+        "verdict": "contradicted",
+        "source_checked": "techtimes.com (article 319802); techtimes.com (319808)",
+        "note": "The brief says July 10; the sources (including the brief's own cited TechTimes) consistently state July 9 was the leading single-date estimate as of July 7\u2014the brief shifted the date by one day."
+      },
+      {
+        "claim": "Polymarket predicts ~80% confidence GPT-5.6 broad rollout by July 31",
+        "verdict": "confirmed",
+        "source_checked": "explainx.ai; techtimes.com",
+        "note": "The ~80% by end-of-July figure is corroborated; only the leading single-date (July 9 vs brief's July 10) is off."
+      },
+      {
+        "claim": "Meta announces plans for cloud-computing business to monetize excess AI infrastructure ('Meta Compute')",
+        "verdict": "confirmed",
+        "source_checked": "bloomberg.com; tomshardware.com; gizmodo.com",
+        "note": "Confirmed by Bloomberg's July 1, 2026 report; brief labels source 'internal reporting' which understates that this is a documented Bloomberg scoop."
+      },
+      {
+        "claim": "Trump administration took ~10% Intel stake and revenue-sharing with Nvidia/AMD on China chip sales (15% then 25% for H200)",
+        "verdict": "confirmed",
+        "source_checked": "letsdatascience.com; tomshardware.com; technology.org",
+        "note": "Confirmed\u2014Intel stake (reported variously as 9.9-10%) and 15%-then-25% Nvidia H200 China chip revenue-share arrangement corroborated across sources."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 4,
+    "rationale": "Headlines count is 10, comfortably within the 8-15 target. Deep-dive count is 5, which meets the minimum of the 5-10 range. Each deep-dive is dense and well within the 3-6 sentence guidance (arguably some run longer but are substantive, not padded). Empty sections (Research & Models; Products, Tools & Releases) are omitted as instructed. The only minor issue: only 3 of the tiered sections are represented and deep-dives sit at the floor of the range, but this is compliant, not a defect.",
+    "evidence": "10 headline bullets present; deep-dive sections: Policy (2 items), Industry (3 items), Benchmarks (1 item) = 6 deep-dives total, within 5-10 range.",
+    "insufficient_data": false
+  },
+  "dedup": {
+    "score": 2,
+    "rationale": "Today's brief repeats several major stories from prior editions with problematic labelling. The OpenAI 5% government stake ($42.6B) was covered July 2 and again July 4 (labelled follow-up), yet today it is presented as a top headline with parenthetical '(first reported July 2, 2026)' but NOT framed as a follow-up and adds no substantive new information beyond what the July 4 follow-up already contained. The UN AI for Good Commission's July 8 inaugural meeting was pre-announced in July 4, 6, and 7 editions; today it is the lead, which is arguably event-day news but heavily overlaps prior coverage. The Fable 5 billing shift is labelled 'Follow-up' and does have a genuine event (July 8 billing goes live), and the Anthropic $1T valuation and Polymarket GPT-5.6 items are labelled follow-ups, but the GPT-5.6 limited-preview section largely rehashes July 6/7 content.",
+    "evidence": "Headline: '\ud83c\udfe2 OpenAI proposes giving U.S. government a 5% equity stake worth $42.6B' presented as fresh, with body noting '(first reported July 2, 2026)' \u2014 but the July 4 edition already ran 'Follow-up: OpenAI's proposed 5% government stake gets a $42.6B price tag' with the same Alaska Fund framing and figures.",
+    "insufficient_data": false,
+    "findings": [
+      {
+        "story": "OpenAI proposes 5% government stake worth $42.6B, Alaska Permanent Fund model",
+        "duplicate_of_date": "2026-07-04",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Presented as a fresh top headline with only a parenthetical date note; the July 4 edition already covered this as an explicit follow-up with the same $42.6B figure and Alaska Fund framing, and today adds no substantial new information."
+      },
+      {
+        "story": "Anthropic secondary market valuation hits ~$1T, overtakes OpenAI",
+        "duplicate_of_date": null,
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Labelled as a follow-up and appears to be substantively new (specific ~$1T/$880B secondary-market figures), so acceptable."
+      },
+      {
+        "story": "Fable 5 shifts to usage-credits-only billing as of July 8",
+        "duplicate_of_date": "2026-07-07",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Labelled follow-up; July 7 noted the inclusion window closing, today marks the actual July 8 billing event with concrete per-token pricing, a genuine dated update."
+      },
+      {
+        "story": "GPT-5.6 Sol/Terra/Luna limited preview, GA predicted July 10/31",
+        "duplicate_of_date": "2026-07-06",
+        "labelled_as_followup": true,
+        "justified": false,
+        "note": "Partially labelled as follow-up (Polymarket item) but the main section largely rehashes prior coverage of the government-coordinated limited preview with only marginally updated prediction-market odds."
+      },
+      {
+        "story": "UN AI for Good Global Commission inaugural meeting July 8",
+        "duplicate_of_date": "2026-07-04",
+        "labelled_as_followup": false,
+        "justified": false,
+        "note": "Pre-announced in July 4/6/7 editions; today's lead is the actual event day but is not flagged as a continuation and repeats much of the prior member-list and framing."
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-haiku-digest-sonnet-select-coordinator",
+  "description": "Cost-optimization candidate #7 coordinator (Haiku): pure orchestration -- delegates research (Haiku, digest contract), selection (Sonnet, digest-only context), writing (Haiku, re-fetches selected sources), and listening-script (Haiku) in sequence, with a mechanical file-existence gate after every delegation, then cats the outputs. Writes no content itself. Content generation only; holds no AWS/delivery role. SEPARATE agent resource from the real live production agent and every other candidate.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

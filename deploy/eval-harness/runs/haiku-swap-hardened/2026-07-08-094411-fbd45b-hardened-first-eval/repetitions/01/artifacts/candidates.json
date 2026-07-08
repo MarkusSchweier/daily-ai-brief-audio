@@ -1,0 +1,115 @@
+{
+  "candidates": [
+    {
+      "title": "UN's AI for Good Global Commission holds inaugural meeting with 44 members",
+      "source": "UN / ITU",
+      "disposition": "included"
+    },
+    {
+      "title": "OpenAI proposes giving U.S. government 5% equity stake worth $42.6B",
+      "source": "Financial Times / CNBC",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic secondary market valuation hits $1T on Forge Global",
+      "source": "Business Insider / Forge Global",
+      "disposition": "included"
+    },
+    {
+      "title": "Google launches Gemini 3.5 Flash with agentic computer-use capabilities",
+      "source": "Google I/O 2026",
+      "disposition": "included"
+    },
+    {
+      "title": "GPT-5.6 Sol/Terra/Luna remain in limited preview; July 10 predicted for GA",
+      "source": "Polymarket / OpenAI / Tech Times",
+      "disposition": "included"
+    },
+    {
+      "title": "Fable 5 shifts to usage-credits-only billing on July 8",
+      "source": "Anthropic",
+      "disposition": "included"
+    },
+    {
+      "title": "UN Global Dialogue on AI Governance concludes July 7 with limited binding output",
+      "source": "UN News",
+      "disposition": "included"
+    },
+    {
+      "title": "EU AI Act Article 50 transparency obligations take effect August 2",
+      "source": "European Commission",
+      "disposition": "included"
+    },
+    {
+      "title": "Gemini 3.5 Pro remains in testing; flagship model missed multiple delivery commitments",
+      "source": "Tech Insider / Google",
+      "disposition": "included"
+    },
+    {
+      "title": "Noam Shazeer and other Google AI researchers depart for OpenAI and other labs",
+      "source": "Tech Insider / Bloomberg",
+      "disposition": "excluded",
+      "reason": "Reported in June 2026; no new development today"
+    },
+    {
+      "title": "Meta announces cloud-computing business to monetize excess AI infrastructure",
+      "source": "internal reporting",
+      "disposition": "excluded",
+      "reason": "Early-stage reporting without independent confirmation as of July 8"
+    },
+    {
+      "title": "Gemini Omni multimodal video generation model launched by Google",
+      "source": "Google I/O 2026",
+      "disposition": "excluded",
+      "reason": "Component of broader Gemini 3.5/Omni announcements; included in Gemini section"
+    },
+    {
+      "title": "OpenAI plans Sol Cerebras launch at 750 tokens per second in July",
+      "source": "OpenAI",
+      "disposition": "excluded",
+      "reason": "Technical detail within broader GPT-5.6 story; included as supporting context"
+    },
+    {
+      "title": "Alphabet loses $225B market cap on June 26 following AI departures",
+      "source": "CNBC / Bloomberg",
+      "disposition": "excluded",
+      "reason": "Occurred June 26; not new to today; historical context for Gemini delays"
+    },
+    {
+      "title": "White House voluntary frontier-model framework due August 1",
+      "source": "Tech Times / TechCrunch",
+      "disposition": "excluded",
+      "reason": "Background framework; no new development on July 8; mentioned in context"
+    },
+    {
+      "title": "China's anthropomorphic AI persona ban enforcement nears (July 10/15 deadlines)",
+      "source": "SCMP / previous brief",
+      "disposition": "excluded",
+      "reason": "Continuation of July 6-7 brief; no new movement on July 8"
+    },
+    {
+      "title": "Tesla limits employee AI spending to $200/week (July 6 event)",
+      "source": "Electrek / The Information",
+      "disposition": "excluded",
+      "reason": "July 6 reporting; no new development on July 8"
+    },
+    {
+      "title": "Microsoft cuts 4,800 jobs with Xbox hardest hit (July 6 event)",
+      "source": "TechCrunch",
+      "disposition": "excluded",
+      "reason": "July 6 reporting; no new development on July 8"
+    },
+    {
+      "title": "Gemini 3.5 Flash scores 76.2% on Terminal-Bench 2.1, outperforming Gemini 3.1 Pro",
+      "source": "Google Cloud Blog",
+      "disposition": "excluded",
+      "reason": "Benchmark detail within broader Gemini 3.5 Flash announcement; included in main story"
+    },
+    {
+      "title": "ITU AI for Good Summit Day Zero features robotics challenge, 68 teams from 39 countries",
+      "source": "ITU / Tech Times",
+      "disposition": "excluded",
+      "reason": "Event detail; included in context of AI for Good Commission story"
+    }
+  ]
+}

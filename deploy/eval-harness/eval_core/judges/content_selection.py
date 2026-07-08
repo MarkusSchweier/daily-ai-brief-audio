@@ -93,10 +93,18 @@ def judge_content_selection(client: Any, *, candidates_json: list[dict] | None, 
             model=_MODEL,
         )
 
-    candidates_summary = "\n".join(
-        f"- [{c.get('disposition', 'unknown')}] {c.get('title', '(untitled)')} ({c.get('source', 'unknown source')})"
-        for c in candidates_json
-    )
+    # Entry shapes vary with the model that wrote candidates.json (2026-07-08:
+    # a real all-Haiku run emitted a list of plain STRINGS instead of the
+    # {title, source, disposition} dicts the skill contract names -- .get() on a
+    # str crashed the whole already-paid run at the judging step). Tolerate:
+    # dicts use the contract fields; strings become bare titles; anything else
+    # is stringified. Judging a degraded summary honestly beats crashing.
+    def _summarize(entry) -> str:
+        if isinstance(entry, dict):
+            return f"- [{entry.get('disposition', 'unknown')}] {entry.get('title', '(untitled)')} ({entry.get('source', 'unknown source')})"
+        return f"- [unknown] {entry} (unknown source)"
+
+    candidates_summary = "\n".join(_summarize(c) for c in candidates_json)
     user_prompt = (
         f"CANDIDATES CONSIDERED DURING RESEARCH:\n{candidates_summary}\n\n"
         f"FINAL BRIEF:\n{brief_markdown}\n\n"
