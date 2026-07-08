@@ -21,8 +21,19 @@ from brief_delivery.stack import (
 )
 
 
+# Realistic chrome context for test synths: `cdk.App()` in tests does NOT read
+# cdk.json (only the CDK CLI does), and the stack now FAILS LOUD on empty chrome
+# config (see stack.py's incident note, 2026-07-08). Mirror the committed
+# cdk.json defaults so these synths match what production actually deploys.
+_TEST_CHROME_CONTEXT = {
+    "subscribersApiBaseUrl": "https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com",
+    "feedbackTokenSecretArn": "arn:aws:secretsmanager:us-east-1:740353583786:secret:daily-ai-brief/feedback-token-signing-secret-EsDW6s",
+    "feedbackBaseUrl": "https://feedback.mschweier.com",
+}
+
+
 def _synth_template(context: dict | None = None) -> Template:
-    app = cdk.App(context=context or {})
+    app = cdk.App(context={**_TEST_CHROME_CONTEXT, **(context or {})})
     stack = BriefDeliveryStack(
         app,
         "TestBriefDeliveryStack",
@@ -91,6 +102,11 @@ def test_deliver_function_role_has_exactly_the_expected_sids():
         "SesSendFromMschweier",
         "DynamoDBSubscribersQuery",
         "SelfInvokeForAsyncDeliveryWorker",
+        # Present in the DEFAULT synth since the 2026-07-08 chrome-config fix:
+        # the feedback secret ARN is now committed cdk.json context (mirrored by
+        # _TEST_CHROME_CONTEXT above), so the production-shaped synth always
+        # carries the feedback-token read grant.
+        "ReadFeedbackTokenSecret",
     }
 
 
@@ -261,11 +277,21 @@ def test_no_role_in_this_stack_has_dynamodb_scan_on_the_subscribers_table():
                 assert "dynamodb:Scan" not in actions
 
 
-def test_feedback_token_secret_grant_absent_by_default():
+def test_feedback_token_secret_grant_present_by_default_absent_only_under_escape_hatch():
+    """INVERTED by the 2026-07-08 chrome-config fix. The old assertion ("grant
+    absent by default") encoded exactly the world that caused the incident: chrome
+    config as optional CLI flags that a plain deploy silently drops. Default is
+    now chrome-configured (committed cdk.json context); the grant disappears only
+    under the explicit tests/bootstrap escape hatch."""
     template = _synth_template()
     statements = _policy_statements_for_role_logical_id(template, "DeliverFunctionRole")
-    sids = {s.get("Sid") for s in statements}
-    assert "ReadFeedbackTokenSecret" not in sids
+    assert "ReadFeedbackTokenSecret" in {s.get("Sid") for s in statements}
+
+    hatch = _synth_template(
+        context={"allowEmptyChromeConfig": True, "feedbackTokenSecretArn": None, "feedbackBaseUrl": "", "subscribersApiBaseUrl": ""}
+    )
+    statements = _policy_statements_for_role_logical_id(hatch, "DeliverFunctionRole")
+    assert "ReadFeedbackTokenSecret" not in {s.get("Sid") for s in statements}
 
 
 def test_feedback_token_secret_grant_present_when_context_supplied():
