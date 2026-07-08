@@ -718,3 +718,88 @@ def test_scores_to_dict_includes_selection_disagreements_when_present():
     assert scores["content_selection"]["selection_disagreements"] == [
         {"story": "a", "judge_view": "should have been excluded", "rationale": "b"}
     ]
+
+
+# --- 2026-07-08 robustness regressions (two real crashed runs) -----------------
+
+
+def test_parse_candidates_json_tolerates_control_characters():
+    # Real failure: haiku-digest-sonnet-select's candidates.json carried a raw
+    # control character inside a string; strict json.loads raised and killed the
+    # already-paid repetition. strict=False must recover it.
+    raw = '[{"title": "line one\x01line two", "source": "x", "disposition": "included"}]'
+    parsed = run_cli._parse_candidates_json(raw, repetition=1)
+    assert parsed is not None and parsed[0]["source"] == "x"
+
+
+def test_parse_candidates_json_degrades_to_none_on_garbage_and_non_list():
+    assert run_cli._parse_candidates_json("not json at all {{{", repetition=1) is None
+    assert run_cli._parse_candidates_json('{"a": 1}', repetition=1) is None
+    assert run_cli._parse_candidates_json(None, repetition=1) is None
+
+
+def test_extract_named_artifacts_picks_todays_brief_when_priors_are_catted_too():
+    # Real failure mode: haiku-swap-hardened's Step 1 cats every PRIOR brief, so
+    # several dated brief files appear among the artifacts -- the extraction must
+    # pick the GREATEST date (today), never first-by-insertion-order (a prior).
+    artifacts = {
+        "/workspace/AI Brief - 2026-07-06.md": "PRIOR brief (catted first)",
+        "/workspace/AI Brief - 2026-07-04.md": "older PRIOR brief",
+        "/workspace/AI Brief - 2026-07-08.md": "TODAY'S brief",
+        "/workspace/candidates.json": "[]",
+    }
+    brief, _, _, _ = run_cli._extract_named_artifacts(artifacts)
+    assert brief == "TODAY'S brief"
+    assert run_cli._extract_brief_date(artifacts) == "2026-07-08"
+
+
+def test_content_selection_judge_tolerates_string_entries():
+    # Real failure: an all-Haiku run wrote candidates.json as a list of plain
+    # STRINGS; .get() on a str crashed the run. The judge must degrade the
+    # summary, not crash.
+    from eval_core.judges.content_selection import judge_content_selection
+
+    client = make_fake_client(
+        '{"score": 3, "rationale": "r", "evidence": "e", "insufficient_data": false}'
+    )
+    result = judge_content_selection(
+        client, candidates_json=["Story A", "Story B"], brief_markdown="# Brief"
+    )
+    assert result.score == 3
+    prompt_blob = json.dumps(client.messages.calls[0], default=str)
+    assert "Story A" in prompt_blob
+
+
+def test_judging_exception_marks_repetition_failed_without_crashing(tmp_path, monkeypatch):
+    # Real failure: a judging-phase exception propagated and killed the process,
+    # leaving the run record stuck in state "running" with the paid events on
+    # disk. The containment must record the failure and finalize state=failed.
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(
+        trigger_module,
+        "run_candidate",
+        lambda client, **kwargs: _fake_run_result("# Daily AI Brief\n\nSome content.", "Hello."),
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client("{}"))
+
+    def _boom(*a, **k):
+        raise RuntimeError("synthetic judging failure")
+
+    monkeypatch.setattr(run_cli, "_run_selected_judges", _boom)
+
+    exit_code = run_cli.main(
+        ["test-candidate", "--name", "containment test", "--repetitions", "1",
+         "--criteria", "factual_accuracy", "--runs-root", str(runs_root)]
+    )
+    assert exit_code != 0  # failed, loudly -- but via a clean exit, not a traceback
+
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    meta = json.loads((run_dir / "eval-run.json").read_text())
+    assert meta["state"] == "failed"
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "synthetic judging failure" in rep_meta["error"]
+    # the paid artifacts/events survived the failure
+    assert (run_dir / "repetitions" / "01" / "events.json").exists()
