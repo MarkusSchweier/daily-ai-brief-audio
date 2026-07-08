@@ -384,9 +384,16 @@ reconcile with the production-cut-over context per the PRD §6 branch-topology n
    (`runs/**/events.json`) instead of the blanket ignore.
 4. **UI (D5 — only after the owner picks).** Build (a) or (b); reuse `app.js`'s compare-table + detail
    render, re-pointed at the git-tracked files; keep the `textContent` XSS discipline.
-5. **Retire the AWS stack (owner-gated).** After steps 1–3 land and are validated, `cdk destroy`
-   `BriefEvalStack` and clean up RETAIN'd resources + orphaned eval deployments per
-   `deploy/eval/README.md#teardown`.
+5. **Retire the AWS stack (owner-gated) — EXECUTED 2026-07-08** (owner-confirmed; the human ran the
+   gated destructive commands per the `guard-destructive` hook). `BriefEvalStack` deleted (45
+   resources incl. the CloudFront distribution, HTTP API, 5 Lambdas, EventBridge poll rule); the
+   RETAIN'd `brief-eval-records` table (its 3 v1 records first exported to
+   `docs/notes/brief-eval-records-export-2026-07-08.json`), both eval secrets
+   (`eval-review-bearer-secret`, `eval-anthropic-api-key` — stored copies only; no key revoked),
+   and the site bucket deleted. Zero orphaned Platform deployments found at teardown. The
+   `deploy/eval/` directory was removed from the tree in the same change (code remains in git
+   history; the many `deploy/eval/` mentions across ADRs/PRDs/code comments are intentional
+   historical provenance notes, deliberately not rewritten).
 6. **Validate on real candidates (feeds epic step C).** Run `production-baseline` and
    `multiagent-aggressive-haiku` through the harness for real; confirm per-agent cost matches the spike,
    the four judges score the retrieved artifacts, and the comparison table renders both — then hand off

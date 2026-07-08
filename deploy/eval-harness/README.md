@@ -13,8 +13,10 @@ This package is standalone and self-contained (its own `.venv`, `requirements.tx
 for candidate loading + trigger/retrieve (via a `sys.path` shim, not a copy) and
 ports the delivery-agnostic pure-Python pieces of the OLD, AWS-native `deploy/eval/`
 harness (the four judges, the record schema, calibration) unchanged. `deploy/eval/`
-itself is left untouched by this work — it is retired later, as a separate,
-owner-gated step (ADR-0016 Phase 5), only after this package is validated.
+was **retired and fully torn down on 2026-07-08** (ADR-0016 Phase 5, owner-executed):
+the directory was removed from the tree (the code lives on in git history), the
+`BriefEvalStack` and its RETAIN'd table/secrets/bucket were deleted from AWS, and the
+old eval records were archived to `docs/notes/brief-eval-records-export-2026-07-08.json`.
 
 ## Why this exists (one paragraph)
 
