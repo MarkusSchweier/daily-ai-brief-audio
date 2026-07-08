@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-haiku-swap-hardened-candidate",
+  "description": "Cost-optimization candidate #6: haiku-swap with a checklist-hardened task prompt (mandatory prior-reading, explicit follow-up labelling, pre-finish self-check + overlap-notes audit artifact). Same model/system/skill/tools as haiku-swap; only the task prompt differs. Content generation only; holds no AWS/delivery role. SEPARATE agent resource from the real live production agent and every other candidate.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}
