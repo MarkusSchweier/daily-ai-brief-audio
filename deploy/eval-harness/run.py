@@ -253,9 +253,32 @@ def _parse_candidates_json(candidates_json_raw: str | None, *, repetition: int) 
             continue
         if isinstance(parsed, list):
             return parsed
+        if isinstance(parsed, dict):
+            # Common wrapper shapes a real Haiku run produced ({"candidates":
+            # [...]}) -- unwrap a well-known key, else a SINGLE list-valued key.
+            for key in ("candidates", "stories", "items"):
+                if isinstance(parsed.get(key), list):
+                    return parsed[key]
+            list_values = [v for v in parsed.values() if isinstance(v, list)]
+            if len(list_values) == 1:
+                return list_values[0]
         print(
             f"CANDIDATES_JSON_UNUSABLE: repetition {repetition}: parsed to "
-            f"{type(parsed).__name__}, expected a list -- content_selection will degrade",
+            f"{type(parsed).__name__} with no unwrappable list -- content_selection will degrade",
+            file=sys.stderr,
+        )
+        return None
+    # A REAL failure mode (2026-07-08): the sandbox's bash tool truncates a cat
+    # tool_result at ~30K characters and appends a "full output at /tmp/..."
+    # notice -- the captured artifact is then structurally incomplete JSON that
+    # no parser can honestly rescue (the full file only ever existed in the
+    # now-dead sandbox). Name it precisely instead of a generic parse error.
+    if "/tmp/" in candidates_json_raw[-300:] or len(candidates_json_raw) >= 29000:
+        print(
+            f"CANDIDATES_JSON_TRUNCATED: repetition {repetition}: the cat capture was cut at the "
+            "sandbox's ~30K tool-output cap (tail carries a truncation notice) -- the artifact is "
+            "structurally incomplete; content_selection will degrade. Prevention: keep the "
+            "candidates.json schema compact in candidate prompts.",
             file=sys.stderr,
         )
         return None

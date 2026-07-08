@@ -1,0 +1,48 @@
+{
+  "name": "hdss first eval",
+  "slug": "haiku-digest-sonnet-select",
+  "agent_id": "agent_01285E3Xhr4zc2VhezGgDb6i",
+  "git_ref": "325621e091ee5d3529b1b20c6202aed23990d236",
+  "composition": "multi-agent",
+  "models": [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": [
+      {
+        "name": "daily-ai-brief-cost-hdss-research-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-hdss-selection-sub-agent",
+        "model": "claude-sonnet-5",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-hdss-writing-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      },
+      {
+        "name": "daily-ai-brief-cost-hdss-listening-script-sub-agent",
+        "model": "claude-haiku-4-5-20251001",
+        "parameters": {}
+      }
+    ]
+  },
+  "repetitions": 1,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1783496995,
+  "declaration_dirty": false
+}

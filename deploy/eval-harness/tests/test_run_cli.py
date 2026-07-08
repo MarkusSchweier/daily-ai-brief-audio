@@ -803,3 +803,22 @@ def test_judging_exception_marks_repetition_failed_without_crashing(tmp_path, mo
     assert "synthetic judging failure" in rep_meta["error"]
     # the paid artifacts/events survived the failure
     assert (run_dir / "repetitions" / "01" / "events.json").exists()
+
+
+def test_parse_candidates_json_unwraps_common_dict_wrappers():
+    # Real: haiku-swap-hardened wrote {"candidates": [...]} instead of a bare list.
+    raw = '{"candidates": [{"title": "A", "source": "s", "disposition": "included"}]}'
+    parsed = run_cli._parse_candidates_json(raw, repetition=1)
+    assert parsed and parsed[0]["title"] == "A"
+    # single list-valued key also unwraps
+    assert run_cli._parse_candidates_json('{"whatever": [1, 2]}', repetition=1) == [1, 2]
+    # multiple list keys stay ambiguous -> None
+    assert run_cli._parse_candidates_json('{"a": [1], "b": [2]}', repetition=1) is None
+
+
+def test_parse_candidates_json_names_the_truncation_failure(capsys):
+    # Real: the sandbox bash tool truncates cat output at ~30K chars and appends
+    # a "/tmp/..." notice -- the captured JSON is structurally incomplete.
+    raw = '[{"title": "x"}' + "x" * 29500 + " /tmp/ale-bash-full-output-thread_abc.txt — use read"
+    assert run_cli._parse_candidates_json(raw, repetition=1) is None
+    assert "CANDIDATES_JSON_TRUNCATED" in capsys.readouterr().err
