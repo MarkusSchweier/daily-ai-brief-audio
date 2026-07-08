@@ -116,7 +116,13 @@
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:support.claude.com)",
       "WebFetch(domain:support.anthropic.com)",
-      "WebFetch(domain:docs.aws.amazon.com)"
+      "WebFetch(domain:docs.aws.amazon.com)",
+      "Bash(serverless deploy:*)",
+      "Bash(sls deploy:*)",
+      "Bash(docker push:*)",
+      "Bash(uv add:*)",
+      "Bash(sam deploy:*)",
+      "mcp__playwright"
     ],
     "ask": [
       "Bash(git push origin main:*)",
@@ -125,13 +131,7 @@
       "Bash(gh pr merge:*)",
       "Bash(gh release create:*)",
       "Bash(gh repo delete:*)",
-      "Bash(sam deploy:*)",
-      "Bash(terraform apply:*)",
-      "Bash(serverless deploy:*)",
-      "Bash(sls deploy:*)",
-      "Bash(docker push:*)",
-      "Bash(uv add:*)",
-      "mcp__playwright"
+      "Bash(terraform apply:*)"
     ],
     "deny": [
       "Read(./.env)",
