@@ -31,9 +31,10 @@ explicitly labelled as a follow-up/continuing story, naming the prior day,
 in the brief's own style. A repeated story without a label is a defect.
 
 Step 3 -- SELF-CHECK, before finishing (do not skip):
-(a) run `ls -la /workspace/` and verify all five outputs exist: today's brief,
-listening-script.txt, candidates.json, source-usage.json (fix anything
-missing);
+(a) run `ls -la /workspace/` and verify the four outputs so far exist: today's
+brief, listening-script.txt, candidates.json, source-usage.json (fix anything
+missing; the fifth output, overlap-notes.md, is written in (c) below -- do NOT
+create it yet);
 (b) cross-check today's brief against EACH prior brief ONE AT A TIME, by
 filename: for prior file 1, re-scan every story in today's brief against THAT
 prior only and note the overlaps; then repeat for prior file 2; then prior

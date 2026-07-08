@@ -822,3 +822,61 @@ def test_parse_candidates_json_names_the_truncation_failure(capsys):
     raw = '[{"title": "x"}' + "x" * 29500 + " /tmp/ale-bash-full-output-thread_abc.txt — use read"
     assert run_cli._parse_candidates_json(raw, repetition=1) is None
     assert "CANDIDATES_JSON_TRUNCATED" in capsys.readouterr().err
+
+
+def test_mixed_repetitions_one_judging_failure_still_aggregates_the_survivor(tmp_path, monkeypatch):
+    # Gap the containment tests above don't cover: with repetitions > 1, ONE
+    # repetition's judging phase can throw (caught by the CONTAINMENT try/except)
+    # while ANOTHER repetition in the SAME run completes normally. This must NOT
+    # be conflated with the wholly-failed-run case (`test_a_failed_repetition_...`,
+    # where `records` ends up empty and no summary.json is written at all): here
+    # `records`/`judge_cost_totals` end up with exactly the ONE surviving entry,
+    # summary.json IS written (aggregated over just that survivor, n=1), the failed
+    # repetition's own directory shows judging_failed with no scores.json, and the
+    # overall run state is still "failed" (any_repetition_failed=True) even though
+    # a real summary exists -- a downstream UI consumer must not assume
+    # state=="failed" implies "no summary".
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module,
+        "run_candidate",
+        lambda client, **kwargs: _fake_run_result("# Daily AI Brief\n\nSome content.", "Hello."),
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    real_run_selected_judges = run_cli._run_selected_judges
+    call_count = {"n": 0}
+
+    def _fail_first_then_real(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("synthetic judging failure on repetition 1")
+        return real_run_selected_judges(*args, **kwargs)
+
+    monkeypatch.setattr(run_cli, "_run_selected_judges", _fail_first_then_real)
+
+    exit_code = run_cli.main(
+        ["test-candidate", "--name", "mixed batch", "--repetitions", "2",
+         "--criteria", "factual_accuracy", "--runs-root", str(runs_root)]
+    )
+    assert exit_code != 0  # the run as a whole is still "failed"
+
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    meta = json.loads((run_dir / "eval-run.json").read_text())
+    assert meta["state"] == "failed"
+
+    rep1_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep1_meta["final_status"] == "judging_failed"
+    assert not (run_dir / "repetitions" / "01" / "scores.json").exists()
+
+    rep2_scores = json.loads((run_dir / "repetitions" / "02" / "scores.json").read_text())
+    assert rep2_scores["factual_accuracy"]["score"] == 4
+
+    # The surviving repetition must still be aggregated into a real summary.json --
+    # partial failure is not the same as total failure.
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["criterion_aggregates"]["factual_accuracy"]["mean"] == 4.0
+    assert summary["judge_cost"]["n"] == 1

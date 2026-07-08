@@ -750,6 +750,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"EVAL_REPETITION_JUDGING_FAILED: {index}/{args.repetitions}: {e!r}",
                 file=sys.stderr,
             )
+            # NOTE: write_run_meta is a FULL-FILE write, not a merge -- if the
+            # failure happened after the success-path run-meta was already
+            # written (only EvalRecord construction + a print follow it), this
+            # replaces it and the deployment/session ids are lost from run-meta
+            # (scores/cost/artifacts on disk are unaffected). Accepted: the
+            # failure window after that write is a few statements wide, and a
+            # failed repetition's error beats its telemetry.
             run_store.write_run_meta(
                 run_dir, index, {"final_status": "judging_failed", "error": repr(e)}
             )

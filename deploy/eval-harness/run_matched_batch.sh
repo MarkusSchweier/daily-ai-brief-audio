@@ -29,6 +29,11 @@ CANDIDATES=("$@")
 if [ ${#CANDIDATES[@]} -eq 0 ]; then
   CANDIDATES=(production-baseline haiku-digest-sonnet-select haiku-swap-hardened)
 fi
+# INVARIANT (do not break): CANDIDATES is guaranteed non-empty from here on --
+# macOS ships bash 3.2, where "${arr[@]}" under `set -u` ERRORS on an empty
+# array. PIDS is safe only because it is populated by iterating this non-empty
+# CANDIDATES. If you ever add an early exit / empty-set path, guard the
+# expansions (e.g. ${arr[@]+"${arr[@]}"}) or bump the shebang requirement.
 : "${ANTHROPIC_API_KEY:?export ANTHROPIC_API_KEY first (never hardcode it)}"
 
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/matched-batch-${BATCH_NAME}.XXXX")"
