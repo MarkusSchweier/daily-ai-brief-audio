@@ -152,10 +152,12 @@ _COLD_START_INTRO_LINE = (
 
 
 def _meta_box_html(feedback_link: str | None, unsubscribe_link: str | None, *, intro_line: str = "") -> str:
-    """EXACT mirror of delivery_core._html_with_header's top meta box: [optional welcome
-    intro] + feedback (when available) + forward/subscribe + unsubscribe (when available) +
-    AI disclaimer, ALL at one 14px size, flush and divider-separated (aligned with the
-    brief body)."""
+    """The WELCOME variant of delivery_core._html_with_header's top meta box, in the
+    owner-specified order (2026-07-08): [welcome intro] + unsubscribe (✉️, when
+    available) + feedback (💬, when available) + AI disclaimer -- deliberately NO
+    forward/subscribe line (the recipient just subscribed; that line is the regular
+    daily brief's, not the welcome mail's). ALL at one 14px size, flush and
+    divider-separated (aligned with the brief body)."""
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
         f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
@@ -171,10 +173,9 @@ def _meta_box_html(feedback_link: str | None, unsubscribe_link: str | None, *, i
     return (
         '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
         'font-size:14px;color:#666;line-height:1.5;">'
-        f"{intro_line}{feedback_line}"
-        '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
-        f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
+        f"{intro_line}"
         f"{unsubscribe_line}"
+        f"{feedback_line}"
         '<p style="margin:0;">This brief is curated and written by an AI agent, '
         "which may make mistakes. For anything important, please verify with "
         "original sources and do your own research.</p>"

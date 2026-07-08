@@ -59,10 +59,16 @@ Do these **together** (deploying either half alone is unsafe — see ADR-0015 D1
    -c deliveryDecoupled=true`). This removes Polly/S3/SES/DynamoDB from `MicroVmExecutionRole`,
    leaving env-key + logs + the two auth reads (FR-1). No image rebuild needed (v13 already has
    the client).
-3. Optionally populate the delivery stack's subscriber/feedback context so real subscriber sends
-   carry feedback + unsubscribe links (`cd deploy/delivery && cdk deploy BriefDeliveryStack
-   -c feedbackTokenSecretArn=<arn> -c feedbackBaseUrl=https://feedback.mschweier.com
-   -c subscribersApiBaseUrl=https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com`).
+3. ~~Optionally populate the delivery stack's subscriber/feedback context via `-c` flags~~
+   **SUPERSEDED (2026-07-08 incident):** this step's "optional" `-c`-flag framing is exactly what
+   broke the first decoupled production send — a later template-change deploy ran without the
+   flags, CLI context isn't sticky, and the live Lambda's chrome env silently reset to empty
+   (no feedback link on any copy; BROKEN relative-URL unsubscribe links on every subscriber
+   copy; 6× `FEEDBACK_LINK_SKIPPED` in the run's logs). The chrome config (subscribers API base
+   URL, feedback secret ARN, feedback base URL) is now **committed as defaults in
+   `deploy/delivery/cdk.json`** — a plain deploy of `BriefDeliveryStack` is safe, `-c` only
+   overrides, and the stack fails loud at synth if any value resolves empty
+   (`-c allowEmptyChromeConfig=true` is the tests/bootstrap-only escape hatch).
 3b. **Deploy the welcome-send Lambda** (`cd deploy/subscribers && cdk deploy BriefSubscribersStack
    --require-approval never`) so a newly-confirmed subscriber's welcome email matches the new daily
    chrome (top-box unsubscribe, unified font). Safe to do independently/earlier if you want to

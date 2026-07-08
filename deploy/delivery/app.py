@@ -7,16 +7,16 @@ Deploys a single stack, `BriefDeliveryStack`, that provisions the
 single deliver Lambda (handling both the sync trigger/poll HTTP legs and the async
 self-invoke worker leg) + its least-privilege role, and the HTTP API front door.
 
-Context parameters (pass via `-c key=value` or set in cdk.json `context`):
+Context parameters:
   - `subscribersTableName` (optional, default "brief-subscribers") -- the
     deploy/subscribers/ stack's table name, for the subscriber-fanout query.
-  - `subscribersApiBaseUrl` (optional) -- the deploy/subscribers/ stack's API base
-    URL, for building per-subscriber unsubscribe links.
-  - `feedbackTokenSecretArn` / `feedbackBaseUrl` (optional, backward-compatible) --
-    the deploy/feedback/ stack's signing-secret ARN and public base URL, once that
-    stack is deployed. Absent by default so this stack synthesizes/deploys cleanly
-    before that stack exists (same backward-compatible pattern
-    deploy/managed-agent/cdk/managed_agent/stack.py already established).
+  - `subscribersApiBaseUrl` / `feedbackTokenSecretArn` / `feedbackBaseUrl` -- the
+    email-chrome config (unsubscribe + feedback links). COMMITTED DEFAULTS live in
+    this directory's cdk.json since the 2026-07-08 incident (a -c-less deploy
+    silently reset them to "" and the first decoupled production send lost its
+    feedback links and shipped broken unsubscribe links); a `-c` flag still
+    overrides. The stack FAILS LOUD at synth if any resolves empty --
+    `-c allowEmptyChromeConfig=true` is the tests/bootstrap-only escape hatch.
 """
 
 import os

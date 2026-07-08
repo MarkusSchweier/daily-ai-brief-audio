@@ -186,15 +186,49 @@ class BriefDeliveryStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Optional, backward-compatible context values -- absent by default so this
-        # stack synthesizes/deploys cleanly before the sibling stacks it reads
-        # cross-stack from (by ARN, same pattern as
-        # deploy/managed-agent/cdk/managed_agent/stack.py's `feedbackTokenSecretArn`)
-        # exist. Never a hard build-time dependency on those stacks' own synthesis.
+        # Email-chrome config (feedback + unsubscribe links). These were originally
+        # "optional, backward-compatible" CLI-context values so the stack could
+        # synthesize before its sibling stacks existed -- but that rationale predates
+        # this boundary becoming the LIVE production delivery path (ADR-0015
+        # cut-over, 2026-07-07). INCIDENT (2026-07-07/08): a `cdk deploy` for an
+        # HTML-template change was run WITHOUT the -c flags; CLI context is not
+        # sticky, so all three env vars silently reset to "" -- the first decoupled
+        # production send went out with no feedback link on any copy and BROKEN
+        # (relative-URL) unsubscribe links on every subscriber copy, while the
+        # send-side fail-safes correctly kept the mail flowing (6x
+        # FEEDBACK_LINK_SKIPPED in that run's logs). Two defenses now:
+        #   1. cdk.json carries COMMITTED defaults (not secrets: an ARN + two public
+        #      URLs), so a plain `cdk deploy` is safe; -c still overrides.
+        #   2. The fail-loud guard below refuses to synthesize a production Lambda
+        #      with empty chrome config -- the escape hatch
+        #      `-c allowEmptyChromeConfig=true` exists ONLY for tests and for
+        #      bootstrapping a fresh environment where the sibling stacks genuinely
+        #      don't exist yet.
         self.subscribers_table_name = self.node.try_get_context("subscribersTableName") or "brief-subscribers"
         self.subscribers_api_base_url = self.node.try_get_context("subscribersApiBaseUrl") or ""
         self.feedback_token_secret_arn = self.node.try_get_context("feedbackTokenSecretArn")
         self.feedback_base_url = self.node.try_get_context("feedbackBaseUrl") or ""
+
+        if not bool(self.node.try_get_context("allowEmptyChromeConfig")):
+            missing = [
+                name
+                for name, value in (
+                    ("subscribersApiBaseUrl", self.subscribers_api_base_url),
+                    ("feedbackTokenSecretArn", self.feedback_token_secret_arn or ""),
+                    ("feedbackBaseUrl", self.feedback_base_url),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    "BriefDeliveryStack: email-chrome context resolved EMPTY for: "
+                    + ", ".join(missing)
+                    + ". Deploying like this reproduces the 2026-07-08 incident (no feedback "
+                    "link, broken subscriber unsubscribe links on real sends). The committed "
+                    "defaults live in deploy/delivery/cdk.json -- if you are running outside "
+                    "the CDK CLI (e.g. tests) pass them via App(context=...), or set "
+                    "-c allowEmptyChromeConfig=true ONLY for tests/bootstrap."
+                )
 
         self.deliveries_table = self._build_deliveries_table()
         self.delivery_bearer_secret = self._build_delivery_bearer_secret()

@@ -105,10 +105,14 @@ def test_welcome_email_with_audio_attached(briefs_bucket):
     assert "Welcome to the Daily AI Brief!" in body
     assert "every weekday in the morning" in body  # owner copy (no specific time)
     assert "Today's brief" in body
-    # The welcome mail now carries the SAME chrome as a daily subscriber email:
-    assert "subscribe here" in body  # daily header banner's forward/subscribe line
+    # The welcome mail carries the WELCOME variant of the daily chrome
+    # (owner-specified format, 2026-07-08): intro -> unsubscribe -> feedback ->
+    # disclaimer -- deliberately NO forward/subscribe line (the recipient just
+    # subscribed; that line belongs to the regular daily brief only).
+    assert "subscribe here" not in body
     assert "curated and written by an AI agent" in body
     assert "unsub-tok" in body  # unsubscribe link present
+    assert body.index("unsub-tok") < body.index("curated and written by an AI agent")
     attachments = _attachment_parts(sent["raw"])
     assert len(attachments) == 1
     assert attachments[0].get_payload(decode=True) == b"fake-mp3-bytes"

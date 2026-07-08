@@ -12,6 +12,20 @@
     ]
   },
   "context": {
+    "_chrome_config_comment": [
+      "COMMITTED DEFAULTS for the email-chrome config (feedback + unsubscribe links).",
+      "None of these are secrets (an ARN and two public URLs, all already committed",
+      "repo-wide). They exist because on 2026-07-07 a `cdk deploy` WITHOUT the -c",
+      "flags silently reset the live Lambda's env to empty strings -- the first",
+      "decoupled production send (2026-07-08) then went out with no feedback link",
+      "and BROKEN (relative-URL) subscriber unsubscribe links. CDK CLI context is",
+      "not sticky across deploys; committed cdk.json context is. A -c flag still",
+      "overrides these; stack.py additionally FAILS LOUD at synth if any resolves",
+      "empty (escape hatch: -c allowEmptyChromeConfig=true, tests/bootstrap only)."
+    ],
+    "subscribersApiBaseUrl": "https://2il2bs0iq4.execute-api.us-east-1.amazonaws.com",
+    "feedbackTokenSecretArn": "arn:aws:secretsmanager:us-east-1:740353583786:secret:daily-ai-brief/feedback-token-signing-secret-EsDW6s",
+    "feedbackBaseUrl": "https://feedback.mschweier.com",
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],

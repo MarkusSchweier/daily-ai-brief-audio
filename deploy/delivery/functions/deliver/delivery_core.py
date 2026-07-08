@@ -618,17 +618,19 @@ def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
     """Insert the top "meta" box at the `_HEADER_SLOT` marker `derive_html()` emits
     inside the card cell (falling back to just-after-`<body>` for a bare/old-format
     document). ONE box carries every recipient-facing meta line, in one consistent
-    font size (14px), flush-left with the brief body:
+    font size (14px), flush-left with the brief body -- in the OWNER-SPECIFIED ORDER
+    (2026-07-08, superseding the 2026-07-07 feedback-first order):
 
-      - feedback prompt (when a per-recipient feedback link is available),
-      - forward/subscribe prompt (everyone),
-      - **unsubscribe** (when a per-recipient unsubscribe link is available -- i.e. real
-        subscribers; NOT the owner's own copy) -- moved here from a separate bottom
-        footer so it lives in the prominent top box (owner request 2026-07-07),
-      - AI-curation disclaimer.
+      1. forward/subscribe prompt (📬, everyone),
+      2. **unsubscribe** (✉️, when a per-recipient unsubscribe link is available --
+         i.e. real subscribers; the owner's own copy has no unsubscribe token and
+         omits this line by design),
+      3. feedback prompt (💬, when a per-recipient feedback link is available),
+      4. AI-curation disclaimer.
 
-    Both links are per-recipient, so this is called once per recipient. Each line is
-    omitted gracefully when its link is absent (fail-safe: never blocks the send)."""
+    Both links are per-recipient, so this is called once per recipient. Each linked
+    line is omitted gracefully when its link is absent (fail-safe: never blocks the
+    send)."""
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
         f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
@@ -647,10 +649,10 @@ def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
         # the SAME 14px size (owner request: align the sizes in the top box).
         '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
         'font-size:14px;color:#666;line-height:1.5;">'
-        f"{feedback_line}"
         '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
         f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
         f"{unsubscribe_line}"
+        f"{feedback_line}"
         '<p style="margin:0;">This brief is curated and written by an AI agent, '
         "which may make mistakes. For anything important, please verify with "
         "original sources and do your own research.</p>"
