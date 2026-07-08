@@ -194,9 +194,11 @@ def test_unsubscribe_is_in_the_top_meta_box_inside_the_card_before_the_brief():
     disclaimer_pos = subscriber_html.index("curated and written by an AI agent")
     h1_pos = subscriber_html.index("<h1")
 
-    # Every meta line (feedback -> unsubscribe -> disclaimer) is inside the centered card
-    # and BEFORE the brief headline -- one top box, no bottom footer.
-    assert outer_table_pos < card_cell_pos < feedback_pos < unsubscribe_pos < disclaimer_pos < h1_pos
+    # Every meta line is inside the centered card and BEFORE the brief headline --
+    # one top box, no bottom footer -- in the OWNER-SPECIFIED ORDER (2026-07-08):
+    # subscribe (static, earlier in the box) -> unsubscribe -> feedback -> disclaimer.
+    subscribe_pos = subscriber_html.index("subscribe here")
+    assert outer_table_pos < card_cell_pos < subscribe_pos < unsubscribe_pos < feedback_pos < disclaimer_pos < h1_pos
     assert unsubscribe_pos < subscriber_html.index("</html>")
 
 
