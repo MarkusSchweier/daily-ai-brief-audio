@@ -171,6 +171,15 @@ discipline) — not automatic from a good eval result.
 
 ## 6. Key decisions, flags & open items
 
+- **[DECIDED — owner, 2026-07-13] Production moved to candidate #6 (`haiku-swap-hardened`) ahead of
+  step C.** Overrides this PRD's §7 "no production cut-over in this epic" non-goal by explicit owner
+  decision (no pre-flip validation run, owner-waived). Live: production agent v2 = Haiku 4.5 (v1 =
+  Sonnet preserved for rollback), scheduled deployment `depl_016LWhcSEghrvGknVWhZvgdr` (pins agent v2,
+  hardened prompt + unchanged decoupled delivery), old Sonnet deployment archived. First Haiku
+  production send: Tue 2026-07-14 06:07 Europe/Berlin. The step-C matched evals still measure the
+  Sonnet config via the `production-baseline` candidate (its own cloud agent, unaffected), so the
+  comparison remains valid — and can still argue production back to Sonnet or on to #7.
+
 - **[DECIDED] Combined A/B/C epic**, sequenced **B → A → C** (owner, 2026-07-07).
 - **[DECIDED] No TTS/Polly in evals** (owner, reaffirmed 2026-07-07). Eval email, when enabled, is
   HTML-only to the owner via `POST /deliver` owner-only mode. Evals never touch Polly and never fan out
