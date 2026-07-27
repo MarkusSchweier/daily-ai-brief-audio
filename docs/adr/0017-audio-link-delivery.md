@@ -43,9 +43,29 @@ not assumed:
    the S3 key*). Polly names the object `<prefix>.<TaskId>.mp3`, i.e. `audio/.<task-id>.mp3` —
    the leading dot is Polly's, and every fixture in the repo reflects it.
 2. **The bucket is not CDK-managed.** `cowork-polly-tts-740353583786` predates all four stacks;
-   both its lifecycle rules (`audio/` 7-day, `briefs/` 90-day) were created imperatively and are
-   documented as out-of-band steps in `deploy/managed-agent/README.md`. Two CDK apps already
-   reference it as a **plain name string** (`PIPELINE_BUCKET_NAME`), never as an import.
+   its lifecycle configuration was created imperatively and is documented as an out-of-band step in
+   `deploy/managed-agent/README.md`. Two CDK apps already reference it as a **plain name string**
+   (`PIPELINE_BUCKET_NAME`), never as an import.
+
+   > ⚠️ **CORRECTION (security pass, 2026-07-27; verified read-only against live AWS).** An earlier
+   > revision of this bullet claimed **two** lifecycle rules, "`audio/` 7-day, `briefs/` 90-day".
+   > That is **false**. `get-bucket-lifecycle-configuration` returns exactly **ONE** rule:
+   > `expire-audio-7-days`, 7-day expiration, with **`Filter.Prefix = ""`** — i.e. it applies to the
+   > **ENTIRE bucket**, including `briefs/`. There is **no** 90-day `briefs/` rule, and the one rule
+   > that exists is **not** prefix-scoped despite its name. Corroborating evidence was sitting in
+   > this feature's own phase-1 output and initially went unremarked: the `head-object` calls on
+   > `briefs/<date>/audio-pointer.json` returned `Expiration` headers 7 days out, which a
+   > correctly-`audio/`-scoped rule would never produce (see
+   > `docs/notes/audio-link-phase1-evidence.md`).
+   >
+   > **This is pre-existing infrastructure drift, entirely OUTSIDE this feature's scope, and is NOT
+   > fixed here.** It predates this ADR, is unaffected by it, and changing a lifecycle rule that
+   > governs the durability of the whole brief archive is an **owner decision**, not a developer
+   > tidy-up — so it is recorded, not corrected. Nothing in this feature depends on the distinction:
+   > the email reads each object's **actual** `Expiration` header (D1) rather than assuming any rule
+   > shape, so it states the truth whatever the lifecycle is. What the drift *does* mean, and what
+   > the owner should weigh separately: the `briefs/` archive is being expired after 7 days, so the
+   > "durable record" ADR-0005 intended does not currently exist beyond a week.
 3. **The distribution belongs to a different deploy unit than the email.** `briefing.mschweier.com`
    is `SubscribeSiteDistribution` in `deploy/subscribers/`; the daily email is composed in
    `deploy/delivery/`. The two cannot import each other, and the repo's established answer to

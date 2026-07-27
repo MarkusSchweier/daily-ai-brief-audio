@@ -23,9 +23,27 @@ Recent weekday dates were inferred from the repo's own history (the Haiku-harden
 config has been live and sending daily since 2026-07-14; today is Monday 2026-07-27) rather than
 via `s3:ListBucket`, per the ADR-0017 D9 method. `GetObject` on each candidate date's pointer
 file succeeded for four consecutive prior weekdays (2026-07-21 through 2026-07-24); 2026-07-17
-was tried as a fallback probe and correctly 404'd (`NoSuchKey`) since a pointer only exists once
-a brief has actually archived — not used as evidence. Four samples obtained (more than the
-three the ADR asks for).
+was tried as a fallback probe and 404'd (`NoSuchKey`) — not used as evidence. Four samples
+obtained (more than the three the ADR asks for).
+
+> ⚠️ **CORRECTION (security pass, 2026-07-27).** Two claims in this document's original revision
+> were wrong, both traceable to the same unremarked observation:
+> 1. The 2026-07-17 404 was attributed above to "a pointer only exists once a brief has actually
+>    archived." That is almost certainly **not** why. The live bucket has exactly one lifecycle
+>    rule — `expire-audio-7-days`, 7-day expiration, `Filter.Prefix = ""` — which expires the
+>    **whole bucket**, `briefs/` included. 2026-07-17 is more than 7 days before 2026-07-27, so
+>    that pointer had simply been **deleted by the lifecycle rule**.
+> 2. The step-1 `head-object` output below shows `Expiration` headers on the
+>    **`briefs/<date>/audio-pointer.json`** objects themselves. That should have been flagged
+>    immediately: a lifecycle rule correctly scoped to `audio/` could never put an expiry on a
+>    `briefs/` object. The evidence for the drift was in this document from the start and went
+>    unremarked.
+>
+> This is **pre-existing infrastructure drift, outside ADR-0017's scope and not fixed by it** —
+> see ADR-0017 Context §2 and `deploy/managed-agent/README.md`'s step 2 for the finding and why
+> correcting the lifecycle is an owner decision. None of the phase-1 **gate outcomes** below are
+> affected (they concern `audio/` objects' `ContentType`/`Expiration`/key entropy, all still as
+> recorded).
 
 | Date | `audio_key` (redacted) |
 |---|---|
