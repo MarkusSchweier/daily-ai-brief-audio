@@ -113,7 +113,11 @@ secret rotation). Summary:
   used by the local Desktop task. Policy: `deploy/iam-policy.json`.
 - S3 bucket `cowork-polly-tts-740353583786` — SSE-S3, public access blocked, 7-day lifecycle
   expiry on `audio/`, plus the `briefs/` archive (brief.html + audio pointer) the feedback/welcome
-  paths read from.
+  paths read from. **Since ADR-0017 (audio-link delivery):** the `audio/*` prefix is publicly
+  readable via `briefing.mschweier.com/audio/*` (CloudFront OAC). Bucket-policy statements are
+  owned entirely by `BriefSubscribersStack`; never edit out-of-band or your change will be clobbered
+  by the next stack deployment. Brief emails carry an audio link instead of an MP3 attachment once
+  the staged rollout (phases 2–5 per ADR-0017) completes.
 - SES domain identity `mschweier.com` (DKIM-verified); all mail sends from
   `aibriefing@mschweier.com`. Owner still receives at `mail@mschweier.com`. **Still SES
   sandbox** — production access is a tracked, not-yet-done follow-up (see

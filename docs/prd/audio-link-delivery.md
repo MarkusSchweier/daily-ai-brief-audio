@@ -1,10 +1,12 @@
 # PRD: Audio-as-link delivery (stop attaching the MP3)
 
-- Status: **Draft (2026-07-27)** — awaiting owner gate, then architect review.
+- Status: **Built, reviewed, and security-cleared (GO) — 2026-07-27.** Staged rollout phases 2–5
+  pending (owner-gated per ADR-0017). Phase 1 (serve the audio) is candidate for immediate
+  pre-production validation.
 - Author: product-manager (Claude) · Date: 2026-07-27
-- Linked ADRs: none yet — **an ADR is recommended** (a new public read path on the existing
-  `briefing.mschweier.com` distribution, a second CloudFront origin, and a resource-policy change
-  on the shared, non-CDK-managed pipeline bucket). Architect to confirm.
+- Linked ADRs:
+  [0017 Audio-as-link delivery: serve `audio/*` through the existing subscriber CloudFront distribution with prefix-scoped OAC, and replace the MP3 attachment with an expiry-dated link](../adr/0017-audio-link-delivery.md)
+  (**Accepted** 2026-07-27).
 - Scope boundary: **delivery boundary only** (`deploy/delivery/` + `deploy/subscribers/`). The
   content pipeline (`deploy/managed-agent/`, the microVM, the `daily-ai-brief` skill, the
   `POST /deliver` contract v2) is **not touched**.
