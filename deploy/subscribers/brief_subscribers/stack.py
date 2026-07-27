@@ -454,6 +454,55 @@ class BriefSubscribersStack(Stack):
             )
             domain_names = [self.subscribe_domain_name]
 
+        # The `/audio/*` behavior's own origin: the PRE-EXISTING, non-CDK-managed
+        # pipeline bucket (ADR-0017 D2/D3/D7) -- a SEPARATE imported `Bucket.from_bucket_name`
+        # reference from `PIPELINE_BUCKET_NAME` (not the site bucket above), read via Origin
+        # Access Control. `addToResourcePolicy()` on an imported bucket is a silent no-op
+        # (CDK's own aws_cloudfront_origins docs), so the bucket policy that actually grants
+        # CloudFront read access is built explicitly below, AFTER the distribution exists
+        # (it needs the distribution's id for the `AWS:SourceArn` condition).
+        audio_bucket = s3.Bucket.from_bucket_name(self, "PipelineAudioBucket", PIPELINE_BUCKET_NAME)
+
+        # Dedicated short-TTL cache policy (ADR-0017 D3) -- deliberately NOT
+        # `CACHING_OPTIMIZED` (24h default / 1yr max), which could let an edge copy
+        # outlive the deleted S3 object by up to a day. No cookies/query/header
+        # forwarding (S3 needs nothing forwarded, and forwarding `Host` would break the
+        # OAC SigV4 origin signature); `Accept-Encoding` cache-key dimensions disabled
+        # (MP3 is already compressed, and this keeps range-GET handling simple).
+        audio_cache_policy = cloudfront.CachePolicy(
+            self,
+            "AudioCachePolicy",
+            comment="Short-TTL cache policy for /audio/* -- honest posture vs. the 7-day S3 lifecycle expiry (ADR-0017 D3).",
+            min_ttl=Duration.seconds(0),
+            default_ttl=Duration.hours(1),
+            max_ttl=Duration.hours(24),
+            cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+            query_string_behavior=cloudfront.CacheQueryStringBehavior.none(),
+            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+            enable_accept_encoding_gzip=False,
+            enable_accept_encoding_brotli=False,
+        )
+
+        # A friendly "Save as" filename (ADR-0017 D5) -- Polly's key begins with a dot, so
+        # without this a saved file would be a hidden dotfile. `override=True` so this wins
+        # over anything S3 itself sets. This is also the documented contingency slot for a
+        # Content-Type override, unused here: phase-1 live verification (docs/notes/audio-link-phase1-evidence.md)
+        # confirmed every sampled object already has ContentType audio/mpeg.
+        audio_response_headers_policy = cloudfront.ResponseHeadersPolicy(
+            self,
+            "AudioResponseHeadersPolicy",
+            comment="Friendly Content-Disposition filename for /audio/* (ADR-0017 D5).",
+            custom_headers_behavior=cloudfront.ResponseCustomHeadersBehavior(
+                custom_headers=[
+                    cloudfront.ResponseCustomHeader(
+                        header="Content-Disposition",
+                        value='inline; filename="daily-ai-brief.mp3"',
+                        override=True,
+                    )
+                ]
+            ),
+        )
+
         distribution = cloudfront.Distribution(
             self,
             "SubscribeSiteDistribution",
@@ -465,6 +514,21 @@ class BriefSubscribersStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                 cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
+            # `/audio/*` -- the ONE new behavior this feature adds (ADR-0017 D3): GET/HEAD
+            # only, no origin request policy (S3 needs nothing forwarded), no compression
+            # (MP3 is already compressed). No `originPath` on the origin, so
+            # `/audio/.<key>.mp3` maps to S3 key `audio/.<key>.mp3` verbatim.
+            additional_behaviors={
+                "/audio/*": cloudfront.BehaviorOptions(
+                    origin=origins.S3BucketOrigin.with_origin_access_control(audio_bucket),
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                    cached_methods=cloudfront.CachedMethods.CACHE_GET_HEAD,
+                    cache_policy=audio_cache_policy,
+                    response_headers_policy=audio_response_headers_policy,
+                    compress=False,
+                ),
+            },
             error_responses=[
                 # Unknown paths fall back to the subscribe page rather than S3's raw XML
                 # 404/403 body (this is a small static site with no client-side router, so
@@ -482,6 +546,55 @@ class BriefSubscribersStack(Stack):
                     ttl=Duration.minutes(5),
                 ),
             ],
+        )
+
+        # The bucket-policy statement that ACTUALLY grants CloudFront read access to
+        # `audio/*` (ADR-0017 D2, owner-ratified at Gate 2, overriding the architect's
+        # out-of-band recommendation). Built here, AFTER `distribution` exists, because the
+        # `AWS:SourceArn` condition pins this ONE distribution -- the standard OAC
+        # confused-deputy guard. There is no `distribution.distribution_arn` property, so
+        # the ARN is built via `format_arn()`; reference direction is BucketPolicy ->
+        # Distribution only (never the reverse, which would be a dependency cycle).
+        #
+        # STANDING OWNERSHIP RULE (ADR-0017 D2, non-negotiable): this stack is now the SOLE
+        # owner of `cowork-polly-tts-740353583786`'s bucket-policy DOCUMENT. Every future
+        # statement on this bucket MUST be added to this construct -- a statement applied
+        # out-of-band via `aws s3api put-bucket-policy` will be SILENTLY CLOBBERED by the
+        # next `cdk deploy` of this stack. See deploy/subscribers/README.md,
+        # deploy/delivery/README.md, and deploy/managed-agent/README.md's out-of-band-steps
+        # list for the same note. `RemovalPolicy.DESTROY` is set explicitly (it is CDK's
+        # default for a `BucketPolicy`, but stated here so the choice is visible rather than
+        # inherited) -- analysed as harmless in the ADR: no other consumer of this bucket
+        # depends on the bucket policy (every other reader/writer uses identity-based IAM),
+        # and destroying this stack also destroys the distribution the statement is pinned
+        # to, so the grant would be dead either way.
+        audio_bucket_policy = s3.BucketPolicy(
+            self,
+            "PipelineAudioBucketPolicy",
+            bucket=audio_bucket,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+        audio_bucket_policy.document.add_statements(
+            iam.PolicyStatement(
+                sid="AllowCloudFrontReadAudioPrefixOnly",
+                effect=iam.Effect.ALLOW,
+                principals=[iam.ServicePrincipal("cloudfront.amazonaws.com")],
+                actions=["s3:GetObject"],
+                # Ends in `/audio/*`, never `/*` -- `briefs/` (archived brief HTML/Markdown,
+                # listening scripts, candidates, source-usage records) stays unreachable
+                # through CloudFront (PRD R1, the single highest-consequence failure mode).
+                resources=[f"arn:{self.partition}:s3:::{PIPELINE_BUCKET_NAME}/audio/*"],
+                conditions={
+                    "StringEquals": {
+                        "AWS:SourceArn": self.format_arn(
+                            service="cloudfront",
+                            region="",
+                            resource="distribution",
+                            resource_name=distribution.distribution_id,
+                        )
+                    }
+                },
+            )
         )
 
         s3_deployment.BucketDeployment(
