@@ -469,7 +469,16 @@ In order, before this can run a real scheduled brief:
    conventions; **not run automatically by this build**). Also create the **`briefs/`
    lifecycle rule** on the existing `cowork-polly-tts-740353583786` bucket (ADR-0005,
    90-day expiry) — an imperative step, not a CDK/CloudFormation resource, mirroring how
-   the existing `audio/` 7-day rule was created.
+   the existing `audio/` 7-day rule was created. **DONE 2026-07-27** — and a drift was
+   found and fixed in the process: the original `expire-audio-7-days` rule had
+   `Filter.Prefix = ""` (empty), so it expired the **entire bucket** after 7 days,
+   `briefs/` included (archived briefs older than 7 days were lost; nothing user-facing
+   broke because welcome-send/recent-briefs only read the last few days). The live
+   config is now two prefix-scoped rules, applied imperatively in one
+   `put-bucket-lifecycle-configuration` call (it replaces the whole config):
+   `expire-audio-7-days` (`audio/`, 7 days — ratified by ADR-0017, which surfaces the
+   expiry date in emails) and `expire-briefs-90-days` (`briefs/`, 90 days —
+   owner-chosen 2026-07-27).
 3. Register the webhook URL with Anthropic; create the `self_hosted` environment and
    generate the environment key; create the agent definition (Claude Console/API),
    loading the now-ported research/writing skill
