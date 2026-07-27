@@ -20,12 +20,26 @@
 | IAM roles | `SubscribeFunctionRole`, `ConfirmFunctionRole`, `WelcomeSendFunctionRole`, `UnsubscribeFunctionRole` | Function-scoped least privilege, no static keys (ADR-0002 §A). Per ADR-0009, the SES send + scoped `cowork-polly-tts-740353583786` S3 read (`briefs/*`, `audio/*`) live on `WelcomeSendFunctionRole`, NOT `ConfirmFunctionRole` (which gets only `lambda:InvokeFunction` on the welcome-send Lambda's ARN). |
 | HTTP API | `SubscribersHttpApi` | Routes for the three Lambdas; throttled stage; CORS locked to the subscribe site origin |
 | S3 bucket | `SubscribeSiteBucket` | Private, OAC-only, hosts the static site |
-| CloudFront distribution | `SubscribeSiteDistribution` | Serves the site over HTTPS; optional custom domain + ACM cert |
+| CloudFront distribution | `SubscribeSiteDistribution` | Serves the site over HTTPS; optional custom domain + ACM cert; also carries the `/audio/*` behavior below (docs/prd/audio-link-delivery.md, ADR-0017) |
+| CloudFront cache/response-headers policies | `AudioCachePolicy`, `AudioResponseHeadersPolicy` | Short-TTL (1h default/24h max) cache policy + a friendly `Content-Disposition` filename for `/audio/*` (ADR-0017 D3/D5) |
+| S3 bucket policy | `PipelineAudioBucketPolicy` | The **one** statement granting CloudFront read-only access to `cowork-polly-tts-740353583786/audio/*` via OAC (ADR-0017 D2) — see the ownership note below |
 
 One stack, one lifecycle — see `docs/adr/0001` for why site/API/data are not split into
 separate stacks. The pre-existing Polly/S3/SES resources (`deploy/iam-policy.json` etc.) are
 **not** managed by this CDK app; they stay imperative, as documented in
 `deploy/audio-mail-integration.md`.
+
+> **Standing ownership rule (ADR-0017 D2, non-negotiable).** This stack is the **sole
+> owner** of the `cowork-polly-tts-740353583786` bucket's policy **document** (a
+> different resource than its lifecycle rules, which stay imperative/out-of-band exactly
+> as before — see `deploy/managed-agent/README.md`). Every future statement on this
+> bucket's policy MUST be added to `PipelineAudioBucketPolicy` in
+> `brief_subscribers/stack.py`. A statement applied out-of-band via `aws s3api
+> put-bucket-policy` will be **silently clobbered** by this stack's next `cdk deploy`.
+> Recreating `SubscribeSiteDistribution` invalidates the policy's `AWS:SourceArn` and
+> breaks every outstanding audio link until it is redeployed (harmless within a normal
+> `cdk deploy` of this stack, since CDK updates the `SourceArn` token automatically —
+> only an out-of-stack recreation of the distribution needs a manual re-point).
 
 ## Prerequisites
 

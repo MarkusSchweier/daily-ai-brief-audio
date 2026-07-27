@@ -469,7 +469,13 @@ In order, before this can run a real scheduled brief:
    conventions; **not run automatically by this build**). Also create the **`briefs/`
    lifecycle rule** on the existing `cowork-polly-tts-740353583786` bucket (ADR-0005,
    90-day expiry) — an imperative step, not a CDK/CloudFormation resource, mirroring how
-   the existing `audio/` 7-day rule was created.
+   the existing `audio/` 7-day rule was created. **Do not** apply a bucket **policy**
+   to this bucket out-of-band, however (a different API, `PutBucketPolicy`, than the
+   lifecycle rules above): since the audio-link-delivery feature (ADR-0017 D2), this
+   bucket's policy **document** is owned entirely by `BriefSubscribersStack`
+   (`deploy/subscribers/`) — any out-of-band `put-bucket-policy` call will be silently
+   clobbered by that stack's next `cdk deploy`. Lifecycle rules stay imperative exactly
+   as before; only the policy moved to CDK.
 3. Register the webhook URL with Anthropic; create the `self_hosted` environment and
    generate the environment key; create the agent definition (Claude Console/API),
    loading the now-ported research/writing skill
