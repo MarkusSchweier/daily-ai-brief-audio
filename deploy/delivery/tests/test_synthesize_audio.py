@@ -203,7 +203,7 @@ def test_redact_audio_key_keeps_a_short_prefix_and_the_length_masks_the_rest():
     assert redacted.startswith(key[:12])
     assert str(len(key)) in redacted
     assert key not in redacted
-    assert "4952bf" not in redacted  # the tail of the real task id must not leak either
+    assert "123456789abc" not in redacted  # the tail of the real task id must not leak either
 
 
 def test_resolve_audio_metadata_returns_available_false_when_audio_key_is_none():

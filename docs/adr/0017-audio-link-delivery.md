@@ -366,9 +366,22 @@ Phase 1, before any email change ships, all read-only:
    a v4 UUID), and the three sampled ids share no common prefix and are not ordered. Anything
    sequential, short, or timestamp-derived **fails** and returns to the human gate — per the PRD,
    that would change the architecture, not an implementation detail.
-4. **Evidence hygiene:** record the key *shape* and the bit count in the validation evidence, with
-   the middle of the real task id **redacted**. A live key is a working public URL for seven days;
-   committing one to git is needless even though the content is not private.
+4. **Key hygiene — evidence documents AND test fixtures, AND runtime logs.** A live `audio/*` key
+   is a working **public URL** for as long as the object exists (seven days), and this repository is
+   **public**, so a real key must never be committed anywhere, in any form:
+   - **Evidence docs:** record the key *shape* and the bit count only, with the middle of the real
+     task id **redacted**.
+   - **Test fixtures (added after a security pass found real keys committed as fixtures):** use a
+     **synthetic** UUID — e.g. `audio/.00000000-0000-4000-8000-123456789abc.mp3`, which keeps the
+     RFC 4122 v4 *shape* every shape-dependent test needs while being unmistakably fake. Never
+     paste a key copied from a real `audio-pointer.json`, a real `head-object` response, or the
+     phase-1 evidence into a test, even as a "realistic" fixture: the test outlives the object's
+     lifetime in git history, and history on a public repo is permanent and not scrubbable after a
+     push.
+   - **Runtime logs:** never log a full key. `audio_link._redact_audio_key()` (hand-duplicated
+     alongside the rest of that module) is the single helper both deploy units use for this; every
+     key-bearing log line in `delivery_core.resolve_audio_metadata()` and the welcome-send
+     handler's audio resolver goes through it.
 5. **A code test (no AWS) for AC-6:** assert the URL is `AUDIO_BASE_URL + "/" + audio_key` with the
    key passed through verbatim from the `OutputUri`-derived value, plus a negative test that no
    brief date, subject, or other guessable input can reach the URL. The builder uses
