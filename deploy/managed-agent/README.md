@@ -470,6 +470,33 @@ In order, before this can run a real scheduled brief:
    lifecycle rule** on the existing `cowork-polly-tts-740353583786` bucket (ADR-0005,
    90-day expiry) — an imperative step, not a CDK/CloudFormation resource, mirroring how
    the existing `audio/` 7-day rule was created.
+
+   > ⚠️ **ACTUAL LIVE STATE (verified read-only during the ADR-0017 security pass,
+   > 2026-07-27) — this instruction was never completed, and its premise is wrong.**
+   > `aws s3api get-bucket-lifecycle-configuration --bucket cowork-polly-tts-740353583786`
+   > returns exactly **ONE** rule: `expire-audio-7-days`, 7-day expiration, with
+   > **`Filter.Prefix = ""`**. So:
+   > - There is **no** 90-day `briefs/` rule — step 2's second sentence was never done.
+   > - The one rule that exists is **not** prefix-scoped to `audio/` despite its name; it
+   >   expires the **entire bucket**, `briefs/` included, after 7 days. So the sentence
+   >   above ("mirroring how the existing `audio/` 7-day rule was created") describes a
+   >   prefix-scoped rule that does not exist as described.
+   > - Net effect today: the `briefs/` archive ADR-0005 intended as a durable record is
+   >   being expired after **7 days**, not retained for 90.
+   >
+   > Kept here rather than deleted, because it is real history — this is what was intended.
+   > **Correcting the lifecycle is an owner decision and explicitly out of scope for
+   > ADR-0017** (which only reads each object's actual `Expiration` header and is therefore
+   > correct either way). Do not "fix" it as a drive-by. See ADR-0017's Context §2 for the
+   > full finding.
+
+   **Do not** apply a bucket **policy** to this bucket out-of-band, however (a different
+   API, `PutBucketPolicy`, than the lifecycle configuration above): since the
+   audio-link-delivery feature (ADR-0017 D2), this bucket's policy **document** is owned
+   entirely by `BriefSubscribersStack` (`deploy/subscribers/`) — any out-of-band
+   `put-bucket-policy` call will be silently clobbered by that stack's next `cdk deploy`.
+   The lifecycle configuration stays imperative exactly as before; only the policy moved
+   to CDK.
 3. Register the webhook URL with Anthropic; create the `self_hosted` environment and
    generate the environment key; create the agent definition (Claude Console/API),
    loading the now-ported research/writing skill

@@ -115,15 +115,28 @@ def _reset_feedback_secret_cache():
     delivery_core._feedback_secret_fetch_attempted = False
 
 
-def _send_all(ses_client, ddb_client, subject="Subject", brief_html="<p>brief</p>", mp3_bytes=None, **kwargs):
+DEFAULT_AUDIO_LINE_HTML = (
+    '<p style="margin:0 0 6px 0;">\U0001f3a7 '
+    '<a href="https://briefing.mschweier.com/audio/.test.mp3">Listen to this brief</a> '
+    "(link expires 4 August 2026)</p>"
+)
+
+
+def _send_all(
+    ses_client,
+    ddb_client,
+    subject="Subject",
+    brief_html="<p>brief</p>",
+    audio_line_html=DEFAULT_AUDIO_LINE_HTML,
+    **kwargs,
+):
     return delivery_core.send_all(
         ses_client,
         ddb_client,
         FakeSecretsManagerClient(),
         subject,
         brief_html,
-        mp3_bytes,
-        "brief.mp3",
+        audio_line_html,
         "brief-subscribers-test",
         "2026-07-06",
         **kwargs,
@@ -179,7 +192,7 @@ def test_owner_and_all_confirmed_subscribers_receive_the_brief():
         ]
     )
 
-    sent, failed, sub_sent, sub_failed, query_failed = _send_all(ses_client, ddb_client, mp3_bytes=b"fake-mp3-bytes")
+    sent, failed, sub_sent, sub_failed, query_failed = _send_all(ses_client, ddb_client)
 
     assert sent == 3  # owner + 2 subscribers
     assert failed == 0
@@ -207,7 +220,7 @@ def test_one_bad_subscriber_does_not_block_others_or_the_owner():
         ]
     )
 
-    sent, failed, sub_sent, sub_failed, query_failed = _send_all(ses_client, ddb_client, mp3_bytes=b"fake-mp3-bytes")
+    sent, failed, sub_sent, sub_failed, query_failed = _send_all(ses_client, ddb_client)
 
     assert sent == 3  # owner + good1 + good2
     assert failed == 1  # broken@example.com
@@ -250,19 +263,38 @@ def test_dynamodb_query_outage_still_lets_owner_send_succeed():
     assert ses_client.sent_to[0]["recipient"] == delivery_core.RECIP
 
 
-def test_mp3_bytes_are_reused_verbatim_across_every_recipient():
+def test_audio_line_html_is_identical_across_every_recipient():
+    """AC-10 at this layer: the audio URL/expiry is not private and carries no
+    per-recipient token, so `send_all()` must reuse the SAME `audio_line_html`
+    string verbatim for the owner and every subscriber (it is resolved ONCE by
+    the caller, ADR-0017 D8, never recomputed per recipient the way
+    feedback/unsubscribe links are)."""
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("dave@example.com"), _ddb_item("erin@example.com")])
-    mp3_bytes = b"identical-mp3-bytes-for-everyone"
+    audio_line_html = DEFAULT_AUDIO_LINE_HTML
 
-    _send_all(ses_client, ddb_client, mp3_bytes=mp3_bytes)
+    _send_all(ses_client, ddb_client, audio_line_html=audio_line_html)
 
     assert len(ses_client.sent_to) == 3
     for entry in ses_client.sent_to:
+        body = _html_body_text(entry["raw"])
+        assert audio_line_html in body
+
+
+def test_no_mime_attachment_part_is_ever_produced():
+    """ADR-0017 D8: the attachment machinery is deleted entirely -- there is no
+    code path left in `send_all()`/`_build_message()` that can ever produce a
+    MIME attachment part, regardless of what `audio_line_html` contains."""
+    ses_client = FakeSesClient()
+    ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("dave@example.com")])
+
+    _send_all(ses_client, ddb_client)
+
+    assert len(ses_client.sent_to) == 2
+    for entry in ses_client.sent_to:
         parsed = email.message_from_string(entry["raw"])
         attachment_parts = [part for part in parsed.walk() if part.get_content_disposition() == "attachment"]
-        assert len(attachment_parts) == 1
-        assert attachment_parts[0].get_payload(decode=True) == mp3_bytes
+        assert attachment_parts == []
 
 
 def test_signup_header_and_disclaimer_present_for_owner_and_subscribers():
@@ -279,14 +311,20 @@ def test_signup_header_and_disclaimer_present_for_owner_and_subscribers():
         assert "brief</p>" in body  # original brief content still present
 
 
-def test_audio_failure_still_sends_text_only_email_to_everyone():
-    """mp3_bytes=None must not attach a part, but must still send -- the same
-    fail-safe synthesize_audio() preserves (its own tests cover the Polly-failure
-    path directly; this proves send_all() degrades gracefully given that input)."""
+def test_no_audio_line_html_still_sends_normally_to_everyone():
+    """FR-10's fail-safe, at this layer: `send_all()` treats `audio_line_html` as
+    an opaque, already-resolved string -- the caller (handler.py) is the one that
+    decides between the link line and `audio_link.NO_AUDIO_LINE_HTML` (e.g. when
+    Polly synthesis failed). Either way, the send still succeeds for the owner and
+    every subscriber, and still carries no attachment."""
+    import audio_link
+
     ses_client = FakeSesClient()
     ddb_client = FakeDynamoDBClient(subscriber_items=[_ddb_item("frank@example.com")])
 
-    sent, failed, sub_sent, sub_failed, query_failed = _send_all(ses_client, ddb_client, mp3_bytes=None)
+    sent, failed, sub_sent, sub_failed, query_failed = _send_all(
+        ses_client, ddb_client, audio_line_html=audio_link.NO_AUDIO_LINE_HTML
+    )
 
     assert sent == 2
     assert failed == 0
@@ -294,6 +332,8 @@ def test_audio_failure_still_sends_text_only_email_to_everyone():
     assert sub_failed == 0
     assert query_failed is False
     for entry in ses_client.sent_to:
+        body = _html_body_text(entry["raw"])
+        assert audio_link.NO_AUDIO_LINE_HTML in body
         parsed = email.message_from_string(entry["raw"])
         attachment_parts = [part for part in parsed.walk() if part.get_content_disposition() == "attachment"]
         assert attachment_parts == []
@@ -337,8 +377,7 @@ def test_feedback_link_present_with_valid_config():
         FakeSecretsManagerClient(secret_value=FEEDBACK_SECRET_VALUE),
         "Subject",
         "<p>brief</p>",
-        None,
-        "brief.mp3",
+        DEFAULT_AUDIO_LINE_HTML,
         "brief-subscribers-test",
         "2026-07-06",
         feedback_base_url="https://feedback.mschweier.com",
@@ -377,8 +416,7 @@ def test_feedback_link_gracefully_absent_when_base_url_missing_but_secret_config
         FakeSecretsManagerClient(secret_value=FEEDBACK_SECRET_VALUE),
         "Subject",
         "<p>brief</p>",
-        None,
-        "brief.mp3",
+        DEFAULT_AUDIO_LINE_HTML,
         "brief-subscribers-test",
         "2026-07-06",
         feedback_token_secret_arn="arn:aws:secretsmanager:us-east-1:740353583786:secret:feedback-test-xxxxx",
@@ -409,8 +447,7 @@ def test_feedback_link_uses_correct_per_recipient_identity():
         FakeSecretsManagerClient(secret_value=FEEDBACK_SECRET_VALUE),
         "Subject",
         "<p>brief</p>",
-        None,
-        "brief.mp3",
+        DEFAULT_AUDIO_LINE_HTML,
         "brief-subscribers-test",
         "2026-07-06",
         feedback_base_url="https://feedback.mschweier.com",
@@ -443,8 +480,7 @@ def test_feedback_link_generation_failure_never_blocks_send(monkeypatch):
         FakeSecretsManagerClient(secret_value=FEEDBACK_SECRET_VALUE),
         "Subject",
         "<p>brief</p>",
-        None,
-        "brief.mp3",
+        DEFAULT_AUDIO_LINE_HTML,
         "brief-subscribers-test",
         "2026-07-06",
         feedback_base_url="https://feedback.mschweier.com",

@@ -5,9 +5,10 @@ The standalone stack that performs AWS delivery for the daily AI brief (PRD
 it is the **only** thing that can email a real subscriber; the content-generation side (a Claude
 Platform agent / the MicroVM) holds no AWS delivery IAM (FR-1).
 
-> **Status:** deployed + live-validated, but **production still delivers in-VM** via
-> `deploy/managed-agent/`. Moving production onto this boundary is an owner-gated cut-over —
-> see [`CUTOVER-production-decoupling.md`](CUTOVER-production-decoupling.md).
+> **Status:** **LIVE — the production delivery path since the 2026-07-07 ADR-0015 cut-over.**
+> The scheduled weekday run delivers through `POST /deliver`; the content MicroVM holds zero
+> AWS delivery IAM. Cut-over runbook + rollback:
+> [`CUTOVER-production-decoupling.md`](CUTOVER-production-decoupling.md).
 
 ## Endpoints (HTTP API `https://6nbe4wsng6.execute-api.us-east-1.amazonaws.com`)
 - **`POST /deliver`** — async trigger. Body = contract **v2**: `brief_markdown`, `listening_script`
@@ -24,6 +25,19 @@ Platform agent / the MicroVM) holds no AWS delivery IAM (FR-1).
 `brief-deliveries` DynamoDB table (PK `deliveryId`) holds two item types: real delivery rows
 (random UUID id, retained as history) and idempotency-dedup rows (`idem#<brief_date>`, `expiresAt`
 TTL so they self-clean). No GSI, no Scan.
+
+## Audio-as-link (docs/prd/audio-link-delivery.md, ADR-0017)
+The daily brief email carries a `🎧 Listen to this brief` **link**, not an MP3 attachment.
+`delivery_core.synthesize_audio()` only starts/polls the Polly task and returns the
+`OutputUri`-derived key (no more `/tmp` download); `resolve_audio_metadata()` then does a
+cheap `HeadObject` on that key to confirm it's live and read its S3 lifecycle `Expiration`
+header, and `audio_link.build_audio_link_result()` (hand-duplicated with
+`deploy/subscribers/layers/common/python/audio_link.py`) renders the meta-box line. The
+link's public host (`AUDIO_BASE_URL`, same value as `SUBSCRIBE_SITE_URL`) is served by
+**`deploy/subscribers/`'s** `SubscribeSiteDistribution` `/audio/*` behavior — this stack
+does not own that routing or the bucket-policy statement that authorizes it (see
+`deploy/subscribers/README.md`'s ownership note). No IAM change here: `HeadObject` is
+authorized by the existing `S3AudioReadWrite` `s3:GetObject` grant.
 
 ## Fail-safe / operations (ADR-0015 D7/D8)
 - **Idempotency:** a duplicate `POST /deliver` for the same `idempotency_key` returns the first
