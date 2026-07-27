@@ -41,6 +41,13 @@ separate stacks. The pre-existing Polly/S3/SES resources (`deploy/iam-policy.jso
 > `cdk deploy` of this stack, since CDK updates the `SourceArn` token automatically —
 > only an out-of-stack recreation of the distribution needs a manual re-point).
 
+> **Verifying `/audio/*` serving:** use a **fresh, never-probed** key (the distribution's
+> 403/404→subscribe-page error responses are edge-cached for ~5 min, so probing before the
+> bucket policy is live makes a correct deploy look broken), and test ranged requests with a
+> ranged **GET** (`curl -s -H "Range: bytes=0-1023" -o /dev/null -w "%{http_code}"` → 206) —
+> CloudFront does **not** apply `Range` to HEAD requests, so a ranged `curl -I` returns 200
+> and would falsely "fail" AC-2.
+
 ## Prerequisites
 
 - Node.js + npm (for the `aws-cdk` CLI; the Python construct library `aws-cdk-lib` alone is not
