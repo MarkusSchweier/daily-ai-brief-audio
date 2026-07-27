@@ -123,6 +123,27 @@ def test_the_audio_behavior_disables_compression():
     assert behavior["Compress"] is False
 
 
+def test_the_audio_behavior_redirects_http_to_https():
+    """ADR-0017 D3: 'Viewer protocol | REDIRECT_TO_HTTPS | Matches the default
+    behavior.' -- gap found in review: no existing test asserted this, so a
+    regression here (e.g. someone copy-pasting `ALLOW_ALL` for a debugging
+    session) would ship silently. CDK's `REDIRECT_TO_HTTPS` renders as the
+    literal string `redirect-to-https` in the synthesized template."""
+    template = _synth_template()
+    config = _distribution_config(template)
+    (behavior,) = config["CacheBehaviors"]
+    assert behavior["ViewerProtocolPolicy"] == "redirect-to-https"
+
+
+def test_default_behavior_also_redirects_http_to_https():
+    """Same check for the pre-existing default (site) behavior, so a future
+    change can't silently weaken either behavior's transport security without
+    a failing test."""
+    template = _synth_template()
+    config = _distribution_config(template)
+    assert config["DefaultCacheBehavior"]["ViewerProtocolPolicy"] == "redirect-to-https"
+
+
 def test_default_behavior_still_points_at_the_site_bucket_not_the_pipeline_bucket():
     template = _synth_template()
     config = _distribution_config(template)

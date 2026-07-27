@@ -266,3 +266,47 @@ def test_expiration_header_missing_uses_the_generic_availability_note(delivery_t
     body = _brief_email_body(ses_client)
     assert f"https://briefing.mschweier.com/{audio_key}" in body
     assert "link available for about 7 days" in body
+
+
+def test_oversized_mp3_is_still_linked_no_size_cap_in_the_daily_email(delivery_table):
+    """AC-13, at the DAILY-email layer (the welcome-side equivalent is
+    test_welcome_send_handler.py::test_large_audio_object_is_still_linked_no_size_cap
+    -- this is its missing daily-path counterpart, review gap). ADR-0017 D8 deleted
+    MAX_AUDIO_ATTACHMENT_BYTES and the whole attachment/size-cutoff branch entirely;
+    resolve_audio_metadata() only ever HeadObjects for Expiration, never gates on
+    ContentLength. Simulates a HeadObject response for an MP3 far past the old 15 MB
+    attachment cutoff, and proves the link is shown regardless -- the old
+    silent-drop-past-15MB failure mode is structurally gone, not just untriggered."""
+    delivery_id = "delivery-audio-oversized"
+    delivery_table.put_item(Item={"deliveryId": delivery_id, "status": "pending"})
+    ses_client = _RecordingSesClient()
+    audio_key = "audio/.oversized.mp3"
+    oversized_bytes = 20 * 1024 * 1024  # 20 MB, comfortably past the old 15 MB cutoff
+    s3_client = _NoOpS3ClientForArchival(
+        head_object_response={
+            "ContentLength": oversized_bytes,
+            "Expiration": 'expiry-date="Tue, 04 Aug 2026 00:00:00 GMT", rule-id="expire-audio-7-days"',
+        }
+    )
+
+    result = handler_module._handle_worker_invocation(
+        _worker_event(delivery_id),
+        table=delivery_table,
+        polly_client=_SucceedingPollyClient(audio_key),
+        s3_client=s3_client,
+        ses_client=ses_client,
+        dynamodb_client=_EmptyDynamoDBClient(),
+        secretsmanager_client=_NoOpSecretsManagerClient(),
+    )
+
+    assert result["status"] == "succeeded"
+    body = _brief_email_body(ses_client)
+    assert f"https://briefing.mschweier.com/{audio_key}" in body
+    assert "Listen to this brief" in body
+    assert "4 August 2026" in body
+    # No attachment part regardless of the (irrelevant) object size.
+    import email as email_module
+
+    for entry in ses_client.sent_to:
+        parsed = email_module.message_from_string(entry["raw"])
+        assert [p for p in parsed.walk() if p.get_content_disposition() == "attachment"] == []
