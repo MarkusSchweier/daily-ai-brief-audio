@@ -1,0 +1,171 @@
+"""Shared audio-link rendering logic for the audio-as-link delivery feature (PRD
+docs/prd/audio-link-delivery.md, ADR-0017 D10). Owns three things that must be
+identical, byte-for-byte, everywhere the daily brief or the welcome email mentions
+audio:
+
+  - the public audio URL builder (`build_audio_url`) -- FR-3/FR-9/AC-6: the URL is
+    built from the audio base URL plus the object's own `OutputUri`-derived S3 key,
+    VERBATIM, and nothing else (never the brief date, subject, or any other
+    guessable input);
+  - the `x-amz-expiration` header parser + Europe/Berlin date formatter
+    (`parse_expiration_header` / `format_expiry_date`) -- ADR-0017 D1;
+  - the three ratified, byte-exact meta-box HTML lines (`build_audio_link_result` /
+    `NO_AUDIO_LINE_HTML`) -- ADR-0017 D10/D11.
+
+Each caller (`delivery_core.py`'s `_html_with_header()`, the welcome-send handler's
+`_meta_box_html()`) owns only WHERE this line goes in its own meta box -- never its
+own copy of the wording, URL, or date format.
+
+Duplicated verbatim in:
+  - deploy/delivery/functions/deliver/audio_link.py            (this copy -- imported by delivery_core.py)
+  - deploy/subscribers/layers/common/python/audio_link.py      (imported by welcome-send/handler.py)
+
+`deploy/delivery/` and `deploy/subscribers/` are independent Lambda deployment units
+with no shared package -- this repo's established convention for exactly this
+situation (see `feedback_token.py`'s docstring, hand-duplicated across four
+independent deploy units, and `brief_history.py`'s docstring citing the same
+precedent). Any change here MUST be applied to the other copy too; a test asserts
+the two files are byte-identical (ADR-0017 D10, "R4 becomes a failing test, not a
+checklist item").
+
+This module does NO I/O (no S3 calls) -- both callers already hold whatever
+`HeadObject` response (or failure) they need before calling into this module; that
+keeps this module pure and trivially unit-testable, and keeps the fail-safe
+philosophy (CLAUDE.md: "never lose the brief over an audio/email glitch") entirely
+in the hands of the two callers' own try/except around their own S3 calls.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
+
+# The pipeline's own timezone (matches audio_email.py / delivery handler.py's
+# PIPELINE_TIMEZONE convention) -- the expiry date is always rendered in this
+# timezone, regardless of which timezone the S3-reported expiry header is in
+# (ADR-0017 D1/FR-8).
+PIPELINE_TIMEZONE = "Europe/Berlin"
+
+# Matches the `expiry-date="..."` portion of an S3 `Expiration` / `x-amz-expiration`
+# header, e.g. `expiry-date="Sat, 01 Aug 2026 00:00:00 GMT", rule-id="expire-audio-7-days"`.
+_EXPIRY_DATE_ATTR_RE = re.compile(r'expiry-date="([^"]*)"')
+
+# The three ratified, byte-exact HTML lines (ADR-0017 D11) -- each is the FIRST line
+# of the daily brief's meta box (welcome email: directly after the greeting, D11
+# amendment). `{url}` / `{expiry_label}` are the only interpolated values.
+_LINK_EXPIRY_TEMPLATE = (
+    '<p style="margin:0 0 6px 0;">\U0001f3a7 <a href="{url}">Listen to this brief</a> '
+    "(link expires {expiry_label})</p>"
+)
+NO_AUDIO_LINE_HTML = '<p style="margin:0 0 6px 0;">\U0001f3a7 No audio version available for this edition.</p>'
+_LINK_GENERIC_TEMPLATE = (
+    '<p style="margin:0 0 6px 0;">\U0001f3a7 <a href="{url}">Listen to this brief</a> '
+    "(link available for about 7 days)</p>"
+)
+
+
+def build_audio_url(audio_base_url: str, audio_key: str) -> str:
+    """Build the public audio URL from `audio_base_url` (e.g.
+    `https://briefing.mschweier.com`) and the object's own `OutputUri`-derived S3
+    key (e.g. `audio/.<uuid>.mp3`), passed through VERBATIM (FR-3/FR-9/AC-6) --
+    never the brief date, subject, or any other guessable input; the function
+    signature itself makes that structurally impossible.
+
+    `urllib.parse.quote(audio_key, safe="/")` (ADR-0017 D9 step 5) ensures an
+    unexpected character in the key can never yield a malformed URL while the `/`
+    path separator is preserved, so `audio/.<uuid>.mp3` maps to `/audio/.<uuid>.mp3`
+    on the URL path, matching the `/audio/*` behavior's path pattern exactly (no
+    `originPath` on that behavior, ADR-0017 D3)."""
+    base = audio_base_url.rstrip("/")
+    return f"{base}/{quote(audio_key, safe='/')}"
+
+
+def parse_expiration_header(expiration_header: str | None) -> datetime | None:
+    """Parse an S3 `HeadObject` response's `Expiration` field (the `x-amz-expiration`
+    response header, shaped `expiry-date="Tue, 04 Aug 2026 00:00:00 GMT",
+    rule-id="..."`) into an aware datetime, or `None` if the header is missing,
+    empty, or its `expiry-date` portion is not a valid HTTP-date (ADR-0017 D1).
+    Never raises."""
+    if not expiration_header:
+        return None
+    match = _EXPIRY_DATE_ATTR_RE.search(expiration_header)
+    if not match:
+        return None
+    try:
+        return parsedate_to_datetime(match.group(1))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def format_expiry_date(expiry_dt: datetime) -> str:
+    """Render `expiry_dt` (an aware datetime, any source timezone) in
+    `PIPELINE_TIMEZONE` (Europe/Berlin) with an unambiguous, spelled-out month and
+    no time-of-day -- e.g. `4 August 2026` (ADR-0017 D1/FR-8). Built by hand
+    (`d.day` / `%B` / `d.year`), deliberately NOT `%-d`, which is a glibc extension
+    that behaves differently across platforms (a developer's macOS vs. Lambda)."""
+    local = expiry_dt.astimezone(ZoneInfo(PIPELINE_TIMEZONE))
+    return f"{local.day} {local:%B} {local.year}"
+
+
+@dataclass(frozen=True)
+class AudioLinkResult:
+    """The resolved meta-box line, plus the FR-17 structured-logging fields a
+    caller needs to record whether a link was embedded and, when it was, the
+    expiry date used."""
+
+    html: str
+    link_included: bool
+    expiry_label: str | None = None
+
+
+def build_audio_link_result(
+    *,
+    audio_base_url: str | None,
+    audio_key: str | None,
+    audio_available: bool,
+    expiration_header: str | None = None,
+) -> AudioLinkResult:
+    """Resolve the audio meta-box line from inputs the caller already has in hand
+    after attempting to resolve that edition's audio object -- implements
+    ADR-0017 D1's three-outcome table plus FR-18's blank-config degrade:
+
+      - `audio_base_url` unset/blank (FR-18), OR `audio_key` unset/None (e.g.
+        Polly synthesis failed, AC-11), OR `audio_available=False` (the caller's
+        own `HeadObject` returned 404/`NoSuchKey`/any other error) -> the no-audio
+        line, no link, no date (`NO_AUDIO_LINE_HTML`).
+      - `audio_available=True` with a parseable `expiration_header` -> the link,
+        with the exact expiry date (AC-9).
+      - `audio_available=True` but `expiration_header` is missing/unparseable ->
+        the link, with the generic "about 7 days" note (AC-12).
+
+    Never raises -- every input is treated as untrusted/best-effort, matching this
+    feature's fail-safe requirement (FR-10). This function performs no I/O; the
+    caller is responsible for the `HeadObject` call (and its own try/except) that
+    produces `audio_available`/`expiration_header`."""
+    if not audio_base_url or not audio_key or not audio_available:
+        return AudioLinkResult(html=NO_AUDIO_LINE_HTML, link_included=False, expiry_label=None)
+
+    url = build_audio_url(audio_base_url, audio_key)
+    expiry_dt = parse_expiration_header(expiration_header)
+    if expiry_dt is not None:
+        expiry_label = format_expiry_date(expiry_dt)
+        html = _LINK_EXPIRY_TEMPLATE.format(url=url, expiry_label=expiry_label)
+        return AudioLinkResult(html=html, link_included=True, expiry_label=expiry_label)
+
+    html = _LINK_GENERIC_TEMPLATE.format(url=url)
+    return AudioLinkResult(html=html, link_included=True, expiry_label=None)
+
+
+__all__ = [
+    "PIPELINE_TIMEZONE",
+    "NO_AUDIO_LINE_HTML",
+    "AudioLinkResult",
+    "build_audio_url",
+    "parse_expiration_header",
+    "format_expiry_date",
+    "build_audio_link_result",
+]
