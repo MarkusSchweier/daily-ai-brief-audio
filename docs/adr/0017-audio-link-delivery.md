@@ -66,6 +66,15 @@ not assumed:
    > shape, so it states the truth whatever the lifecycle is. What the drift *does* mean, and what
    > the owner should weigh separately: the `briefs/` archive is being expired after 7 days, so the
    > "durable record" ADR-0005 intended does not currently exist beyond a week.
+   >
+   > ✅ **RESOLVED (owner-approved, 2026-07-27, in a separate session — not part of this feature).**
+   > The lifecycle configuration was replaced imperatively (one
+   > `put-bucket-lifecycle-configuration` call — it replaces the whole config) with two
+   > prefix-scoped rules, verified live afterwards: `expire-audio-7-days` (`audio/`, 7 days —
+   > semantics unchanged, as this ADR requires: the audio-link email shows that expiry date) and
+   > `expire-briefs-90-days` (`briefs/`, 90 days — owner-chosen retention, restoring ADR-0005's
+   > intent). Briefs already expired before the fix are unrecoverable; retention accrues from now.
+   > The out-of-band-steps list in `deploy/managed-agent/README.md` records the same fix.
 3. **The distribution belongs to a different deploy unit than the email.** `briefing.mschweier.com`
    is `SubscribeSiteDistribution` in `deploy/subscribers/`; the daily email is composed in
    `deploy/delivery/`. The two cannot import each other, and the repo's established answer to
