@@ -2,6 +2,12 @@
 callable port of `audio_email.py`'s top-level Polly try/except block
 (:168-198). Same fail-safe: never raises, degrades to `audio_ok=False` on ANY
 failure (CLAUDE.md: "never lose the brief over an audio/email glitch").
+
+ADR-0017 D8 (audio-as-link delivery): this function no longer downloads the MP3
+at all -- with the attachment gone, nothing needs the bytes -- so it takes no
+`s3_client`/`mp3_out_path` and returns only `(audio_ok, audio_s3_key)`. The
+`HeadObject`-based expiry read that replaces the download is
+`delivery_core.resolve_audio_metadata()`, tested separately below.
 """
 
 from __future__ import annotations
@@ -41,75 +47,49 @@ class _FakePollyClientRaisesOnStart:
         raise RuntimeError("simulated Polly outage on start")
 
 
-class _FakeS3ClientDownloads:
-    """Writes deterministic fake MP3 bytes to the requested local path on
-    download_file(), so the caller can read them back."""
-
-    def __init__(self, content: bytes):
-        self._content = content
-        self.downloaded = []
-
-    def download_file(self, bucket, key, local_path):
-        self.downloaded.append((bucket, key, local_path))
-        with open(local_path, "wb") as f:
-            f.write(self._content)
-
-
-def test_synthesize_audio_success_returns_audio_ok_true_and_mp3_bytes(tmp_path):
+def test_synthesize_audio_success_returns_audio_ok_true_and_the_output_uri_derived_key():
     output_uri = f"https://s3.amazonaws.com/{delivery_core.BUCKET}/audio/task-123.mp3"
     polly_client = _FakePollyClientSuccess(output_uri)
-    s3_client = _FakeS3ClientDownloads(b"fake-mp3-content")
-    mp3_out_path = str(tmp_path / "brief.mp3")
 
-    audio_ok, audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(polly_client, s3_client, "script text", mp3_out_path)
+    audio_ok, audio_s3_key = delivery_core.synthesize_audio(polly_client, "script text")
 
     assert audio_ok is True
     assert audio_s3_key == "audio/task-123.mp3"
-    assert mp3_bytes == b"fake-mp3-content"
-    assert s3_client.downloaded == [(delivery_core.BUCKET, "audio/task-123.mp3", mp3_out_path)]
 
 
-def test_synthesize_audio_uses_output_uri_derived_key_never_a_hand_built_one(tmp_path):
+def test_synthesize_audio_uses_output_uri_derived_key_never_a_hand_built_one():
     """CLAUDE.md invariant: 'use OutputUri, never build the S3 key'. This proves
     the derived key comes from parsing OutputUri, not from any
     task-id-based construction -- by using a deliberately unusual OutputUri
     shape and confirming the exact same path segment is extracted."""
     output_uri = f"https://s3.amazonaws.com/{delivery_core.BUCKET}/audio/some-totally-different-name.mp3"
     polly_client = _FakePollyClientSuccess(output_uri)
-    s3_client = _FakeS3ClientDownloads(b"content")
-    mp3_out_path = str(tmp_path / "out.mp3")
 
-    _, audio_s3_key, _ = delivery_core.synthesize_audio(polly_client, s3_client, "script", mp3_out_path)
+    _, audio_s3_key = delivery_core.synthesize_audio(polly_client, "script")
 
     assert audio_s3_key == "audio/some-totally-different-name.mp3"
 
 
-def test_synthesize_audio_task_failure_returns_audio_ok_false_never_raises(tmp_path):
+def test_synthesize_audio_task_failure_returns_audio_ok_false_never_raises():
     polly_client = _FakePollyClientFailed()
-    s3_client = _FakeS3ClientDownloads(b"unused")
-    mp3_out_path = str(tmp_path / "brief.mp3")
 
-    audio_ok, audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(polly_client, s3_client, "script", mp3_out_path)
+    audio_ok, audio_s3_key = delivery_core.synthesize_audio(polly_client, "script")
 
     assert audio_ok is False
     assert audio_s3_key is None
-    assert mp3_bytes is None
 
 
-def test_synthesize_audio_start_failure_returns_audio_ok_false_never_raises(tmp_path):
+def test_synthesize_audio_start_failure_returns_audio_ok_false_never_raises():
     polly_client = _FakePollyClientRaisesOnStart()
-    s3_client = _FakeS3ClientDownloads(b"unused")
-    mp3_out_path = str(tmp_path / "brief.mp3")
 
     # Must not raise.
-    audio_ok, audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(polly_client, s3_client, "script", mp3_out_path)
+    audio_ok, audio_s3_key = delivery_core.synthesize_audio(polly_client, "script")
 
     assert audio_ok is False
     assert audio_s3_key is None
-    assert mp3_bytes is None
 
 
-def test_synthesize_audio_polling_timeout_returns_audio_ok_false(monkeypatch, tmp_path):
+def test_synthesize_audio_polling_timeout_returns_audio_ok_false(monkeypatch):
     """A synthesis task stuck 'in progress' forever must time out rather than hang
     the Lambda past its own timeout budget -- verbatim fail-safe from
     audio_email.py's `deadline = time.time() + 300` / `TimeoutError`."""
@@ -128,34 +108,84 @@ def test_synthesize_audio_polling_timeout_returns_audio_ok_false(monkeypatch, tm
     monkeypatch.setattr(delivery_core, "POLLY_POLL_INTERVAL_SECONDS", 0.01)
 
     polly_client = _NeverCompletesPollyClient()
-    s3_client = _FakeS3ClientDownloads(b"unused")
-    mp3_out_path = str(tmp_path / "brief.mp3")
 
     start = time.time()
-    audio_ok, audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(polly_client, s3_client, "script", mp3_out_path)
+    audio_ok, audio_s3_key = delivery_core.synthesize_audio(polly_client, "script")
     elapsed = time.time() - start
 
     assert audio_ok is False
     assert audio_s3_key is None
-    assert mp3_bytes is None
     assert elapsed < 5  # sanity: didn't actually wait anywhere near the real 300s default
 
 
-def test_synthesize_audio_drops_attachment_bytes_when_oversized_but_keeps_ok_true(tmp_path, monkeypatch):
-    """Mirrors audio_email.py:196-198: an oversized MP3 is dropped from the EMAIL
-    attachment (mp3_bytes=None) but the underlying synthesis itself still
-    succeeded (audio_ok stays True, and a real audio_s3_key is still returned --
-    the S3 object exists and is still a valid archive pointer, only the email
-    attachment is skipped to avoid an SES raw-message-size rejection)."""
-    monkeypatch.setattr(delivery_core, "MAX_AUDIO_ATTACHMENT_BYTES", 10)  # tiny, forces the oversized path
+# ---------------------------------------------------------------------------
+# resolve_audio_metadata() -- the HeadObject-based expiry read that replaces the
+# download (ADR-0017 D1/D8).
+# ---------------------------------------------------------------------------
 
-    output_uri = f"https://s3.amazonaws.com/{delivery_core.BUCKET}/audio/big-file.mp3"
-    polly_client = _FakePollyClientSuccess(output_uri)
-    s3_client = _FakeS3ClientDownloads(b"this content is longer than ten bytes")
-    mp3_out_path = str(tmp_path / "brief.mp3")
 
-    audio_ok, audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(polly_client, s3_client, "script", mp3_out_path)
+class _FakeS3ClientHeadObject:
+    def __init__(self, response=None, raise_exc=None):
+        self._response = response
+        self._raise_exc = raise_exc
+        self.head_object_calls = []
 
-    assert audio_ok is True
-    assert audio_s3_key == "audio/big-file.mp3"
-    assert mp3_bytes is None
+    def head_object(self, Bucket, Key):
+        self.head_object_calls.append((Bucket, Key))
+        if self._raise_exc is not None:
+            raise self._raise_exc
+        return self._response
+
+
+def test_resolve_audio_metadata_returns_available_true_with_expiration_header_on_success():
+    s3_client = _FakeS3ClientHeadObject(
+        response={"Expiration": 'expiry-date="Tue, 04 Aug 2026 00:00:00 GMT", rule-id="expire-audio-7-days"'}
+    )
+
+    audio_available, expiration_header = delivery_core.resolve_audio_metadata(s3_client, "audio/.abc.mp3")
+
+    assert audio_available is True
+    assert expiration_header == 'expiry-date="Tue, 04 Aug 2026 00:00:00 GMT", rule-id="expire-audio-7-days"'
+    assert s3_client.head_object_calls == [(delivery_core.BUCKET, "audio/.abc.mp3")]
+
+
+def test_resolve_audio_metadata_returns_available_true_expiration_none_when_header_missing():
+    """200 but no Expiration header at all -- D1's generic-note case."""
+    s3_client = _FakeS3ClientHeadObject(response={})
+
+    audio_available, expiration_header = delivery_core.resolve_audio_metadata(s3_client, "audio/.abc.mp3")
+
+    assert audio_available is True
+    assert expiration_header is None
+
+
+def test_resolve_audio_metadata_returns_available_false_on_head_object_error_never_raises():
+    """404/NoSuchKey/any HeadObject failure -- D1: showing a link would be a
+    known-broken link."""
+    s3_client = _FakeS3ClientHeadObject(raise_exc=RuntimeError("simulated NoSuchKey"))
+
+    audio_available, expiration_header = delivery_core.resolve_audio_metadata(s3_client, "audio/.abc.mp3")
+
+    assert audio_available is False
+    assert expiration_header is None
+
+
+def test_resolve_audio_metadata_returns_available_false_when_audio_key_is_none():
+    """AC-11: synthesis failed, so there is no audio_key at all -- resolves to
+    no-audio without ever calling HeadObject."""
+    s3_client = _FakeS3ClientHeadObject()
+
+    audio_available, expiration_header = delivery_core.resolve_audio_metadata(s3_client, None)
+
+    assert audio_available is False
+    assert expiration_header is None
+    assert s3_client.head_object_calls == []
+
+
+@pytest.mark.parametrize("empty_key", [None, ""])
+def test_resolve_audio_metadata_never_calls_head_object_for_a_falsy_key(empty_key):
+    s3_client = _FakeS3ClientHeadObject()
+
+    delivery_core.resolve_audio_metadata(s3_client, empty_key)
+
+    assert s3_client.head_object_calls == []

@@ -41,20 +41,33 @@ def _load_fixture_markdown(filename: str = "2026-07-06-brief.md") -> str:
     return (FIXTURES_DIR / filename).read_text(encoding="utf-8")
 
 
-def _compose_subscriber_html(brief_markdown: str, *, feedback_link=None, unsubscribe_link="https://briefing.mschweier.com/unsubscribe?email=alice%40example.com&token=tok-123") -> str:
+DEFAULT_AUDIO_LINE_HTML = (
+    '<p style="margin:0 0 6px 0;">\U0001f3a7 '
+    '<a href="https://briefing.mschweier.com/audio/.test.mp3">Listen to this brief</a> '
+    "(link expires 4 August 2026)</p>"
+)
+
+
+def _compose_subscriber_html(
+    brief_markdown: str,
+    *,
+    audio_line_html: str = DEFAULT_AUDIO_LINE_HTML,
+    feedback_link=None,
+    unsubscribe_link="https://briefing.mschweier.com/unsubscribe?email=alice%40example.com&token=tok-123",
+) -> str:
     """Exactly the chain `send_all()` applies for a real subscriber
     (`delivery_core.py`'s subscriber-fanout branch): derive -> ONE header call carrying
-    feedback + subscribe + unsubscribe (the unsubscribe moved into the top box; there is
-    no separate footer any more)."""
+    audio + feedback + subscribe + unsubscribe (the unsubscribe moved into the top box;
+    there is no separate footer any more)."""
     derived = delivery_core.derive_html(brief_markdown)
-    return delivery_core._html_with_header(derived, feedback_link, unsubscribe_link)
+    return delivery_core._html_with_header(derived, audio_line_html, feedback_link, unsubscribe_link)
 
 
-def _compose_owner_html(brief_markdown: str, *, feedback_link=None) -> str:
+def _compose_owner_html(brief_markdown: str, *, audio_line_html: str = DEFAULT_AUDIO_LINE_HTML, feedback_link=None) -> str:
     """Exactly the chain `send_all()` applies for the owner's own copy: derive -> header
     with NO unsubscribe link (the owner is not a subscriber)."""
     derived = delivery_core.derive_html(brief_markdown)
-    return delivery_core._html_with_header(derived, feedback_link)
+    return delivery_core._html_with_header(derived, audio_line_html, feedback_link)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +179,7 @@ def test_header_banner_is_the_first_thing_inside_body_and_before_the_original_co
     brief_markdown = _load_fixture_markdown()
     derived = delivery_core.derive_html(brief_markdown)
 
-    with_header = delivery_core._html_with_header(derived, feedback_link=None)
+    with_header = delivery_core._html_with_header(derived, DEFAULT_AUDIO_LINE_HTML, feedback_link=None)
 
     body_open_position = with_header.index("<body")
     banner_position = with_header.index("curated and written by an AI agent")
@@ -189,17 +202,62 @@ def test_unsubscribe_is_in_the_top_meta_box_inside_the_card_before_the_brief():
 
     outer_table_pos = subscriber_html.index('width="100%"')      # centered outer table
     card_cell_pos = subscriber_html.index("padding:32px 40px")   # the card content cell
+    audio_pos = subscriber_html.index("Listen to this brief")
     feedback_pos = subscriber_html.index("Share feedback")
     unsubscribe_pos = subscriber_html.index("unsubscribe</a>")
     disclaimer_pos = subscriber_html.index("curated and written by an AI agent")
     h1_pos = subscriber_html.index("<h1")
 
     # Every meta line is inside the centered card and BEFORE the brief headline --
-    # one top box, no bottom footer -- in the OWNER-SPECIFIED ORDER (2026-07-08):
-    # subscribe (static, earlier in the box) -> unsubscribe -> feedback -> disclaimer.
+    # one top box, no bottom footer -- in the OWNER-SPECIFIED ORDER, amended by
+    # ADR-0017 D11/FR-7 to lead with the audio line: audio -> subscribe (static) ->
+    # unsubscribe -> feedback -> disclaimer.
     subscribe_pos = subscriber_html.index("subscribe here")
-    assert outer_table_pos < card_cell_pos < subscribe_pos < unsubscribe_pos < feedback_pos < disclaimer_pos < h1_pos
+    assert (
+        outer_table_pos
+        < card_cell_pos
+        < audio_pos
+        < subscribe_pos
+        < unsubscribe_pos
+        < feedback_pos
+        < disclaimer_pos
+        < h1_pos
+    )
     assert unsubscribe_pos < subscriber_html.index("</html>")
+
+
+def test_audio_line_is_the_first_line_of_the_meta_box():
+    """AC-8: the FIRST line of the top meta box is the audio line -- ahead of
+    even the forward/subscribe prompt, which used to be first."""
+    brief_markdown = _load_fixture_markdown()
+    subscriber_html = _compose_subscriber_html(
+        brief_markdown,
+        feedback_link="https://feedback.mschweier.com/?t=abc123",
+        unsubscribe_link="https://briefing.mschweier.com/unsubscribe?email=a%40b.com&token=t",
+    )
+
+    meta_box_start = subscriber_html.index('border-bottom:1px solid #eeeeee')
+    first_p_start = subscriber_html.index("<p", meta_box_start)
+    first_p_end = subscriber_html.index("</p>", first_p_start)
+    first_line = subscriber_html[first_p_start : first_p_end + len("</p>")]
+
+    assert "Listen to this brief" in first_line
+    assert "\U0001f3a7" in first_line
+
+
+def test_no_audio_line_renders_when_audio_link_result_has_no_link():
+    """FR-10: when the caller resolves no-audio (e.g. synthesis failed), the exact
+    no-audio line -- not the link line -- is what appears first in the box."""
+    import audio_link
+
+    brief_markdown = _load_fixture_markdown()
+    subscriber_html = _compose_subscriber_html(
+        brief_markdown,
+        audio_line_html=audio_link.NO_AUDIO_LINE_HTML,
+    )
+
+    assert audio_link.NO_AUDIO_LINE_HTML in subscriber_html
+    assert "Listen to this brief" not in subscriber_html
 
 
 def test_no_unfilled_insertion_slot_markers_remain_in_a_composed_subscriber_email():

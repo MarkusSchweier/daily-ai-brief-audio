@@ -23,8 +23,12 @@ reusable logic into clean, importable, testable functions for the new async
     `_convert_markdown_body()` is the separate, still-unchanged, zero-extensions
     Markdown-to-fragment conversion step within it.
   - `synthesize_audio()` -- refactored from the top-level Polly code at
-    `audio_email.py:168-198` into a callable returning `(audio_ok, audio_s3_key,
-    mp3_bytes)` instead of three module-level globals.
+    `audio_email.py:168-198` into a callable returning `(audio_ok, audio_s3_key)`
+    instead of three module-level globals. As of the audio-as-link feature (PRD
+    docs/prd/audio-link-delivery.md, ADR-0017 D8) it no longer downloads the MP3
+    at all -- the email carries a link, not an attachment, so nothing needs the
+    bytes; `resolve_audio_metadata()` (a NEW function, not a port) reads the
+    audio object's S3 lifecycle expiry via a cheap `HeadObject` instead.
   - `send_all()` -- ported verbatim (same signature/logic) from
     `audio_email.py:383-481` -- already a clean function there.
   - `_html_with_header()` / `_html_with_unsubscribe_footer()` -- banner/footer
@@ -79,12 +83,12 @@ import html
 import re
 import time
 import urllib.parse
-from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import markdown
 
+import audio_link  # noqa: E402 - hand-duplicated, see module docstring
 import feedback_token  # noqa: E402 - hand-duplicated, see module docstring
 
 REGION = "us-east-1"
@@ -95,12 +99,12 @@ SENDER = "aibriefing@mschweier.com"
 RECIP = "mail@mschweier.com"
 SUBSCRIBER_SENDER = "aibriefing@mschweier.com"
 SUBSCRIBE_SITE_URL = "https://briefing.mschweier.com"
-
-# MAX_AUDIO_ATTACHMENT_BYTES mirrors audio_email.py's constant of the same
-# name/value -- an oversized MP3 is dropped (never sent unattached-of-brief) rather
-# than risking an SES raw-message-size rejection that would otherwise cost the
-# recipient the written brief too.
-MAX_AUDIO_ATTACHMENT_BYTES = 15 * 1024 * 1024  # 15 MB
+# The public host the audio-as-link feature serves audio/* from (PRD
+# docs/prd/audio-link-delivery.md, ADR-0017 D6) -- the SAME host as
+# SUBSCRIBE_SITE_URL above (the `/audio/*` behavior lives on that same CloudFront
+# distribution, deploy/subscribers/), deliberately a plain module constant rather
+# than CDK context/a Lambda env var, mirroring SUBSCRIBE_SITE_URL's own precedent.
+AUDIO_BASE_URL = "https://briefing.mschweier.com"
 
 # How long to wait for Polly's async synthesis task before giving up -- verbatim
 # from audio_email.py:171 (`deadline = time.time() + 300`).
@@ -375,24 +379,21 @@ def derive_html(brief_markdown: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_audio(polly_client, s3_client, script: str, mp3_out_path: str) -> tuple[bool, str | None, bytes | None]:
+def synthesize_audio(polly_client, script: str) -> tuple[bool, str | None]:
     """Synthesize `script` to MP3 via Polly's ASYNC task API (`OutputUri`, never a
-    hand-built S3 key -- CLAUDE.md), download it to `mp3_out_path`, and read the
-    bytes back. Returns `(audio_ok, audio_s3_key, mp3_bytes)`:
+    hand-built S3 key -- CLAUDE.md). Returns `(audio_ok, audio_s3_key)`:
 
-      - `audio_ok`: False on ANY failure (start, poll, timeout, download) -- verbatim
+      - `audio_ok`: False on ANY failure (start, poll, timeout) -- verbatim
         fail-safe from `audio_email.py:168-181` (`except Exception: audio_ok = False`).
       - `audio_s3_key`: the run's ACTUAL `OutputUri`-derived key, or `None` if
-        synthesis failed or the resulting MP3 exceeds `MAX_AUDIO_ATTACHMENT_BYTES`
-        (mirrors `audio_email.py:196-198`'s "drop the attachment, don't risk an SES
-        raw-message-size rejection" behavior -- but the caller still gets a non-None
-        `audio_s3_key` in that oversized case, matching production: only the EMAIL
-        attachment is dropped, the S3 object itself still exists and is still a
-        valid archive pointer).
-      - `mp3_bytes`: the downloaded bytes, or `None` if synthesis failed OR the file
-        was too large to attach.
+        synthesis failed.
 
-    Never raises -- verbatim fail-safe semantics from audio_email.py.
+    ADR-0017 D8: this function no longer downloads the MP3 to `/tmp` or reads it
+    into memory -- with the attachment gone (replaced by a link, PRD
+    docs/prd/audio-link-delivery.md), nothing in this delivery Lambda needs the
+    bytes themselves; the audio link's expiry is resolved separately, by
+    `resolve_audio_metadata()` below, via a cheap `HeadObject` rather than a
+    multi-MB GET. Never raises -- verbatim fail-safe semantics from audio_email.py.
     """
     audio_ok = True
     audio_s3_key: str | None = None
@@ -419,27 +420,50 @@ def synthesize_audio(polly_client, s3_client, script: str, mp3_out_path: str) ->
             time.sleep(POLLY_POLL_INTERVAL_SECONDS)
         # Use OutputUri, never build the S3 key (CLAUDE.md invariant).
         audio_s3_key = urllib.parse.urlparse(synthesis_task["OutputUri"]).path.split(f"{BUCKET}/", 1)[1]
-        s3_client.download_file(BUCKET, audio_s3_key, mp3_out_path)
     except Exception as e:  # noqa: BLE001 - fail-safe: never lose the brief over an audio glitch
         print("AUDIO_STEP_FAILED:", repr(e))
-        return False, None, None
+        return False, None
 
-    mp3_bytes: bytes | None
-    with open(mp3_out_path, "rb") as f:
-        mp3_bytes = f.read()
-    if len(mp3_bytes) > MAX_AUDIO_ATTACHMENT_BYTES:
-        print("AUDIO_TOO_LARGE_SKIPPING_ATTACHMENT:", len(mp3_bytes))
-        mp3_bytes = None
+    return audio_ok, audio_s3_key
 
-    return audio_ok, audio_s3_key, mp3_bytes
+
+def resolve_audio_metadata(s3_client, audio_key: str | None) -> tuple[bool, str | None]:
+    """`HeadObject` the just-synthesized audio key to confirm it is genuinely there
+    and read its S3 lifecycle `Expiration` header (PRD docs/prd/audio-link-delivery.md
+    FR-8, ADR-0017 D1). Returns `(audio_available, expiration_header)`:
+
+      - `audio_available=False` when `audio_key` is `None` (synthesis failed, AC-11)
+        OR the `HeadObject` call itself fails for any reason (404/`NoSuchKey`, or any
+        other error -- D1: "a 404 means the object is not there, so showing a link
+        would be showing a known-broken link"). `expiration_header` is `None` in this
+        case.
+      - `audio_available=True` with `expiration_header` set to the raw `Expiration`
+        response field (or `None` if S3 didn't return one) when the object is
+        confirmed present.
+
+    No IAM change required: `HeadObject` is authorized by `s3:GetObject`, which
+    `DeliverFunctionRole`'s existing `S3AudioReadWrite` statement already grants on
+    `audio/*` (ADR-0017 D1). Never raises."""
+    if not audio_key:
+        return False, None
+    try:
+        response = s3_client.head_object(Bucket=BUCKET, Key=audio_key)
+    except Exception as e:  # noqa: BLE001 - fail-safe: a HeadObject glitch degrades to no-audio-line, never blocks the send
+        print("AUDIO_LINK_HEAD_OBJECT_FAILED:", audio_key, repr(e))
+        return False, None
+    return True, response.get("Expiration")
 
 
 # ---------------------------------------------------------------------------
-# MIME message building -- verbatim from audio_email.py:201-210.
+# MIME message building -- adapted from audio_email.py:201-210. ADR-0017 D8:
+# the MP3 attachment branch is DELETED (no more mp3_bytes/mp3_filename) -- the
+# audio is now a link inside the HTML body (_html_with_header()), never a MIME
+# part, so there is no size-cutoff/attachment machinery left at all (this also
+# delivers FR-11: an oversized MP3 is simply linked, never silently dropped).
 # ---------------------------------------------------------------------------
 
 
-def _build_message(sender, recipient, subject, html_body, mp3_bytes, mp3_filename):
+def _build_message(sender, recipient, subject, html_body):
     """Build the MIME message shared by the owner send and every subscriber send."""
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
@@ -448,10 +472,6 @@ def _build_message(sender, recipient, subject, html_body, mp3_bytes, mp3_filenam
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(html_body, "html", "utf-8"))
     msg.attach(alt)
-    if mp3_bytes is not None:
-        p = MIMEApplication(mp3_bytes, _subtype="mpeg")
-        p.add_header("Content-Disposition", "attachment", filename=mp3_filename)
-        msg.attach(p)
     return msg
 
 
@@ -614,13 +634,17 @@ def _insert_before_body_close_tag(html_document: str, fragment_to_insert: str) -
     return html_document[:insertion_point] + fragment_to_insert + html_document[insertion_point:]
 
 
-def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
+def _html_with_header(html_body, audio_line_html, feedback_link=None, unsubscribe_link=None):
     """Insert the top "meta" box at the `_HEADER_SLOT` marker `derive_html()` emits
     inside the card cell (falling back to just-after-`<body>` for a bare/old-format
     document). ONE box carries every recipient-facing meta line, in one consistent
     font size (14px), flush-left with the brief body -- in the OWNER-SPECIFIED ORDER
-    (2026-07-08, superseding the 2026-07-07 feedback-first order):
+    (2026-07-08, superseding the 2026-07-07 feedback-first order; amended
+    2026-07-27 by ADR-0017 D11/FR-7 to lead with the audio line):
 
+      0. **audio link** (🎧, ADR-0017 D11's FIRST line of the box -- always
+         present, since `audio_link.build_audio_link_result()` (D1/FR-10) always
+         resolves to SOME line, either the link or the no-audio fallback),
       1. forward/subscribe prompt (📬, everyone),
       2. **unsubscribe** (✉️, when a per-recipient unsubscribe link is available --
          i.e. real subscribers; the owner's own copy has no unsubscribe token and
@@ -628,9 +652,12 @@ def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
       3. feedback prompt (💬, when a per-recipient feedback link is available),
       4. AI-curation disclaimer.
 
-    Both links are per-recipient, so this is called once per recipient. Each linked
-    line is omitted gracefully when its link is absent (fail-safe: never blocks the
-    send)."""
+    `audio_line_html` is IDENTICAL across every recipient (owner and every
+    subscriber alike, AC-10 -- the audio is not private and carries no
+    per-recipient token), resolved ONCE by the caller (`send_all()` below) rather
+    than per recipient, unlike `feedback_link`/`unsubscribe_link` which genuinely
+    are per-recipient. Each linked line is omitted gracefully when its link is
+    absent (fail-safe: never blocks the send)."""
     feedback_line = (
         f'<p style="margin:0 0 6px 0;">💬 Have thoughts on today\'s brief? '
         f'<a href="{feedback_link}">Share feedback</a> — we process every submission.</p>'
@@ -649,6 +676,7 @@ def _html_with_header(html_body, feedback_link=None, unsubscribe_link=None):
         # the SAME 14px size (owner request: align the sizes in the top box).
         '<div style="margin:0 0 20px 0;padding:0 0 16px 0;border-bottom:1px solid #eeeeee;'
         'font-size:14px;color:#666;line-height:1.5;">'
+        f"{audio_line_html}"
         '<p style="margin:0 0 6px 0;">📬 Received this as a forward? Anyone can get '
         f'their own daily copy — <a href="{SUBSCRIBE_SITE_URL}">subscribe here</a>.</p>'
         f"{unsubscribe_line}"
@@ -677,8 +705,7 @@ def send_all(
     secretsmanager_client,
     subject,
     brief_html,
-    mp3_bytes,
-    mp3_filename,
+    audio_line_html,
     table_name,
     brief_date,
     *,
@@ -704,6 +731,14 @@ def send_all(
     `brief_date` is passed in explicitly (the caller resolves "today" in the
     pipeline's own timezone) rather than this function computing it itself, since
     this module has no module-level `PIPELINE_TIMEZONE` env read.
+
+    `audio_line_html` (ADR-0017 D8/D10) is the ALREADY-RESOLVED audio meta-box line
+    (from `audio_link.build_audio_link_result(...).html`) -- the caller resolves it
+    ONCE, before calling this function, and the SAME string is used for the owner
+    and every subscriber (AC-10: the audio is not private, so the URL and expiry
+    date are identical for everyone, unlike the per-recipient feedback/unsubscribe
+    links below). This replaces the old `mp3_bytes`/`mp3_filename` attachment
+    inputs entirely (D8: the attachment machinery is deleted, not adapted).
     """
     sent_count = 0
     failed_count = 0
@@ -715,11 +750,11 @@ def send_all(
     # (recipient unchanged), always attempted first and never gated on subscriber
     # sends succeeding.
     owner_feedback_link = _feedback_link(secretsmanager_client, RECIP, brief_date, feedback_base_url, feedback_token_secret_arn)
-    owner_html = _html_with_header(brief_html, owner_feedback_link)
-    owner_msg = _build_message(SENDER, RECIP, subject, owner_html, mp3_bytes, mp3_filename)
+    owner_html = _html_with_header(brief_html, audio_line_html, owner_feedback_link)
+    owner_msg = _build_message(SENDER, RECIP, subject, owner_html)
     try:
         r = ses_client.send_raw_email(Source=SENDER, Destinations=[RECIP], RawMessage={"Data": owner_msg.as_string()})
-        print("SES_SENT", r["MessageId"], "audio_attached=", mp3_bytes is not None)
+        print("SES_SENT", r["MessageId"])
         sent_count += 1
     except Exception as e:
         print("SES_SEND_FAILED:", RECIP, repr(e))
@@ -741,13 +776,13 @@ def send_all(
                     secretsmanager_client, email, brief_date, feedback_base_url, feedback_token_secret_arn
                 )
                 # Unsubscribe now lives in the top meta box (not a separate footer), so a
-                # single _html_with_header call carries feedback + subscribe + unsubscribe.
-                subscriber_html = _html_with_header(brief_html, subscriber_feedback_link, unsubscribe_link)
-                subscriber_msg = _build_message(SUBSCRIBER_SENDER, email, subject, subscriber_html, mp3_bytes, mp3_filename)
+                # single _html_with_header call carries audio + feedback + subscribe + unsubscribe.
+                subscriber_html = _html_with_header(brief_html, audio_line_html, subscriber_feedback_link, unsubscribe_link)
+                subscriber_msg = _build_message(SUBSCRIBER_SENDER, email, subject, subscriber_html)
                 r = ses_client.send_raw_email(
                     Source=SUBSCRIBER_SENDER, Destinations=[email], RawMessage={"Data": subscriber_msg.as_string()}
                 )
-                print("SES_SENT", r["MessageId"], "recipient=", email, "audio_attached=", mp3_bytes is not None)
+                print("SES_SENT", r["MessageId"], "recipient=", email)
                 sent_count += 1
                 subscriber_sent_count += 1
             except Exception as e:
@@ -835,9 +870,10 @@ __all__ = [
     "RECIP",
     "SUBSCRIBER_SENDER",
     "SUBSCRIBE_SITE_URL",
-    "MAX_AUDIO_ATTACHMENT_BYTES",
+    "AUDIO_BASE_URL",
     "derive_html",
     "synthesize_audio",
+    "resolve_audio_metadata",
     "send_all",
     "send_confirmation_email",
     "_build_confirmation_email",
