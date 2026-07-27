@@ -156,9 +156,17 @@ class BriefSubscribersStack(Stack):
     ) -> dict:
         """Shared Lambda construction kwargs. `timeout`/`memory_size` default to the
         three original (DynamoDB-only, sub-second) functions' sizing; the welcome-send
-        Lambda overrides both -- it does an S3 GetObject of a multi-MB MP3 plus an SES
-        SendRawEmail, a materially heavier unit of work than a DynamoDB row update
-        (docs/adr/0009)."""
+        Lambda overrides both -- it reads the archived brief HTML from S3, resolves the
+        audio object's metadata, and does an SES SendRawEmail: still a materially
+        heavier unit of work than a DynamoDB row update (docs/adr/0009).
+
+        NOTE: this docstring used to justify the override with "an S3 GetObject of a
+        multi-MB MP3". That is no longer what happens -- since the audio-as-link feature
+        (ADR-0017 D8) the MP3 is never downloaded at all; the Lambda only `HeadObject`s
+        it for its lifecycle expiry. The override values are deliberately left UNCHANGED
+        (they are now more generous than strictly needed) -- retuning them is a separate,
+        owner-facing decision, not a drive-by edit on the branch that changed the email
+        template."""
         return dict(
             runtime=_lambda.Runtime.PYTHON_3_13,
             architecture=_lambda.Architecture.ARM_64,
