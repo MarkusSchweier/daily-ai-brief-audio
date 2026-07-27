@@ -246,6 +246,51 @@ def test_graceful_no_audio_when_pointer_resolves_to_a_gone_object(briefs_bucket)
     assert "Listen to this brief" not in body
 
 
+def test_stale_pointer_log_line_does_not_leak_the_full_audio_key(briefs_bucket, caplog):
+    """SECURITY FINDING L1: `WELCOME_AUDIO_POINTER_STALE` /
+    `WELCOME_AUDIO_FETCH_FAILED` used to log the FULL audio key -- which this
+    feature turns into a live PUBLIC URL. They must now carry only the shared
+    `audio_link.redact_audio_key()` form, while the log-line NAMES stay
+    greppable."""
+    leaky_key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key=leaky_key)
+
+    ses_client = FakeSesClient()
+    with caplog.at_level("INFO", logger=welcome_send.logger.name):
+        resp = welcome_send._handle(
+            {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+        )
+
+    assert resp["sent"] is True
+    # The log line is still there and still greppable by name...
+    assert "WELCOME_AUDIO_POINTER_STALE" in caplog.text
+    # ...but the key itself, and its task-id, are not in it.
+    assert leaky_key not in caplog.text
+    assert "00000000-0000-4000-8000-123456789abc" not in caplog.text
+    assert "123456789abc" not in caplog.text
+
+
+def test_welcome_sent_log_line_never_carries_an_audio_key_at_all(briefs_bucket, caplog):
+    """The success path's own WELCOME_SENT line records only whether a link was
+    included and its expiry label -- never the key (which would defeat the L1 fix
+    on the one path where the object definitely still exists)."""
+    live_key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key=live_key)
+    briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key=live_key, Body=b"fake-mp3-bytes")
+
+    ses_client = FakeSesClient()
+    with caplog.at_level("INFO", logger=welcome_send.logger.name):
+        resp = welcome_send._handle(
+            {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+        )
+
+    assert resp["sent"] is True
+    assert "WELCOME_SENT" in caplog.text
+    assert "audio_link_included=True" in caplog.text
+    assert live_key not in caplog.text
+    assert "123456789abc" not in caplog.text
+
+
 def test_cold_start_sends_welcome_only_no_brief_no_audio(briefs_bucket):
     """AC-17: the cold-start case shows NO audio line at all -- not the link,
     and not even the no-audio fallback line -- exactly as today."""

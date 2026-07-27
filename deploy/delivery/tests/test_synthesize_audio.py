@@ -171,39 +171,21 @@ def test_resolve_audio_metadata_returns_available_false_on_head_object_error_nev
 
 
 def test_resolve_audio_metadata_head_object_failure_log_line_does_not_leak_the_full_audio_key(capsys):
-    """Review finding (Low): the full audio_key is a still-live public URL
-    fragment -- the AUDIO_LINK_HEAD_OBJECT_FAILED log line must carry a
-    redacted form, never the real key, while staying greppable by name."""
-    real_key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+    """Review finding (Low) / security L1: a live audio_key is a working PUBLIC
+    URL -- the AUDIO_LINK_HEAD_OBJECT_FAILED log line must carry a redacted form,
+    never the key itself, while staying greppable by name. (The redactor itself is
+    unit-tested in test_audio_link.py, where it now lives -- security L1 moved it
+    into the shared module so both deploy units share one implementation.)"""
+    key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
     s3_client = _FakeS3ClientHeadObject(raise_exc=RuntimeError("simulated NoSuchKey"))
 
-    delivery_core.resolve_audio_metadata(s3_client, real_key)
+    delivery_core.resolve_audio_metadata(s3_client, key)
 
     printed = capsys.readouterr().out
     assert "AUDIO_LINK_HEAD_OBJECT_FAILED" in printed
-    assert real_key not in printed
+    assert key not in printed
     assert "00000000-0000-4000-8000-123456789abc" not in printed  # the redacted middle segment
-
-
-# ---------------------------------------------------------------------------
-# _redact_audio_key() -- the log-safety helper itself.
-# ---------------------------------------------------------------------------
-
-
-def test_redact_audio_key_never_raises_on_non_string_input():
-    # A logging helper must never itself become a new failure mode.
-    assert delivery_core._redact_audio_key(12345) == "<unloggable audio key>"
-
-
-def test_redact_audio_key_keeps_a_short_prefix_and_the_length_masks_the_rest():
-    key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
-
-    redacted = delivery_core._redact_audio_key(key)
-
-    assert redacted.startswith(key[:12])
-    assert str(len(key)) in redacted
-    assert key not in redacted
-    assert "123456789abc" not in redacted  # the tail of the real task id must not leak either
+    assert "123456789abc" not in printed  # nor the tail on its own
 
 
 def test_resolve_audio_metadata_returns_available_false_when_audio_key_is_none():

@@ -10,7 +10,9 @@ audio:
   - the `x-amz-expiration` header parser + Europe/Berlin date formatter
     (`parse_expiration_header` / `format_expiry_date`) -- ADR-0017 D1;
   - the three ratified, byte-exact meta-box HTML lines (`build_audio_link_result` /
-    `NO_AUDIO_LINE_HTML`) -- ADR-0017 D10/D11.
+    `NO_AUDIO_LINE_HTML`) -- ADR-0017 D10/D11;
+  - the log-safety key redactor (`redact_audio_key`) -- ADR-0017 D9 step 4: a live
+    `audio/*` key is a working PUBLIC URL, so neither unit may log one in full.
 
 Each caller (`delivery_core.py`'s `_html_with_header()`, the welcome-send handler's
 `_meta_box_html()`) owns only WHERE this line goes in its own meta box -- never its
@@ -94,6 +96,30 @@ def build_audio_url(audio_base_url: str, audio_key: str) -> str:
     `originPath` on that behavior, ADR-0017 D3)."""
     base = audio_base_url.rstrip("/")
     return f"{base}/{quote(audio_key, safe='/')}"
+
+
+def redact_audio_key(audio_key: str) -> str:
+    """Redact an audio S3 key for logging. A live `audio/*` key is a working
+    PUBLIC URL for as long as the object exists, and this repo's own key-hygiene
+    rule (ADR-0017 D9 step 4) covers runtime logs as well as evidence docs and
+    test fixtures -- so no log line, on any path including transient/error ones,
+    may carry the full key. Keeps just enough shape (a short prefix, plus the
+    total length) to correlate log lines, without reproducing a usable key.
+
+    Lives HERE, in the shared hand-duplicated module, rather than privately in
+    either deploy unit (security recommendation, L1): both the delivery Lambda's
+    `delivery_core.resolve_audio_metadata()` and the welcome-send handler's own
+    `_resolve_audio_metadata()` log key-bearing failure lines, so one redaction
+    implementation covered by the byte-equality drift test beats two that can
+    drift apart.
+
+    Never raises -- this exists to make a log line safer, so it must not itself
+    become a new failure mode."""
+    try:
+        prefix = audio_key[:12]
+    except Exception:  # noqa: BLE001 - a logging helper must never raise
+        return "<unloggable audio key>"
+    return f"{prefix}...<redacted, len={len(audio_key)}>"
 
 
 def parse_expiration_header(expiration_header: str | None) -> datetime | None:
@@ -197,6 +223,7 @@ __all__ = [
     "NO_AUDIO_LINE_HTML",
     "AudioLinkResult",
     "build_audio_url",
+    "redact_audio_key",
     "parse_expiration_header",
     "format_expiry_date",
     "build_audio_link_result",

@@ -250,7 +250,14 @@ def _resolve_audio_metadata(s3_client, audio_key: str | None) -> tuple[bool, str
     `expiration_header=None`) both when `audio_key` is `None` (no pointer at all) and
     when the `HeadObject` call fails for any reason -- including the expected common
     case, a stale pointer to an object the 7-day lifecycle already deleted. Never
-    raises -- this must never block the send."""
+    raises -- this must never block the send.
+
+    SECURITY FINDING L1, fixed: the two failure log lines below used to record the
+    FULL `audio_key`. Since this feature turns that key into a live PUBLIC URL, they
+    now go through the shared `audio_link.redact_audio_key()` (ADR-0017 D9 step 4's
+    key-hygiene rule, which covers runtime logs). The log-line NAMES
+    (`WELCOME_AUDIO_POINTER_STALE`, `WELCOME_AUDIO_FETCH_FAILED`) are unchanged and
+    stay greppable; only the key's rendering changed."""
     if not audio_key:
         return False, None
     try:
@@ -258,12 +265,14 @@ def _resolve_audio_metadata(s3_client, audio_key: str | None) -> tuple[bool, str
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         if code in ("NoSuchKey", "404"):
-            logger.info("WELCOME_AUDIO_POINTER_STALE key=%s", audio_key)
+            logger.info("WELCOME_AUDIO_POINTER_STALE key=%s", audio_link.redact_audio_key(audio_key))
         else:
-            logger.warning("WELCOME_AUDIO_FETCH_FAILED key=%s error=%r", audio_key, e)
+            logger.warning(
+                "WELCOME_AUDIO_FETCH_FAILED key=%s error=%r", audio_link.redact_audio_key(audio_key), e
+            )
         return False, None
     except Exception as e:  # noqa: BLE001 - any other fetch failure degrades the same way
-        logger.warning("WELCOME_AUDIO_FETCH_FAILED key=%s error=%r", audio_key, e)
+        logger.warning("WELCOME_AUDIO_FETCH_FAILED key=%s error=%r", audio_link.redact_audio_key(audio_key), e)
         return False, None
     return True, response.get("Expiration")
 

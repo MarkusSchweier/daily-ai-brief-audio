@@ -59,6 +59,44 @@ def test_build_audio_url_signature_cannot_reach_the_brief_date_subject_or_any_ot
 
 
 # ---------------------------------------------------------------------------
+# redact_audio_key -- the log-safety helper (ADR-0017 D9 step 4's runtime-log
+# arm). Lives in this shared module (security finding L1) so the delivery
+# Lambda and the welcome-send Lambda cannot drift apart on how they redact.
+# ---------------------------------------------------------------------------
+
+
+def test_redact_audio_key_keeps_a_short_prefix_and_masks_the_rest():
+    key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+
+    redacted = audio_link.redact_audio_key(key)
+
+    assert redacted.startswith(key[:12])
+    assert str(len(key)) in redacted  # the length survives, for log correlation
+    assert key not in redacted
+    assert "123456789abc" not in redacted  # nor may the task id's tail leak
+
+
+def test_redact_audio_key_output_is_not_a_usable_key():
+    """The whole point: whatever comes out must not be pasteable into a URL as a
+    working key -- i.e. it must not still end in the real `.mp3` object name."""
+    key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+
+    redacted = audio_link.redact_audio_key(key)
+
+    assert not redacted.endswith(".mp3")
+    assert "0000-4000-8000" not in redacted
+
+
+def test_redact_audio_key_never_raises_on_non_string_input():
+    # A logging helper must never itself become a new failure mode.
+    assert audio_link.redact_audio_key(12345) == "<unloggable audio key>"
+
+
+def test_redact_audio_key_handles_a_short_key_without_raising():
+    assert audio_link.redact_audio_key("a") == "a...<redacted, len=1>"
+
+
+# ---------------------------------------------------------------------------
 # parse_expiration_header -- ADR-0017 D1
 # ---------------------------------------------------------------------------
 
