@@ -427,6 +427,22 @@ def synthesize_audio(polly_client, script: str) -> tuple[bool, str | None]:
     return audio_ok, audio_s3_key
 
 
+def _redact_audio_key(audio_key: str) -> str:
+    """Redact an audio S3 key for logging. A live `audio/*` key is a working
+    PUBLIC URL for as long as the object exists (same discipline as
+    `docs/notes/audio-link-phase1-evidence.md`'s phase-1 evidence redaction) --
+    CloudWatch logs must never carry the full key, even on a transient/error
+    path. Keeps just enough shape (a short prefix, plus the total length) to be
+    useful for correlating log lines, without reproducing a usable key. Never
+    raises -- this exists to make a log line safer, so it must not itself become
+    a new failure mode."""
+    try:
+        prefix = audio_key[:12]
+    except Exception:  # noqa: BLE001 - a logging helper must never raise
+        return "<unloggable audio key>"
+    return f"{prefix}...<redacted, len={len(audio_key)}>"
+
+
 def resolve_audio_metadata(s3_client, audio_key: str | None) -> tuple[bool, str | None]:
     """`HeadObject` the just-synthesized audio key to confirm it is genuinely there
     and read its S3 lifecycle `Expiration` header (PRD docs/prd/audio-link-delivery.md
@@ -449,7 +465,9 @@ def resolve_audio_metadata(s3_client, audio_key: str | None) -> tuple[bool, str 
     try:
         response = s3_client.head_object(Bucket=BUCKET, Key=audio_key)
     except Exception as e:  # noqa: BLE001 - fail-safe: a HeadObject glitch degrades to no-audio-line, never blocks the send
-        print("AUDIO_LINK_HEAD_OBJECT_FAILED:", audio_key, repr(e))
+        # REVIEW FINDING (Low), fixed: the full audio_key is a still-live public
+        # URL fragment -- log a redacted form, not the key itself.
+        print("AUDIO_LINK_HEAD_OBJECT_FAILED:", _redact_audio_key(audio_key), repr(e))
         return False, None
     return True, response.get("Expiration")
 
