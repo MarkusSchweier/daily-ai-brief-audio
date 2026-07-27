@@ -72,6 +72,7 @@ from zoneinfo import ZoneInfo
 import boto3
 from botocore.exceptions import ClientError
 
+import audio_link
 import delivery_auth
 import delivery_core
 import recent_briefs_auth
@@ -92,11 +93,19 @@ SUBSCRIBERS_TABLE_NAME = os.environ.get("SUBSCRIBERS_TABLE_NAME", "brief-subscri
 SUBSCRIBERS_API_BASE_URL = os.environ.get("SUBSCRIBERS_API_BASE_URL", "")
 FEEDBACK_TOKEN_SECRET_ARN = os.environ.get("FEEDBACK_TOKEN_SECRET_ARN", "")
 FEEDBACK_BASE_URL = os.environ.get("FEEDBACK_BASE_URL", "")
-WORKING_FOLDER = os.environ.get("WORKING_FOLDER", "/tmp")
 # Date basis for the briefs/ archive when the caller doesn't supply its own
 # metadata.brief_date -- the run's local calendar date in the pipeline's timezone
 # (docs/adr/0005 / docs/adr/0006), matching audio_email.py's own
 # `_today_local_date()` / `PIPELINE_TIMEZONE` convention exactly.
+#
+# NOTE (review clarification): this is a DIFFERENT knob than `audio_link.py`'s
+# own module-level `PIPELINE_TIMEZONE` (a hardcoded literal, used only to render
+# an audio object's expiry date, ADR-0017 D1/D6). They share a name and today's
+# default value ("Europe/Berlin") by convention, not by any code link -- this
+# one is env-var-overridable (it governs the run's own calendar date, e.g. for
+# the S3 archive path), that one deliberately is not (the expiry date must
+# always render in the SAME timezone regardless of a per-deploy override here).
+# Setting this env var does NOT change audio_link.py's constant, and vice versa.
 PIPELINE_TIMEZONE = os.environ.get("PIPELINE_TIMEZONE", "Europe/Berlin")
 
 
@@ -708,11 +717,32 @@ def _run_delivery(
     # send without it).
     brief_html = delivery_core.derive_html(brief_markdown)
 
-    # 2) Synthesize audio -- fail-safe: never blocks the send (CLAUDE.md).
-    mp3_out_path = os.path.join(WORKING_FOLDER, "brief.mp3")
-    audio_ok, _audio_s3_key, mp3_bytes = delivery_core.synthesize_audio(
-        polly_client, s3_client, listening_script, mp3_out_path
+    # 2) Synthesize audio -- fail-safe: never blocks the send (CLAUDE.md). No more
+    # /tmp download (ADR-0017 D8): the email carries a LINK, not an attachment, so
+    # nothing needs the MP3 bytes.
+    audio_ok, _audio_s3_key = delivery_core.synthesize_audio(polly_client, listening_script)
+
+    # 2a) Resolve the audio link (PRD docs/prd/audio-link-delivery.md, ADR-0017 D1):
+    # a cheap HeadObject on the just-synthesized key confirms it is genuinely there
+    # and reads its S3 lifecycle Expiration header. `resolve_audio_metadata()`
+    # itself degrades to (False, None) on any failure -- including when
+    # `_audio_s3_key` is None because synthesis failed (AC-11) -- so
+    # `build_audio_link_result()` below always resolves to SOME meta-box line,
+    # never raises, and never blocks the send.
+    audio_available, expiration_header = delivery_core.resolve_audio_metadata(s3_client, _audio_s3_key)
+    audio_link_result = audio_link.build_audio_link_result(
+        audio_base_url=delivery_core.AUDIO_BASE_URL,
+        audio_key=_audio_s3_key,
+        audio_available=audio_available,
+        expiration_header=expiration_header,
     )
+    # FR-17: a single structured log line per run stating whether an audio link was
+    # embedded and, when it was, the expiry date used -- so an audio-less day is
+    # diagnosable from CloudWatch logs alone (AC-19).
+    if audio_link_result.link_included:
+        logger.info("AUDIO_LINK_INCLUDED expiry_label=%s", audio_link_result.expiry_label or "unknown")
+    else:
+        logger.info("AUDIO_LINK_OMITTED")
 
     # 3) Send -- owner copy + subscriber fan-out (FR-1: this is the ONLY place that
     # can email a real subscriber post-redesign).
@@ -728,8 +758,7 @@ def _run_delivery(
         secretsmanager_client,
         email_subject,
         brief_html,
-        mp3_bytes,
-        "brief.mp3",
+        audio_link_result.html,
         SUBSCRIBERS_TABLE_NAME,
         brief_date,
         subscribers_api_base_url=SUBSCRIBERS_API_BASE_URL,
@@ -789,6 +818,8 @@ def _run_delivery(
     return {
         "html_derived": True,
         "audio_ok": audio_ok,
+        "audio_link_included": audio_link_result.link_included,
+        "audio_link_expiry": audio_link_result.expiry_label,
         "sent_count": sent_count,
         "failed_count": failed_count,
         "subscriber_sent_count": subscriber_sent_count,

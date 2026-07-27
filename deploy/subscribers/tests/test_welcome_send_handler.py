@@ -85,7 +85,10 @@ def _put_brief(s3_client, date, html, audio_key=None):
         )
 
 
-def test_welcome_email_with_audio_attached(briefs_bucket):
+def test_welcome_email_with_audio_link(briefs_bucket):
+    """PRD docs/prd/audio-link-delivery.md AC-15: the welcome email carries the
+    audio LINK (never an attachment), as the meta-box line directly after the
+    welcome intro (ADR-0017 D11 amendment)."""
     _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.today.mp3")
     briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key="audio/.today.mp3", Body=b"fake-mp3-bytes")
 
@@ -106,19 +109,105 @@ def test_welcome_email_with_audio_attached(briefs_bucket):
     assert "every weekday in the morning" in body  # owner copy (no specific time)
     assert "Today's brief" in body
     # The welcome mail carries the WELCOME variant of the daily chrome
-    # (owner-specified format, 2026-07-08): intro -> unsubscribe -> feedback ->
-    # disclaimer -- deliberately NO forward/subscribe line (the recipient just
-    # subscribed; that line belongs to the regular daily brief only).
+    # (owner-specified format, 2026-07-08; amended 2026-07-27 by ADR-0017 D11):
+    # intro -> audio -> unsubscribe -> feedback -> disclaimer -- deliberately NO
+    # forward/subscribe line (the recipient just subscribed; that line belongs to
+    # the regular daily brief only).
     assert "subscribe here" not in body
     assert "curated and written by an AI agent" in body
     assert "unsub-tok" in body  # unsubscribe link present
-    assert body.index("unsub-tok") < body.index("curated and written by an AI agent")
-    attachments = _attachment_parts(sent["raw"])
-    assert len(attachments) == 1
-    assert attachments[0].get_payload(decode=True) == b"fake-mp3-bytes"
+    assert "Listen to this brief" in body
+    assert f"{welcome_send.AUDIO_BASE_URL}/audio/.today.mp3" in body
+    # Ordering: greeting first, audio directly after (D11), then unsubscribe, then disclaimer.
+    assert (
+        body.index("Welcome to the Daily AI Brief!")
+        < body.index("Listen to this brief")
+        < body.index("unsub-tok")
+        < body.index("curated and written by an AI agent")
+    )
+    # No MIME attachment -- ever (ADR-0017 D8: the attachment machinery is deleted).
+    assert _attachment_parts(sent["raw"]) == []
+
+
+def test_welcome_email_audio_link_generic_note_when_expiration_unreadable(briefs_bucket):
+    """AC-12 (applied to the welcome path): the object is confirmed present via
+    HeadObject, but no parseable Expiration header comes back (moto's HeadObject
+    does not simulate the x-amz-expiration header even with a configured
+    lifecycle rule) -- the link is still shown, with the generic availability
+    note rather than a date."""
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.today.mp3")
+    briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key="audio/.today.mp3", Body=b"fake-mp3-bytes")
+
+    ses_client = FakeSesClient()
+    resp = welcome_send._handle(
+        {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+    )
+
+    assert resp["sent"] is True
+    body = _html_body_text(ses_client.sent[0]["raw"])
+    assert "Listen to this brief" in body
+    assert "link available for about 7 days" in body
+
+
+def test_welcome_email_shows_the_audio_objects_real_remaining_expiry_not_confirmation_plus_seven(
+    briefs_bucket, monkeypatch
+):
+    """AC-15: the welcome email sends the LATEST archived edition, whose audio may
+    be up to seven days into ITS OWN lifecycle -- the displayed expiry must be
+    that specific object's real remaining expiry, never "confirmation date + 7".
+    Exercised here against an object whose real `Expiration` header (injected via
+    `_resolve_audio_metadata`, since moto cannot simulate S3's real
+    x-amz-expiration header -- see the delivery unit's equivalent tests for the
+    same limitation) reflects only 2 days of remaining life, as if it had been
+    created 5 days ago."""
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.5-days-old.mp3")
+    briefs_bucket.put_object(
+        Bucket=welcome_send.latest_brief.BUCKET, Key="audio/.5-days-old.mp3", Body=b"fake-mp3-bytes"
+    )
+    monkeypatch.setattr(
+        welcome_send,
+        "_resolve_audio_metadata",
+        lambda s3_client, audio_key: (
+            True,
+            'expiry-date="Wed, 29 Jul 2026 00:00:00 GMT", rule-id="expire-audio-7-days"',
+        ),
+    )
+
+    ses_client = FakeSesClient()
+    resp = welcome_send._handle(
+        {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+    )
+
+    assert resp["sent"] is True
+    body = _html_body_text(ses_client.sent[0]["raw"])
+    assert "link expires 29 July 2026" in body
+
+
+def test_large_audio_object_is_still_linked_no_size_cap(briefs_bucket):
+    """FR-11's principle applied to the welcome path too: there is no
+    message-size risk in a link, so a real, present audio object of any size is
+    linked -- there is no attachment-size cap left to trigger (ADR-0017 D8 deleted
+    the old `MAX_AUDIO_ATTACHMENT_BYTES` machinery entirely; HeadObject-based
+    resolution never even reads the object's bytes, only its metadata)."""
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.big.mp3")
+    briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key="audio/.big.mp3", Body=b"x" * (1024 * 1024))
+
+    ses_client = FakeSesClient()
+    resp = welcome_send._handle(
+        {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+    )
+
+    assert resp["sent"] is True
+    body = _html_body_text(ses_client.sent[0]["raw"])
+    assert "Listen to this brief" in body
+    assert _attachment_parts(ses_client.sent[0]["raw"]) == []
 
 
 def test_graceful_no_audio_when_pointer_absent(briefs_bucket):
+    """AC-14 (no pointer at all): the no-audio line is shown -- no attachment,
+    no broken link."""
+    import audio_link
+
     _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>")  # no pointer at all
 
     ses_client = FakeSesClient()
@@ -128,13 +217,19 @@ def test_graceful_no_audio_when_pointer_absent(briefs_bucket):
 
     assert resp["sent"] is True
     sent = ses_client.sent[0]
+    body = _html_body_text(sent["raw"])
     assert _attachment_parts(sent["raw"]) == []
-    assert "Today's brief" in _html_body_text(sent["raw"])  # written body still sent
+    assert "Today's brief" in body  # written body still sent
+    assert audio_link.NO_AUDIO_LINE_HTML in body
+    assert "Listen to this brief" not in body
 
 
 def test_graceful_no_audio_when_pointer_resolves_to_a_gone_object(briefs_bucket):
-    # Pointer exists but the MP3 it names was never written (expired under the 7-day
-    # audio/ lifecycle, or otherwise gone) -- AC-5's second no-audio case.
+    """AC-16: pointer exists but the MP3 it names was never written (expired
+    under the 7-day audio/ lifecycle, or otherwise gone) -- the welcome email is
+    still sent, with the no-audio line and no broken link."""
+    import audio_link
+
     _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.expired.mp3")
 
     ses_client = FakeSesClient()
@@ -144,30 +239,63 @@ def test_graceful_no_audio_when_pointer_resolves_to_a_gone_object(briefs_bucket)
 
     assert resp["sent"] is True
     sent = ses_client.sent[0]
+    body = _html_body_text(sent["raw"])
     assert _attachment_parts(sent["raw"]) == []
-    assert "Today's brief" in _html_body_text(sent["raw"])
+    assert "Today's brief" in body
+    assert audio_link.NO_AUDIO_LINE_HTML in body
+    assert "Listen to this brief" not in body
 
 
-def test_oversized_audio_is_dropped_not_attached(briefs_bucket):
-    # A pointer that resolves to a real, present object -- just one over the size cap
-    # -- is treated the same as "no usable audio": written body still sent, no
-    # attachment, no error (mirrors AC-5's other no-audio cases).
-    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key="audio/.huge.mp3")
-    oversized = b"x" * (welcome_send.MAX_AUDIO_ATTACHMENT_BYTES + 1)
-    briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key="audio/.huge.mp3", Body=oversized)
+def test_stale_pointer_log_line_does_not_leak_the_full_audio_key(briefs_bucket, caplog):
+    """SECURITY FINDING L1: `WELCOME_AUDIO_POINTER_STALE` /
+    `WELCOME_AUDIO_FETCH_FAILED` used to log the FULL audio key -- which this
+    feature turns into a live PUBLIC URL. They must now carry only the shared
+    `audio_link.redact_audio_key()` form, while the log-line NAMES stay
+    greppable."""
+    leaky_key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key=leaky_key)
 
     ses_client = FakeSesClient()
-    resp = welcome_send._handle(
-        {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
-    )
+    with caplog.at_level("INFO", logger=welcome_send.logger.name):
+        resp = welcome_send._handle(
+            {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+        )
 
     assert resp["sent"] is True
-    sent = ses_client.sent[0]
-    assert _attachment_parts(sent["raw"]) == []
-    assert "Today's brief" in _html_body_text(sent["raw"])
+    # The log line is still there and still greppable by name...
+    assert "WELCOME_AUDIO_POINTER_STALE" in caplog.text
+    # ...but the key itself, and its task-id, are not in it.
+    assert leaky_key not in caplog.text
+    assert "00000000-0000-4000-8000-123456789abc" not in caplog.text
+    assert "123456789abc" not in caplog.text
+
+
+def test_welcome_sent_log_line_never_carries_an_audio_key_at_all(briefs_bucket, caplog):
+    """The success path's own WELCOME_SENT line records only whether a link was
+    included and its expiry label -- never the key (which would defeat the L1 fix
+    on the one path where the object definitely still exists)."""
+    live_key = "audio/.00000000-0000-4000-8000-123456789abc.mp3"
+    _put_brief(briefs_bucket, "2026-07-03", "<h1>Today's brief</h1>", audio_key=live_key)
+    briefs_bucket.put_object(Bucket=welcome_send.latest_brief.BUCKET, Key=live_key, Body=b"fake-mp3-bytes")
+
+    ses_client = FakeSesClient()
+    with caplog.at_level("INFO", logger=welcome_send.logger.name):
+        resp = welcome_send._handle(
+            {"email": "sub@example.com", "unsubscribeToken": "tok"}, ses_client, briefs_bucket
+        )
+
+    assert resp["sent"] is True
+    assert "WELCOME_SENT" in caplog.text
+    assert "audio_link_included=True" in caplog.text
+    assert live_key not in caplog.text
+    assert "123456789abc" not in caplog.text
 
 
 def test_cold_start_sends_welcome_only_no_brief_no_audio(briefs_bucket):
+    """AC-17: the cold-start case shows NO audio line at all -- not the link,
+    and not even the no-audio fallback line -- exactly as today."""
+    import audio_link
+
     # Empty store -- no brief has ever been archived.
     ses_client = FakeSesClient()
     resp = welcome_send._handle(
@@ -181,6 +309,8 @@ def test_cold_start_sends_welcome_only_no_brief_no_audio(briefs_bucket):
     assert "every weekday in the morning" in body  # owner copy (no specific time)
     assert "haven't published an edition yet" in body
     assert _attachment_parts(sent["raw"]) == []
+    assert "Listen to this brief" not in body
+    assert audio_link.NO_AUDIO_LINE_HTML not in body
 
 
 def test_missing_email_or_token_is_a_permanent_no_op_not_an_exception(briefs_bucket):
