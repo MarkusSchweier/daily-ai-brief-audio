@@ -97,6 +97,15 @@ FEEDBACK_BASE_URL = os.environ.get("FEEDBACK_BASE_URL", "")
 # metadata.brief_date -- the run's local calendar date in the pipeline's timezone
 # (docs/adr/0005 / docs/adr/0006), matching audio_email.py's own
 # `_today_local_date()` / `PIPELINE_TIMEZONE` convention exactly.
+#
+# NOTE (review clarification): this is a DIFFERENT knob than `audio_link.py`'s
+# own module-level `PIPELINE_TIMEZONE` (a hardcoded literal, used only to render
+# an audio object's expiry date, ADR-0017 D1/D6). They share a name and today's
+# default value ("Europe/Berlin") by convention, not by any code link -- this
+# one is env-var-overridable (it governs the run's own calendar date, e.g. for
+# the S3 archive path), that one deliberately is not (the expiry date must
+# always render in the SAME timezone regardless of a per-deploy override here).
+# Setting this env var does NOT change audio_link.py's constant, and vice versa.
 PIPELINE_TIMEZONE = os.environ.get("PIPELINE_TIMEZONE", "Europe/Berlin")
 
 

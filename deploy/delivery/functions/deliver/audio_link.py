@@ -48,6 +48,18 @@ from zoneinfo import ZoneInfo
 # PIPELINE_TIMEZONE convention) -- the expiry date is always rendered in this
 # timezone, regardless of which timezone the S3-reported expiry header is in
 # (ADR-0017 D1/FR-8).
+#
+# NOTE (review clarification): this is a DIFFERENT knob than
+# `handler.py`'s own module-level `PIPELINE_TIMEZONE` (env-var-driven, default
+# `"Europe/Berlin"`, used only for `_today_local_date()`'s `brief_date`
+# calculation). They share a name and today's default value by convention, not
+# by any code link -- this one is a hardcoded literal (ADR-0017 D6's
+# "hand-duplicated module constant, not CDK context/an env var" choice, applied
+# here too since the expiry date must always render in the SAME timezone
+# regardless of any per-deploy override of the run's own calendar-date
+# timezone). Changing `handler.py`'s env var does NOT change this one, and vice
+# versa; if the two ever need to diverge, that is a deliberate, separate change
+# in each file, not a bug.
 PIPELINE_TIMEZONE = "Europe/Berlin"
 
 # Matches the `expiry-date="..."` portion of an S3 `Expiration` / `x-amz-expiration`
