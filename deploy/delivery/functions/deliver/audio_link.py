@@ -88,14 +88,16 @@ def parse_expiration_header(expiration_header: str | None) -> datetime | None:
     """Parse an S3 `HeadObject` response's `Expiration` field (the `x-amz-expiration`
     response header, shaped `expiry-date="Tue, 04 Aug 2026 00:00:00 GMT",
     rule-id="..."`) into an aware datetime, or `None` if the header is missing,
-    empty, or its `expiry-date` portion is not a valid HTTP-date (ADR-0017 D1).
-    Never raises."""
+    empty, not a string (e.g. a hypothetical future botocore/S3 response-shape
+    change -- REVIEW FINDING, fixed: `re.search()` raises `TypeError` on a
+    non-string/non-bytes input, which used to reach the caller unguarded), or its
+    `expiry-date` portion is not a valid HTTP-date (ADR-0017 D1). Never raises."""
     if not expiration_header:
         return None
-    match = _EXPIRY_DATE_ATTR_RE.search(expiration_header)
-    if not match:
-        return None
     try:
+        match = _EXPIRY_DATE_ATTR_RE.search(expiration_header)
+        if not match:
+            return None
         return parsedate_to_datetime(match.group(1))
     except (TypeError, ValueError, IndexError):
         return None
@@ -145,19 +147,37 @@ def build_audio_link_result(
     Never raises -- every input is treated as untrusted/best-effort, matching this
     feature's fail-safe requirement (FR-10). This function performs no I/O; the
     caller is responsible for the `HeadObject` call (and its own try/except) that
-    produces `audio_available`/`expiration_header`."""
-    if not audio_base_url or not audio_key or not audio_available:
+    produces `audio_available`/`expiration_header`.
+
+    REVIEW FINDING (Medium), fixed: this function used to have no try/except of
+    its own, so an unexpected input shape (e.g. a malformed `expiration_header`
+    reaching `parse_expiration_header()`) could raise past both call sites
+    (`delivery_core.py`'s `_run_delivery()`, the welcome-send handler's
+    `_handle()`) despite their own comments already asserting "never raises" --
+    and because this runs BEFORE `send_all()` in the delivery worker, that would
+    have aborted the ENTIRE send, owner included, directly contradicting FR-10.
+    The whole body is now wrapped in a top-level `try/except Exception` as a
+    last-resort safety net (degrading to the no-audio line, matching every other
+    best-effort helper in this diff) -- on top of, not instead of,
+    `parse_expiration_header()`'s own now-hardened handling of a malformed
+    `expiration_header`, which is the specific/expected case and degrades more
+    precisely to the generic-note line (the object IS available; only its date is
+    unreadable), exactly like the missing/unparseable-header case."""
+    try:
+        if not audio_base_url or not audio_key or not audio_available:
+            return AudioLinkResult(html=NO_AUDIO_LINE_HTML, link_included=False, expiry_label=None)
+
+        url = build_audio_url(audio_base_url, audio_key)
+        expiry_dt = parse_expiration_header(expiration_header)
+        if expiry_dt is not None:
+            expiry_label = format_expiry_date(expiry_dt)
+            html = _LINK_EXPIRY_TEMPLATE.format(url=url, expiry_label=expiry_label)
+            return AudioLinkResult(html=html, link_included=True, expiry_label=expiry_label)
+
+        html = _LINK_GENERIC_TEMPLATE.format(url=url)
+        return AudioLinkResult(html=html, link_included=True, expiry_label=None)
+    except Exception:  # noqa: BLE001 - genuinely never raise; see docstring fail-safe contract
         return AudioLinkResult(html=NO_AUDIO_LINE_HTML, link_included=False, expiry_label=None)
-
-    url = build_audio_url(audio_base_url, audio_key)
-    expiry_dt = parse_expiration_header(expiration_header)
-    if expiry_dt is not None:
-        expiry_label = format_expiry_date(expiry_dt)
-        html = _LINK_EXPIRY_TEMPLATE.format(url=url, expiry_label=expiry_label)
-        return AudioLinkResult(html=html, link_included=True, expiry_label=expiry_label)
-
-    html = _LINK_GENERIC_TEMPLATE.format(url=url)
-    return AudioLinkResult(html=html, link_included=True, expiry_label=None)
 
 
 __all__ = [

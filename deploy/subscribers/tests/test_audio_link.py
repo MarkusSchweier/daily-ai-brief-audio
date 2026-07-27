@@ -212,6 +212,37 @@ def test_build_audio_link_result_when_base_url_none_renders_the_no_audio_line_ne
     assert result.html == audio_link.NO_AUDIO_LINE_HTML
 
 
+def test_build_audio_link_result_never_raises_even_on_a_malformed_expiration_header_type():
+    """REVIEW FINDING (Medium), fixed: `build_audio_link_result()` used to have no
+    try/except of its own, and `parse_expiration_header()`'s `re.search()` raised
+    a raw `TypeError` on a non-string `expiration_header` (e.g. a hypothetical
+    future botocore/S3 response-shape change) -- reaching both call sites
+    (`delivery_core.py`'s `_run_delivery()`, the welcome-send handler's
+    `_handle()`) UNGUARDED, despite their own comments already asserting "never
+    raises, and never blocks the send". Because this runs BEFORE `send_all()` in
+    the delivery worker, that would have aborted the ENTIRE send, owner included
+    -- directly contradicting FR-10 and CLAUDE.md's fail-safe invariant. Fixed by
+    hardening `parse_expiration_header()` itself (a malformed type degrades
+    exactly like a missing/unparseable header -- the generic-note case, since the
+    object IS available; only its date is unreadable) plus a top-level
+    `try/except` around `build_audio_link_result()`'s whole body as a
+    last-resort safety net for anything else unexpected.
+
+    Adversarial input: a caller (or a future botocore shape change) hands
+    `expiration_header` a non-string value instead of str/None. The docstring's
+    'Never raises' contract holds regardless -- this is the one input shape none
+    of the other tests exercise."""
+    result = audio_link.build_audio_link_result(
+        audio_base_url="https://briefing.mschweier.com",
+        audio_key="audio/.abc.mp3",
+        audio_available=True,
+        expiration_header=12345,  # not str/None -- e.g. a hypothetical SDK shape change
+    )
+
+    assert result.link_included is True  # link should still show; just no exact date
+    assert result.expiry_label is None
+
+
 def test_no_audio_line_html_matches_the_ratified_copy_exactly():
     assert audio_link.NO_AUDIO_LINE_HTML == (
         '<p style="margin:0 0 6px 0;">\U0001f3a7 No audio version available for this edition.</p>'
