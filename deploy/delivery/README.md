@@ -5,9 +5,10 @@ The standalone stack that performs AWS delivery for the daily AI brief (PRD
 it is the **only** thing that can email a real subscriber; the content-generation side (a Claude
 Platform agent / the MicroVM) holds no AWS delivery IAM (FR-1).
 
-> **Status:** deployed + live-validated, but **production still delivers in-VM** via
-> `deploy/managed-agent/`. Moving production onto this boundary is an owner-gated cut-over —
-> see [`CUTOVER-production-decoupling.md`](CUTOVER-production-decoupling.md).
+> **Status:** **LIVE — the production delivery path since the 2026-07-07 ADR-0015 cut-over.**
+> The scheduled weekday run delivers through `POST /deliver`; the content MicroVM holds zero
+> AWS delivery IAM. Cut-over runbook + rollback:
+> [`CUTOVER-production-decoupling.md`](CUTOVER-production-decoupling.md).
 
 ## Endpoints (HTTP API `https://6nbe4wsng6.execute-api.us-east-1.amazonaws.com`)
 - **`POST /deliver`** — async trigger. Body = contract **v2**: `brief_markdown`, `listening_script`

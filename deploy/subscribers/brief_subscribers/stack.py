@@ -142,7 +142,7 @@ class BriefSubscribersStack(Stack):
         return _lambda.LayerVersion(
             self,
             "SubscriberCommonLayer",
-            code=_lambda.Code.from_asset(str(LAYERS_DIR / "common")),
+            code=_lambda.Code.from_asset(str(LAYERS_DIR / "common"), exclude=["__pycache__", "*.pyc"]),
             compatible_runtimes=[_lambda.Runtime.PYTHON_3_13],
             compatible_architectures=[_lambda.Architecture.ARM_64],
             description="Shared email-normalization/token/DynamoDB helpers for the subscriber Lambdas.",
@@ -171,7 +171,7 @@ class BriefSubscribersStack(Stack):
             runtime=_lambda.Runtime.PYTHON_3_13,
             architecture=_lambda.Architecture.ARM_64,
             handler="handler.handler",
-            code=_lambda.Code.from_asset(str(FUNCTIONS_DIR / handler_dir)),
+            code=_lambda.Code.from_asset(str(FUNCTIONS_DIR / handler_dir), exclude=["__pycache__", "*.pyc"]),
             layers=[self.common_layer],
             timeout=timeout,
             memory_size=memory_size,
