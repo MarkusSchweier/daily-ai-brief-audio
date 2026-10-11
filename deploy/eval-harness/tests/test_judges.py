@@ -28,6 +28,7 @@ from eval_core.judges.base import (  # noqa: E402
     JUDGE_EFFORT,
     JUDGE_MODELS,
     MAX_PAUSE_TURN_CONTINUATIONS,
+    JudgeCallError,
     JudgePauseLimitError,
     JudgeRefusedError,
     JudgeResult,
@@ -927,3 +928,103 @@ def test_judge_models_are_recorded_on_every_result_including_the_degrade_path():
     assert result.insufficient_data is True
     assert result.score is None
     assert result.model == "claude-opus-5-5"
+
+
+# --- A failed judge call still reports what it billed (review-fix, reviewer L3) -------
+
+
+def test_a_refusal_carries_the_usage_it_already_billed():
+    """The refused call itself was a real, billed request -- its usage and search
+    count used to be discarded the instant the error was raised, making a refused
+    judge call look free."""
+    refused = FakeMixedMessage(
+        [],
+        usage=FakeUsage(input_tokens=1_234, output_tokens=56, server_tool_use=FakeServerToolUse(web_search_requests=2)),
+        stop_reason="refusal",
+        stop_details=FakeStopDetails(category="bio"),
+    )
+    client = make_fake_client(refused)
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u")
+
+    error = excinfo.value
+    assert error.usage["input_tokens"] == 1_234
+    assert error.usage["output_tokens"] == 56
+    assert error.search_count == 2
+
+
+def test_a_truncated_call_carries_the_usage_it_already_billed():
+    client = make_fake_client(
+        FakeMixedMessage(
+            [FakeContentBlock("text", text="{half")],
+            usage=FakeUsage(input_tokens=99, output_tokens=16_000),
+            stop_reason="max_tokens",
+        )
+    )
+
+    with pytest.raises(JudgeTruncatedError) as excinfo:
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", max_tokens=16000)
+
+    assert excinfo.value.usage["output_tokens"] == 16_000
+    assert excinfo.value.search_count == 0
+
+
+def test_the_pause_limit_error_carries_the_usage_of_every_billed_iteration():
+    """The expensive case: exhausting the bound means 1 + MAX_PAUSE_TURN_CONTINUATIONS
+    real billed calls, each with its own searches."""
+    responses = [
+        FakeMixedMessage(
+            [FakeContentBlock("server_tool_use")],
+            usage=FakeUsage(input_tokens=1_000, output_tokens=100, server_tool_use=FakeServerToolUse(web_search_requests=3)),
+            stop_reason="pause_turn",
+        )
+        for _ in range(MAX_PAUSE_TURN_CONTINUATIONS + 1)
+    ]
+    client = make_fake_client(*responses)
+
+    with pytest.raises(JudgePauseLimitError) as excinfo:
+        run_judge(client, criterion="content_selection", system_prompt="s", user_prompt="u")
+
+    iterations = MAX_PAUSE_TURN_CONTINUATIONS + 1
+    assert excinfo.value.usage["input_tokens"] == 1_000 * iterations
+    assert excinfo.value.usage["output_tokens"] == 100 * iterations
+    assert excinfo.value.search_count == 3 * iterations
+
+
+def test_a_judge_call_error_defaults_to_zero_usage_when_none_is_supplied():
+    """A caller constructing one by hand (or an older call site) must still get a
+    valid, priceable zero-usage dict, never a missing attribute."""
+    error = JudgeCallError("boom", criterion="dedup", model="claude-opus-5-5")
+
+    assert error.search_count == 0
+    assert error.usage == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0,
+    }
+
+
+def test_the_errors_usage_shape_is_priceable_by_the_cost_module():
+    """The attached usage is the SAME flat shape `JudgeResult.usage` uses, so it
+    needs no translation to be priced -- which is the only reason to attach it."""
+    from datetime import date
+
+    from harness import cost
+
+    client = make_fake_client(
+        FakeMixedMessage([], usage=FakeUsage(input_tokens=10_000, output_tokens=2_000), stop_reason="refusal")
+    )
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", model="claude-opus-5-5")
+
+    priced = cost.price_usage(
+        excinfo.value.usage,
+        model="claude-opus-5-5",
+        pricing_table=cost.load_pricing_table(),
+        on_date=date(2026, 10, 11),
+    )
+    assert priced > 0

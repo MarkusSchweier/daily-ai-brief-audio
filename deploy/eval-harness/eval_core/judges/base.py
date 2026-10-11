@@ -113,7 +113,13 @@ nothing else about the judges (prompts, tool versions, `max_uses` caps, top-leve
    per-repetition containment (the broad `except Exception` around the whole
    post-trigger bookkeeping phase), which records `final_status="judging_failed"`
    plus the error and finalizes the run as failed -- no weakening of that
-   containment, and no new silent-degrade path.
+   containment, and no new silent-degrade path. AMENDED (review-fix, reviewer L3,
+   2026-10-11): all three now CARRY the token usage and search count accumulated
+   up to the failure (`JudgeCallError.usage` / `.search_count`). Those calls were
+   really billed -- a `pause_turn` loop that exhausts its bound has made six of
+   them -- and the numbers used to be discarded the instant the error was raised,
+   so a failed judge call looked free. Attaching them is an accounting fix only:
+   containment semantics are unchanged.
 
 Thinking blocks appear in `response.content` as `type: "thinking"` (empty text
 under the default display). `_extract_final_text_block()` already selects only
@@ -211,12 +217,38 @@ class JudgeCallError(RuntimeError):
     comparison table treats as a blank. These propagate into `run.py`'s existing
     per-repetition containment, which records `final_status="judging_failed"` with
     the error and finalizes the run as failed -- loud, contained, and with the paid
-    artifacts/events still on disk."""
+    artifacts/events still on disk.
 
-    def __init__(self, message: str, *, criterion: str, model: str):
+    `usage`/`search_count` (review-fix, reviewer L3 -- 2026-10-11) carry the token
+    usage and server-side search count ALREADY ACCUMULATED when the call failed.
+    Every iteration of a `pause_turn` loop -- including the one that raised -- was
+    a real, BILLED call, and those numbers used to be dropped on the floor the
+    moment the error was raised, so a refused/truncated/pause-limited judge call
+    looked free. They are attributes rather than anything this module acts on:
+    pricing lives in `harness/cost.py`, and whether a caller charges a failed
+    repetition for them is the caller's policy decision (`run.py`'s containment
+    deliberately records the failure and moves on; the numbers are now at least
+    AVAILABLE to it, where before they were unrecoverable).
+
+    `usage` is the same flat shape `JudgeResult.usage` uses, so it can be priced
+    with `harness.cost.price_usage()` and `price_web_searches()` without
+    translation; it defaults to an all-zero dict when a caller raises without
+    supplying one."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        criterion: str,
+        model: str,
+        usage: dict[str, int] | None = None,
+        search_count: int = 0,
+    ):
         super().__init__(message)
         self.criterion = criterion
         self.model = model
+        self.usage = dict(usage) if usage else dict(_EMPTY_USAGE)
+        self.search_count = search_count
 
 
 class JudgeRefusedError(JudgeCallError):
@@ -230,7 +262,16 @@ class JudgeRefusedError(JudgeCallError):
     re-scoring one repetition on a different model would corrupt the comparison far
     more than a failed repetition does."""
 
-    def __init__(self, *, criterion: str, model: str, category: str | None, explanation: str | None):
+    def __init__(
+        self,
+        *,
+        criterion: str,
+        model: str,
+        category: str | None,
+        explanation: str | None,
+        usage: dict[str, int] | None = None,
+        search_count: int = 0,
+    ):
         detail = f" category={category!r}" if category is not None else " category=None (not reported)"
         if explanation:
             detail += f" explanation={explanation!r}"
@@ -241,6 +282,8 @@ class JudgeRefusedError(JudgeCallError):
             "exclude this input.",
             criterion=criterion,
             model=model,
+            usage=usage,
+            search_count=search_count,
         )
         self.category = category
         self.explanation = explanation
@@ -254,7 +297,15 @@ class JudgeTruncatedError(JudgeCallError):
     thinking tokens count against `max_tokens`, which is exactly how a cap sized
     for a no-thinking model produces this."""
 
-    def __init__(self, *, criterion: str, model: str, max_tokens: int):
+    def __init__(
+        self,
+        *,
+        criterion: str,
+        model: str,
+        max_tokens: int,
+        usage: dict[str, int] | None = None,
+        search_count: int = 0,
+    ):
         super().__init__(
             f"judge call for criterion {criterion!r} on model {model!r} was TRUNCATED "
             f"(stop_reason='max_tokens', max_tokens={max_tokens}). On this model thinking tokens "
@@ -262,6 +313,8 @@ class JudgeTruncatedError(JudgeCallError):
             "half-written verdict.",
             criterion=criterion,
             model=model,
+            usage=usage,
+            search_count=search_count,
         )
         self.max_tokens = max_tokens
 
@@ -273,13 +326,23 @@ class JudgePauseLimitError(JudgeCallError):
     the judges' `max_uses` caps, and if it ever fires the cap/prompt is the thing to
     look at."""
 
-    def __init__(self, *, criterion: str, model: str, continuations: int):
+    def __init__(
+        self,
+        *,
+        criterion: str,
+        model: str,
+        continuations: int,
+        usage: dict[str, int] | None = None,
+        search_count: int = 0,
+    ):
         super().__init__(
             f"judge call for criterion {criterion!r} on model {model!r} still returned "
             f"stop_reason='pause_turn' after {continuations} continuation(s) -- giving up rather "
             "than looping (and billing) unboundedly. Check the judge's web-tool max_uses caps.",
             criterion=criterion,
             model=model,
+            usage=usage,
+            search_count=search_count,
         )
         self.continuations = continuations
 
@@ -476,7 +539,9 @@ def run_judge(
     `JudgeTruncatedError` -- see their docstrings for why these are errors rather
     than degrades), and a `"pause_turn"` response is resumed up to
     `MAX_PAUSE_TURN_CONTINUATIONS` times with usage and search counts summed
-    across every iteration.
+    across every iteration. Every raised error carries the usage and search count
+    accumulated up to that point on `.usage`/`.search_count` -- those iterations
+    were billed whether or not a verdict came back (review-fix, reviewer L3).
     """
     base_kwargs: dict[str, Any] = dict(
         model=model,
@@ -515,16 +580,33 @@ def run_judge(
     for _ in range(MAX_PAUSE_TURN_CONTINUATIONS + 1):
         response = client.messages.create(**base_kwargs, messages=messages)
         # Accumulate FIRST, unconditionally: every iteration below -- including the
-        # ones that go on to raise -- was a real, billed call.
+        # ones that go on to raise -- was a real, billed call. The raising paths
+        # below CARRY that accumulated usage/search_count on the error itself
+        # (review-fix, reviewer L3): the comment used to promise this accounting
+        # while the raise discarded it, so a refused/truncated/pause-limited call
+        # looked free to anything downstream.
         usage = _sum_usage(usage, _extract_usage(response))
         search_count += _extract_search_count(response)
 
         stop_reason = getattr(response, "stop_reason", None)
         if stop_reason == "refusal":
             category, explanation = _extract_refusal_details(response)
-            raise JudgeRefusedError(criterion=criterion, model=model, category=category, explanation=explanation)
+            raise JudgeRefusedError(
+                criterion=criterion,
+                model=model,
+                category=category,
+                explanation=explanation,
+                usage=usage,
+                search_count=search_count,
+            )
         if stop_reason == "max_tokens":
-            raise JudgeTruncatedError(criterion=criterion, model=model, max_tokens=max_tokens)
+            raise JudgeTruncatedError(
+                criterion=criterion,
+                model=model,
+                max_tokens=max_tokens,
+                usage=usage,
+                search_count=search_count,
+            )
         if stop_reason != "pause_turn":
             break
 
@@ -543,7 +625,11 @@ def run_judge(
         ]
     else:
         raise JudgePauseLimitError(
-            criterion=criterion, model=model, continuations=MAX_PAUSE_TURN_CONTINUATIONS
+            criterion=criterion,
+            model=model,
+            continuations=MAX_PAUSE_TURN_CONTINUATIONS,
+            usage=usage,
+            search_count=search_count,
         )
 
     text = _extract_final_text_block(response)
