@@ -28,6 +28,16 @@
   {% endif %}
 
   <h3>Candidate configuration (as of the recorded git ref)</h3>
+  {% if declaration.read_error %}
+    {# Review-fix (reviewer H2): the configuration panel degrades to this visible
+       note -- it NEVER 500s the page. Reached when no working `git` was found
+       (the launchd-PATH/Xcode-license case), when the recorded ref is unknown to
+       this clone, or when a file at that ref no longer parses. #}
+    <p class="error">
+      &#9888; The candidate declaration could not be read at the recorded git ref
+      (<code>{{ declaration.ref }}</code>): {{ declaration.read_error }}
+    </p>
+  {% endif %}
   <details open>
     <summary>{{ declaration.name }} — {{ declaration.model }}</summary>
     <p>{{ declaration.description }}</p>
@@ -109,12 +119,20 @@
       {% if rep.scores %}
         <h4>Scores</h4>
         <table>
-          <thead><tr><th>Criterion</th><th>Score</th><th>Rationale</th><th>Evidence</th></tr></thead>
+          <thead>
+            {# "Judge model" (review-fix, reviewer L4): scores.json carries a
+               per-criterion `model` since 2026-10-11 (the Opus 4.8 -> Opus 5.5
+               judge move). Accessed via `.get()` so a record written before that
+               date renders a BLANK cell instead of erroring -- what judged it is
+               then only recoverable from its judge-cost.json. #}
+            <tr><th>Criterion</th><th>Score</th><th title="The model that produced this score">Judge model</th><th>Rationale</th><th>Evidence</th></tr>
+          </thead>
           <tbody>
             {% for criterion, score in rep.scores.items() %}
               <tr>
                 <td>{{ criterion }}</td>
                 <td>{% if score.insufficient_data %}insufficient data{% else %}{{ score.score }}{% endif %}</td>
+                <td>{{ score.get("model", "") }}</td>
                 <td>{{ score.rationale }}</td>
                 <td>{{ score.evidence }}</td>
               </tr>

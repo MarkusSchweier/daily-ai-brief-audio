@@ -1,5 +1,9 @@
 # PRD: Agent cost optimization — eval-harness re-integration + candidate comparison
 
+- Status (2026-10-11): **step C has produced its first matched, replicated comparison** — the production
+  configuration and the three current-generation models, three repetitions each, judges on Opus 5.5
+  (§6). **Decided the same day: production moved to Claude Haiku 5.5 at effort high** (§6, live from
+  the Mon 2026-10-12 06:07 Europe/Berlin run).
 - Status: **ACTIVE (2026-07-07).** The blocking dependency (Epic 2, `agent-system-redesign.md`)
   **shipped and merged**, so this epic is now being built as **one combined epic** (owner decision
   2026-07-07) with three steps: **A** re-integrate the eval harness with the new candidate
@@ -8,7 +12,7 @@
   built first because they de-risk A's design (they surface exactly what the harness must support).
   **B's candidate declarations are BUILT** on branch `feat/cost-optimization-candidates` (see §3);
   **A is developed next in the main Claude Code thread** (with production-system context); **C**
-  follows.
+  has since run (§6).
 - Author: product-manager (Claude), in conversation with the owner — Date: 2026-07-05, **substantially
   updated 2026-07-07** (epic activated, combined A/B/C, candidate set finalized, A requirements added).
 - Source: follow-on from the eval-harness epic (shipped) — that epic built the *measurement
@@ -63,8 +67,11 @@ the baseline wherever possible, so a comparison contrasts *structure/model*, nev
 | 3 | `multiagent-aggressive-haiku` | coordinator + 4 sub-agents | Sonnet coord+**selection**; **Haiku** research+writing+listening-script | how far Haiku goes with Sonnet only where editorial judgment lives | ✅ |
 | 4 | `session-restructure` | coordinator + 4 sub-agents (**byte-identical prompts to #3**) | **all Sonnet** | does structural decomposition *alone* (no full-context replay) cut cost? | ✅ |
 | 5 | `haiku-swap-verified` | Haiku-as-coordinator + 1 Sonnet verifier sub-agent | **all Haiku** pipeline + **Sonnet** verify/correct pass | does a cheap post-assembly verification pass fix haiku-swap's measured weaknesses (factual insurance + dedup labelling) at ~60% below baseline? (GitHub #38 item 1; verifier explicitly does NOT touch selection) | ✅ run 2026-07-07: **retired** — the Haiku coordinator raced past the verifier (fabricated the report, captured the uncorrected brief); $3.27, 3/3/4/2. Superseded by #6/#7's lessons (structural gates; verifier work preserved by contract). |
-| 6 | `haiku-swap-hardened` | single agent (haiku-swap + checklist-hardened task prompt ONLY) | **all Haiku** | does prompt-forcing alone (mandatory per-prior reading, explicit labelling rule, enumerated self-check + overlap-notes audit) recover Haiku's diligence at ~haiku-swap price? First run 2026-07-08: $0.52, 3/4/4/2 — labels landed but one prior was neglected; enumerate-the-priors fix applied 2026-07-08. | ✅ |
+| 6 | `haiku-swap-hardened` | single agent (haiku-swap + checklist-hardened task prompt ONLY) | **all Haiku** | does prompt-forcing alone (mandatory per-prior reading, explicit labelling rule, enumerated self-check + overlap-notes audit) recover Haiku's diligence at ~haiku-swap price? First run 2026-07-08: $0.52, 3/4/4/2 — labels landed but one prior was neglected; enumerate-the-priors fix applied 2026-07-08. | ✅ matched batch 2026-10-11 (vs. the three 5.5 candidates): $0.57/run, mean 3.25; this is the production configuration (§6). |
 | 7 | `haiku-digest-sonnet-select` | Haiku coordinator (file-gated) + research/writing/script on Haiku + **selection on Sonnet reading a compact digest contract** | Haiku everywhere except the selection decision | can the digest contract keep Sonnet-grade selection at ~1/4 of mah's selection cost? First run 2026-07-08: **$1.36, factual 5 / length 5 / dedup 4** (content blanked by an artifact truncation); all four file-gates executed, selection thread $0.29 vs mah's $1.21. | ✅ |
+| 8 | `haiku-5-5-hardened` | single agent, #6 with only model + effort changed | **all Haiku 5.5**, effort high | model generation at a fixed prompt (Haiku 4.5 → 5.5) | ✅ synced 2026-10-11; matched batch 2026-10-11: $0.60/run, mean 3.92 (§6) |
+| 9 | `sonnet-5-5-hardened` | single agent, #6 with only model + effort changed | **all Sonnet 5.5**, effort high | model generation at a fixed prompt (Sonnet tier) | ✅ synced 2026-10-11; matched batch 2026-10-11: $1.75/run, mean 4.17 (§6) |
+| 10 | `opus-5-5-hardened` | single agent, #6 with only model + effort changed | **all Opus 5.5**, effort medium | model generation at a fixed prompt (Opus tier) | ✅ synced 2026-10-11; matched batch 2026-10-11: $3.99/run, mean 3.92 (§6) |
 
 **#3 model split (made aggressive per owner direction 2026-07-07):** Sonnet retained **only** for
 coordination and editorial **selection** (skill steps 4–5, where source/dedup judgment and
@@ -94,6 +101,13 @@ corruption. Parked until the Managed Agents surface exposes effort/thinking on a
 deprioritized** (owner, 2026-07-07 evening): #4's cost is bounded below by #3's (same structure,
 strictly costlier models) and #3 already showed almost no saving vs. baseline — its diagnostic value
 doesn't currently justify a run.
+
+**Update 2026-10-11 — unblocked.** The Agents API now accepts `model: {"id", "effort"}`, and a live
+read-back echoes `{"effort": {"type": "high"}, …, "speed": "standard"}`, so the 2026-07-07 finding above
+no longer holds. `parameters.json` now supports exactly one key, `effort` (`low`/`medium`/`high`/`xhigh`/
+`max`), which the sync maps to `model.effort` and validates at load. The 5.5 batch (§6) uses it:
+`haiku-5-5-hardened` at high, `sonnet-5-5-hardened` at high, `opus-5-5-hardened` at medium. Haiku 4.5
+has no effort knob. The paragraph above is kept as history.
 
 ### Backburnered (owner decision 2026-07-07) — recorded, not built
 
@@ -170,6 +184,74 @@ cheaper candidate is a **separate, owner-gated cut-over** (mirrors the delivery-
 discipline) — not automatic from a good eval result.
 
 ## 6. Key decisions, flags & open items
+
+- **[DECIDED — owner, 2026-10-11] Production moved to Claude Haiku 5.5 at effort high** (the
+  `haiku-5-5-hardened` configuration: the unchanged hardened prompt, model and effort only), on the
+  results entry below — the accuracy gain over Haiku 4.5 at about the same cost, with Sonnet 5.5's edge
+  inside the noise at ~2.5× the cost and Opus 5.5 showing no gain at ~5.5×. Live: production agent
+  `agent_01EswBTose8dnTAUDbGvzdLq` v3 = `{id: claude-haiku-5-5, effort: high}` (v2 = Haiku 4.5 and v1 =
+  Sonnet 5 preserved); scheduled deployment `depl_01YRoLodhcr3HuhVS3zxVuLx` pins v3 with prompt,
+  environment and schedule byte-identical to its predecessor `depl_016LWhcSEghrvGknVWhZvgdr` (archived).
+  First Haiku 5.5 production send: Mon 2026-10-12 06:07 Europe/Berlin. Validated beforehand on the
+  production self-hosted environment with the delivery step removed (one full run, 4.2 min, all five
+  outputs written, nothing delivered — the delivery Lambda saw only the read-only recent-briefs call).
+  **Rollback:** a deployment identical to the live one but pinned to agent v2, then archive the Haiku 5.5
+  one (`deploy/managed-agent/deployment.json` history has the recipe). The eval harness's
+  production-config marker now points at `haiku-5-5-hardened`.
+- **[CORRECTION — 2026-10-11] Haiku 5.5 cost is understated in the results entry below.** Sessions now
+  report the Platform's own `usage.list_cost`. For Haiku 4.5, Sonnet 5.5 and Opus 5.5 it matches the
+  harness (tokens + $0.01 per billed search) to the cent on all nine batch sessions. For Haiku 5.5 it is
+  $0.04–0.08 per run higher (0.71 / 0.87 / 0.86 against the harness's 0.63 / 0.79 / 0.82 all-in), which
+  equals pricing **every** request on the over-100K-token rate card rather than request by request. So
+  Haiku 5.5 is about **$0.81 per run all-in (~$18/month)**, not $0.75; the ranking and the decision are
+  unaffected. Which rule the invoice follows is not yet settled — tracked as a harness follow-up (store
+  the Platform figure in run records, reconcile the Haiku 5.5 rule).
+- **[RESULTS — 2026-10-11] Model-generation matched batch.** Four candidates
+  launched in the same second on the same news snapshot (a Sunday): the production configuration
+  (`haiku-swap-hardened`) and three 5.5 candidates that change only model and effort. Each ran three
+  sequential repetitions in the `cloud` environment, judged on all four criteria by Opus 5.5 at effort
+  high (ADR-0016 amendment, 2026-10-11). Entries are mean ± sample stdev over n=3, scores out of 5;
+  "Mean" is the unweighted mean of the four criterion means.
+
+  | Candidate | Model / effort | Token cost per run | + web search | Content | Factual | Format | Dedup | Mean |
+  |---|---|---|---|---|---|---|---|---|
+  | `haiku-swap-hardened` (production) | Haiku 4.5 / — | $0.57 ±0.10 | $0.05 | 3.3 ±0.6 | 2.7 ±0.6 | 2.7 ±0.6 | 4.3 ±0.6 | 3.25 |
+  | `haiku-5-5-hardened` | Haiku 5.5 / high | $0.60 ±0.09 | $0.15 | 3.3 ±0.6 | 4.0 ±0.0 | 3.7 ±1.2 | 4.7 ±0.6 | 3.92 |
+  | `sonnet-5-5-hardened` | Sonnet 5.5 / high | $1.75 ±0.33 | $0.19 | 3.7 ±0.6 | 4.3 ±0.6 | 3.7 ±0.6 | 5.0 ±0.0 | 4.17 |
+  | `opus-5-5-hardened` | Opus 5.5 / medium | $3.99 ±0.23 | $0.10 | 3.7 ±0.6 | 4.0 ±0.0 | 3.0 ±0.0 | 5.0 ±0.0 | 3.92 |
+
+  Accuracy-judge "contradicted" verdicts per brief, out of 13–23 claims checked: haiku-swap-hardened
+  5, 6, 4; haiku-5-5-hardened 1, 0, 0; sonnet-5-5-hardened 1, 0, 2; opus-5-5-hardened 1, 1, 0. Mean
+  web searches per run, in table order: 5 / 15 / 19 / 10.
+
+  Format scores are held down for every candidate by the same thing: deep-dives overshoot the skill's
+  3–6 sentence target. That is a prompt and skill property, not a model difference. Haiku 5.5 is priced
+  per request by prompt length ($0.10/$0.50 per MTok up to 100,000 prompt tokens, $0.50/$2.50 above).
+  In this batch 70–80% of its requests exceeded 100,000 prompt tokens and were billed on the higher
+  card; an all-short-prompt run would have cost about a fifth of what was observed. That is why it costs
+  about what Haiku 4.5 does here, despite a list price 10× lower.
+
+  Caveats: n=3 on one news snapshot, so differences under roughly half a point are within noise. Effort
+  differs by design (high / high / medium; Haiku 4.5 has no effort knob). The hardened prompt was written
+  for Haiku 4.5's weaknesses, and the simpler baseline prompt was not tested on the 5.5 models. `cloud`
+  blocks four curated source domains that self-hosted production reaches. The Opus 5.5 candidate is judged
+  by the same model it runs on. The batch was re-pinned on 2026-10-11 (`haiku-swap-hardened` and the three
+  5.5 candidates) from skill version 1783340601977967 to 1783347998026490, the version production's
+  `latest` resolves to; the other candidates remain on the old pin.
+
+  Repaired repetition: in `haiku-swap-hardened` repetition 3 the agent wrote its five outputs, but its
+  capture step (`cat … | head -100`) captured only prior briefs, so the harness graded the 2026-10-09
+  production brief as the output (superseded scores: factual 2, format 3, dedup 4). The five files were
+  recovered verbatim from the stored write-tool inputs, and the judges re-ran on the real brief with no
+  pipeline re-run. The table uses the repaired scores (content 3, factual 3, format 2, dedup 5); the
+  superseded scores and their spend stay in that repetition's `run-meta.json`. The harness now refuses
+  to judge a brief equal to a delivery-feed entry, or when no brief was captured. All nine 5.5-model runs
+  followed the capture step.
+
+  Total spend for the exercise was about $44 (pipelines $20.73, pipeline web search $1.46, judges $18.68,
+  a $2.32 smoke run, and one superseded $1.01 judge call). The batch itself made no production change; the
+  owner's decision taken on it is the entry above. Run records:
+  `deploy/eval-harness/runs/<slug>/2026-10-11-104933-*-matched-5-5-2026-10-11/`.
 
 - **[DECIDED — owner, 2026-07-13] Production moved to candidate #6 (`haiku-swap-hardened`) ahead of
   step C.** Overrides this PRD's §7 "no production cut-over in this epic" non-goal by explicit owner

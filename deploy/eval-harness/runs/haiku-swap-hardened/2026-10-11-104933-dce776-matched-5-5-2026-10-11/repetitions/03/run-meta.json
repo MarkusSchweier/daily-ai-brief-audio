@@ -1,0 +1,19 @@
+{
+  "deployment_id": "depl_01SjQ2qVTsACcAETcqfPmWNE",
+  "session_id": "sesn_019PZGXeAZ4XsHScwSNVB6Mp",
+  "thread_count": 1,
+  "final_status": "idle",
+  "timestamp": "2026-10-11-111214",
+  "recovered": "2026-10-11: the agent wrote its outputs but ran `cat ... | head -100` at the capture step, so the harness captured only prior briefs and graded the 2026-10-09 prior as this run's output. The five output files were recovered verbatim from the stored write-tool inputs (one successful write each, no later edits) and the judges were re-run on the real brief; no pipeline re-run.",
+  "superseded": {
+    "graded_artifact": "AI Brief - 2026-10-09.md (a prior brief, not this run's output)",
+    "scores": {
+      "content_selection": null,
+      "factual_accuracy": 2,
+      "length_format": 3,
+      "dedup": 4
+    },
+    "judge_cost_usd": 1.0116
+  },
+  "rejudged_at": "2026-10-11-113438"
+}

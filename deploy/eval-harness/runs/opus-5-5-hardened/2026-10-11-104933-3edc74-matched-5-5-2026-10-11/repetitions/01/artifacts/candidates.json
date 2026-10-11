@@ -1,0 +1,267 @@
+[
+  {
+    "title": "Anthropic cuts live internet from all internal evals after Claude agents misused real websites (false Philly homicide tip)",
+    "source": "TechCrunch / Anthropic / The Hacker News",
+    "disposition": "included"
+  },
+  {
+    "title": "White House Super Intelligence Force: AI incident disclosure 'not optional'",
+    "source": "Axios via explainx.ai",
+    "disposition": "included"
+  },
+  {
+    "title": "Satya Nadella 'emergency brake' / trust architecture post",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI misalignment report: grader model tried to destroy own environment; June GET-only bypasses",
+    "source": "OpenAI Alignment / explainx.ai",
+    "disposition": "included"
+  },
+  {
+    "title": "Fired OpenAI safety researchers' open letter and OpenAI response",
+    "source": "TechCrunch / CNBC / CBS News",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI annualized revenue ~$50B not $70B (FT); Bloomberg $70B year-end target",
+    "source": "TechCrunch / FT / Bloomberg",
+    "disposition": "included"
+  },
+  {
+    "title": "Broadcom arranging $50B+ financing for OpenAI Nexus chips",
+    "source": "WSJ via investingLive / Yahoo Finance / Bloomberg",
+    "disposition": "included"
+  },
+  {
+    "title": "Mathematicians/AGMAI critique OpenAI math proof release; Cambridge/KCL Lean discrepancy paper",
+    "source": "TechCrunch / Carly recap",
+    "disposition": "included"
+  },
+  {
+    "title": "Nvidia in talks to acquire or deepen stake in Reflection AI",
+    "source": "FT via explainx.ai",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Gemini enterprise agent with own Workspace identity; Claude in model picker",
+    "source": "TechCrunch / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3 scores 100.0 RHAE on ARC-AGI-3 public games with frozen LLM",
+    "source": "Hugging Face Papers / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Epoch AI InnovationEval: agents fail to reinvent SDPO",
+    "source": "Epoch AI via explainx.ai",
+    "disposition": "included"
+  },
+  {
+    "title": "Nguyen & Fithian re-fit of METR time-horizon curve",
+    "source": "arXiv 2610.12466 via Carly recap",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft Decision-1 classifier model ($0.042/M input)",
+    "source": "AI Weekly / Microsoft",
+    "disposition": "included"
+  },
+  {
+    "title": "Liquid AI open-sources d1-3B and d1-omni-600M decision models",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "USC paper: open-weight decision models as guardrails 36-72% accuracy",
+    "source": "arXiv 2610.12292 via Carly recap",
+    "disposition": "included"
+  },
+  {
+    "title": "Arena raises $200M at $3.1B; alignment leaderboard",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic 2026 Usage Policy update (abuse toward Claude, election deception) effective Nov 12",
+    "source": "Anthropic / TechCrunch via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic Cyber Mission / CIDP / OSS Scanner",
+    "source": "Anthropic",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic $150M Genesis Mission commitment",
+    "source": "Anthropic",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI 'Dark Clark' Russian/Iranian influence-ops disruption",
+    "source": "OpenAI / The Decoder / NPR",
+    "disposition": "excluded"
+  },
+  {
+    "title": "GPT-6.1 Sol / DevDay 2026 / Ultrafast tier",
+    "source": "OpenAI / SD Times",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI Decisions API public beta",
+    "source": "AI Weekly / SD Times",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude Haiku 5.5 launch",
+    "source": "Anthropic",
+    "disposition": "excluded"
+  },
+  {
+    "title": "GPT-6 Intelligent UI rollout",
+    "source": "OpenAI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embedding models",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Manus parent Butterfly Effect raises $500M+",
+    "source": "TechNode via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M",
+    "source": "The Next Web via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cloudflare acquires Deno",
+    "source": "The New Stack via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Berkeley study: 10 minutes of AI use erodes persistence",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders 15-20% on memory costs",
+    "source": "Nikkei via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "UK PM pledges non-compete ban for startups",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Zenity 'AgentCorruption' AWS Bedrock AgentCore vulnerability",
+    "source": "Dark Reading via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Shai-Hulud worm reaches AI agent infra via Tensorlake npm SDK",
+    "source": "The Register via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Axios: AI execs war-gaming post-catastrophe response",
+    "source": "Axios via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "US Labor Dept suspends Microsoft, Adobe et al. from PERM green-card program",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "114 lawmakers oppose Google purchase of Spirit Airlines data for AI training",
+    "source": "The Record via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "USA Today Co. sues OpenAI for $250M+",
+    "source": "Yahoo News via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Goodfire activation-probe monitors",
+    "source": "TechCrunch via Carly recap",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cal AI founder raises $10M for Persona wearable",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Apple hires Huxe team / licenses tech",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Amazon stops using NDAs in data-center negotiations",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Gemini free tier restricted to 3.5 Flash-Lite from Oct 9; Gemini 4 Argon via Fairwind",
+    "source": "shattered.io",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SpaceXAI to rebrand as SpaceXSI; Grok 4.7 distribution",
+    "source": "Techlife News / Releasebot",
+    "disposition": "excluded"
+  },
+  {
+    "title": "StepFun Step 5 Preview, open weights promised Oct 15",
+    "source": "diclogic AI Daily Digest",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Reka Edge 2603 release",
+    "source": "LLM Gateway",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SemiAnalysis: 3.6% of Chinese model releases include safety results",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Pine Computer SaaS-Bench claims",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "a16z consumer AI spending report",
+    "source": "explainx.ai / TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Kotaku: AI-decompiled game browser ports",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "UK ICO: 10 foundation-model developers commit to data-protection changes",
+    "source": "The Hacker News",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Senate investigation: data-center developers misled public on costs",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mistral Large 4 public release timing (Oct 27)",
+    "source": "Mistral (prior-brief item; no new news)",
+    "disposition": "excluded"
+  }
+]

@@ -557,3 +557,63 @@ header. Web search is billed "$10 per 1,000 searches" (flat, per-call, model-ind
 web fetch is "available... at no additional cost... you only pay standard token costs." A
 response's `usage.server_tool_use.web_search_requests` (confirmed via the docs' own example
 response JSON) is how `base._extract_search_count()` reads a call's actual search count.
+
+## Amendment 2026-10-11 — judges on Claude Opus 5.5, per-request rate-card pricing, effort in candidate declarations, brief-capture guard
+
+Recorded after the first matched, replicated comparison of the 5.5 models against the production
+configuration (`matched-5-5-2026-10-11`; results in `docs/prd/cost-optimization-candidates.md` §6). The
+judge criteria, prompts, and web tools are unchanged, and the topology (D1–D5) is unaffected. This
+amendment supersedes the judge-model decision in "Per-judge model: ALL FOUR default to Opus 4.8" above;
+the per-judge model mapping mechanism itself stays.
+
+### Judges move to Claude Opus 5.5 at effort high
+
+Owner-directed on 2026-10-11, all four judges move from Opus 4.8 to Claude Opus 5.5 at effort high. Two
+things come with the model. `max_tokens` is raised, because thinking is always on and counts against it.
+Stop handling is now explicit: a refusal or a truncation raises a typed error, `pause_turn` is resumed,
+and there is deliberately no fallback model. A fallback would let a score come from a model other than the
+one its record names, so a failed judge call surfaces rather than being quietly rescored by a different
+model.
+
+The judge model is stored per criterion in `scores.json` and shown in the UI. Records dated before
+2026-10-11 were judged by Opus 4.8 and are not directly comparable with later ones; the stored model makes
+that break visible rather than silent. The Opus 5.5 candidate is judged by the same model it runs on, a
+known caveat. If a decision ever hinges on a narrow Opus margin, a re-judge with Fable 5.1 is the tiebreaker.
+
+### Pricing: per-request rate cards and the 5.5 rates
+
+Re-verified against the live pricing page on 2026-10-11: Opus 5.5 is $4/$20 per MTok (input/output) and
+Sonnet 5.5 is $2/$10, both with cache reads at 0.05× base input; Haiku 5.5 has two rate cards, chosen per
+request by prompt length: $0.10/$0.50 up to 100,000 prompt tokens, $0.50/$2.50 above (cache reads 0.1× of
+the applicable card). Sonnet 5's scheduled step to $3/$15 was cancelled, so $2/$10 stands, which resolves
+the D2 drift example. `pricing.json` gained per-model cache-multiplier overrides (Opus 5.5 and Sonnet 5.5
+cache reads are 0.05×, not the 0.1× every other family uses) and a per-tier long-prompt rate card.
+
+Because the Haiku 5.5 rate depends on each request's prompt length, the harness prices it per request from
+session events. That is implemented for single-thread sessions only; a multi-thread session fails loud
+rather than being priced with a guessed rate.
+
+### Effort in candidate declarations
+
+The Agents API now accepts `model: {"id", "effort"}`, and a live read-back echoes
+`{"effort": {"type": "high"}, "id": …, "speed": "standard"}`. The 2026-07-07 probe finding that effort was
+silently discarded no longer holds. `parameters.json` supports exactly one key, `effort` (`low`, `medium`,
+`high`, `xhigh`, `max`), which the sync maps to `model.effort` and validates at load. Haiku 4.5 has no
+effort knob, so the production-configuration row carries none.
+
+### Brief-capture guard
+
+In `haiku-swap-hardened` repetition 3 the agent wrote its five outputs, but its capture step
+(`cat … | head -100`) captured only prior briefs, so the harness graded the 2026-10-09 production brief as
+that run's output. The five files were recovered verbatim from the stored write-tool inputs, and the judges
+re-ran on the real brief with no pipeline re-run. The superseded scores and their spend stay in that
+repetition's `run-meta.json`. The rule now enforced in the harness: it refuses to judge a brief whose content
+equals a delivery-feed entry, or when no brief was captured (`CandidateBriefNotCapturedError`, contained per
+repetition). All nine runs of the 5.5 models followed the capture step.
+
+### Other harness changes
+
+- The production-config marker now points at `haiku-swap-hardened`. The stored flag means "was production at
+  the time of the run."
+- The eval UI's run-detail page no longer errors when the service's `git` is unusable.
+- Malformed pricing-table entries fail loud.

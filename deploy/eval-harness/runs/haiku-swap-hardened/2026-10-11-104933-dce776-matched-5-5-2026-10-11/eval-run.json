@@ -1,0 +1,26 @@
+{
+  "name": "matched-5-5-2026-10-11",
+  "slug": "haiku-swap-hardened",
+  "agent_id": "agent_01RWcyMBovov1vdu1F3Kz6bk",
+  "git_ref": "5a57d002a0480e94d4100fecf96bb40b74fee885",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-4-5-20251001"
+  ],
+  "parameters": {
+    "agent": {},
+    "sub_agents": []
+  },
+  "repetitions": 3,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": true,
+  "created_at": 1791708573,
+  "declaration_dirty": false
+}

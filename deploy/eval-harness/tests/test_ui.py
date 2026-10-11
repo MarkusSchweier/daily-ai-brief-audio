@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import ui as ui_app
-from harness import run_store
+from harness import git_show, run_store
 
 from conftest import git_init_and_commit
 
@@ -18,6 +18,17 @@ from conftest import git_init_and_commit
 def client():
     ui_app.app.config["TESTING"] = True
     return ui_app.app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _reset_git_probe_cache():
+    """`harness.git_show` caches its git-executable probe (success AND failure)
+    for the whole process -- reset it around every test here so the
+    "no working git" test below cannot poison the tests that render a real
+    declaration out of real git history (or vice versa)."""
+    git_show.reset_git_cache()
+    yield
+    git_show.reset_git_cache()
 
 
 def _write_json(path: Path, data) -> None:
@@ -97,6 +108,44 @@ def test_conduct_page_lists_candidates(client, monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert b"test-candidate" in response.data
+
+
+def test_candidate_options_mark_the_slug_production_actually_runs(monkeypatch, tmp_path):
+    """Reviewer M4: production has run `haiku-5-5-hardened` (Haiku 5.5, effort high)
+    since 2026-10-11, so that -- not the superseded `haiku-swap-hardened` or
+    `production-baseline` -- is what the Conduct dropdown's "right now" label marks.
+    Both this module and run.py resolve it from `harness.production_config`."""
+    candidates_dir = tmp_path / "candidates"
+    candidates_dir.mkdir()
+    _build_candidate_dir(candidates_dir, "haiku-5-5-hardened")
+    _build_candidate_dir(candidates_dir, "haiku-swap-hardened")
+    _build_candidate_dir(candidates_dir, "production-baseline")
+    _build_candidate_dir(candidates_dir, "opus-5-5-hardened")
+
+    options = {o["slug"]: o["is_production_config"] for o in ui_app.list_candidate_options(candidates_dir=candidates_dir)}
+
+    assert options == {
+        "haiku-5-5-hardened": True,
+        "haiku-swap-hardened": False,
+        "production-baseline": False,
+        "opus-5-5-hardened": False,
+    }
+
+
+def test_candidate_options_let_a_declaration_claim_the_production_marker(monkeypatch, tmp_path):
+    """An explicit `is_production_config` in candidate.json wins over the slug, so
+    a future production promotion needs no code change."""
+    candidates_dir = tmp_path / "candidates"
+    candidates_dir.mkdir()
+    _build_candidate_dir(candidates_dir, "opus-5-5-hardened")
+    candidate_json_path = candidates_dir / "opus-5-5-hardened" / "candidate.json"
+    data = json.loads(candidate_json_path.read_text(encoding="utf-8"))
+    data["is_production_config"] = True
+    _write_json(candidate_json_path, data)
+
+    options = {o["slug"]: o["is_production_config"] for o in ui_app.list_candidate_options(candidates_dir=candidates_dir)}
+
+    assert options == {"opus-5-5-hardened": True}
 
 
 def test_assess_page_renders_with_no_runs(client, monkeypatch, tmp_path):
@@ -572,3 +621,252 @@ def test_run_detail_renders_v2_findings_and_selection_disagreements_xss_safely(c
     assert "&lt;img src=x onerror=alert" in body  # present, but only as inert escaped text
     assert "<b>A story</b>" not in body
     assert "&lt;b&gt;A story&lt;/b&gt;" in body
+
+
+# --- The judge model is visible (review-fix, reviewer L4) ---------------------------
+
+
+def _write_judged_run(
+    runs_root: Path,
+    *,
+    slug: str,
+    eval_run_id: str,
+    name: str,
+    judge_model: str,
+    legacy_shape: bool,
+) -> Path:
+    """One completed, judged run record. `legacy_shape=True` writes the PRE-2026-10-11
+    shape: `judge-cost.json` with a single `model` key and a `scores.json` entry
+    with NO `model` key at all (exactly what the committed July records look
+    like)."""
+    run_dir = run_store.eval_run_dir(slug, eval_run_id, runs_root=runs_root)
+    run_store.write_eval_run_meta(
+        run_dir,
+        run_store.EvalRunMeta(
+            name=name,
+            slug=slug,
+            agent_id="agent_x",
+            git_ref="c" * 40,
+            composition="single-agent",
+            models=["claude-haiku-4-5"],
+            parameters={"agent": {}, "sub_agents": []},
+            repetitions=1,
+            criteria=["factual_accuracy"],
+            state=run_store.STATE_COMPLETED,
+            email_sent=False,
+            is_production_config=False,
+            created_at=1000,
+        ),
+    )
+    score: dict = {"score": 4, "rationale": "fine", "evidence": "n/a", "insufficient_data": False}
+    if not legacy_shape:
+        score["model"] = judge_model
+    run_store.write_scores(run_dir, 1, {"factual_accuracy": score})
+    run_store.write_run_meta(run_dir, 1, {"session_id": "sesn_x", "final_status": "idle"})
+    judge_cost: dict = {"total_cost_usd": 0.01, "total_usage": {}, "per_criterion": {"factual_accuracy": {"cost_usd": 0.01, "usage": {}}}}
+    if legacy_shape:
+        judge_cost["model"] = judge_model
+    else:
+        judge_cost["models"] = [judge_model]
+    run_store.write_judge_cost(run_dir, 1, judge_cost)
+    return run_dir
+
+
+def test_assess_table_distinguishes_a_july_judge_model_from_an_october_one(client, monkeypatch, tmp_path):
+    """Reviewer L4: a July record (judged by Opus 4.8, pre-v2 judge-cost shape)
+    and an October one (Opus 5.5) must be distinguishable in the overview."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    _write_judged_run(
+        runs_root,
+        slug="haiku-swap-hardened",
+        eval_run_id="2026-07-08-111111-july",
+        name="a july run",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+    _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-222222-october",
+        name="an october run",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+
+    response = client.get("/assess")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert "claude-opus-4-8" in body
+    assert "claude-opus-5-5" in body
+
+
+def test_judge_models_for_run_falls_back_to_the_scores_file(monkeypatch, tmp_path):
+    """With no judge-cost.json at all, the per-criterion `model` in scores.json
+    (written since 2026-10-11) is still enough to name the judge."""
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="opus-5-5-hardened",
+        eval_run_id="2026-10-11-333333-scores-only",
+        name="scores only",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").unlink()
+
+    assert ui_app._judge_models_for_run(run_dir, 1) == ["claude-opus-5-5"]
+
+
+def test_judge_models_for_run_is_empty_when_nothing_records_a_model(monkeypatch, tmp_path):
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-swap",
+        eval_run_id="2026-07-08-444444-unknown",
+        name="unknown judge",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").unlink()
+
+    assert ui_app._judge_models_for_run(run_dir, 1) == []
+
+
+def test_judge_models_for_run_tolerates_a_half_written_file(monkeypatch, tmp_path):
+    """A run still in flight can have a partially-written judge-cost.json -- the
+    Assess table must render anyway, not raise."""
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-555555-partial",
+        name="partial",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").write_text('{"models": ["claude', encoding="utf-8")
+
+    # Degrades to the scores.json fallback rather than raising.
+    assert ui_app._judge_models_for_run(run_dir, 1) == ["claude-opus-5-5"]
+
+
+def test_run_detail_shows_the_per_criterion_judge_model(client, monkeypatch, tmp_path):
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-666666-detail",
+        name="a judged run",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+
+    response = client.get(f"/runs/haiku-5-5-hardened/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert body.count("claude-opus-5-5") >= 2  # the scores table AND the judge-cost table
+
+
+def test_run_detail_renders_a_blank_judge_model_for_an_older_record(client, monkeypatch, tmp_path):
+    """A pre-2026-10-11 scores.json has no `model` key -- the cell must render
+    blank, not error."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-swap-hardened",
+        eval_run_id="2026-07-08-777777-detail",
+        name="an older judged run",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+
+    response = client.get(f"/runs/haiku-swap-hardened/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert "an older judged run" in body
+
+
+# --- The run detail page never 500s over git (review-fix, reviewer H2) --------------
+
+
+def _write_minimal_completed_run(runs_root: Path, *, slug: str = "test-candidate") -> Path:
+    run_dir = run_store.eval_run_dir(slug, "2026-10-11-999999-nogit", runs_root=runs_root)
+    meta = run_store.EvalRunMeta(
+        name="a run whose declaration cannot be read",
+        slug=slug,
+        agent_id="agent_x",
+        git_ref="b" * 40,
+        composition="single-agent",
+        models=["claude-haiku-5-5"],
+        parameters={"agent": {"effort": "high"}, "sub_agents": []},
+        repetitions=1,
+        criteria=["factual_accuracy"],
+        state=run_store.STATE_COMPLETED,
+        email_sent=False,
+        is_production_config=False,
+        created_at=1000,
+    )
+    run_store.write_eval_run_meta(run_dir, meta)
+    run_store.write_scores(
+        run_dir,
+        1,
+        {"factual_accuracy": {"score": 5, "rationale": "solid", "evidence": "n/a", "insufficient_data": False}},
+    )
+    run_store.write_run_meta(run_dir, 1, {"deployment_id": "depl_x", "session_id": "sesn_x", "final_status": "idle"})
+    run_store.write_artifacts(run_dir, 1, {"/workspace/AI Brief - 2026-10-11.md": "# Daily AI Brief\n\nBody."})
+    return run_dir
+
+
+def test_run_detail_still_renders_when_no_working_git_exists(client, monkeypatch, tmp_path):
+    """The reviewer-reported H2: the UI runs as a launchd service whose PATH
+    resolves `git` to the Xcode-license-blocked /usr/bin/git, and the resulting
+    error escaped `run_detail()` -- HTTP 500 for EVERY run. Now the page renders
+    with a visible note in the candidate-configuration section instead."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_minimal_completed_run(runs_root)
+
+    def _no_git_anywhere(argv, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+    monkeypatch.setattr(git_show.subprocess, "run", _no_git_anywhere)
+    monkeypatch.setattr(git_show.shutil, "which", lambda name: None)
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "could not be read at the recorded git ref" in body
+    # Everything that does NOT depend on git still renders.
+    assert "a run whose declaration cannot be read" in body
+    assert "solid" in body  # the judge rationale
+    assert "<h1>Daily AI Brief</h1>" in body  # the brief render
+
+
+def test_run_detail_still_renders_when_git_show_raises_unexpectedly(client, monkeypatch, tmp_path):
+    """Belt-and-braces: even an exception `git_show` itself does not anticipate
+    (anything at all out of `read_candidate_declaration_at_ref`) degrades to the
+    same note rather than a 500."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_minimal_completed_run(runs_root)
+
+    def _boom(ref, slug):
+        raise RuntimeError("something nobody predicted")
+
+    monkeypatch.setattr(ui_app.git_show, "read_candidate_declaration_at_ref", _boom)
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    assert b"could not be read at the recorded git ref" in response.data
+    assert b"something nobody predicted" in response.data

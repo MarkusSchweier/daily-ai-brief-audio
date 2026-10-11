@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from eval_core.judges import (  # noqa: E402
@@ -22,9 +24,26 @@ from eval_core.judges import (  # noqa: E402
     judge_factual_accuracy,
     judge_length_format,
 )
-from eval_core.judges.base import JUDGE_MODELS, JudgeResult, run_judge  # noqa: E402
+from eval_core.judges.base import (  # noqa: E402
+    JUDGE_EFFORT,
+    JUDGE_MODELS,
+    MAX_PAUSE_TURN_CONTINUATIONS,
+    JudgeCallError,
+    JudgePauseLimitError,
+    JudgeRefusedError,
+    JudgeResult,
+    JudgeTruncatedError,
+    run_judge,
+)
 
-from conftest import FakeContentBlock, FakeMixedMessage, FakeServerToolUse, FakeUsage, make_fake_client  # noqa: E402
+from conftest import (  # noqa: E402
+    FakeContentBlock,
+    FakeMixedMessage,
+    FakeServerToolUse,
+    FakeStopDetails,
+    FakeUsage,
+    make_fake_client,
+)
 
 _SOURCES_MD = "# Daily AI Brief - Source List\n\n## Tier 1\n- Anthropic - News: https://www.anthropic.com/news\n"
 
@@ -68,7 +87,7 @@ def test_content_selection_flags_an_obviously_dropped_important_story():
     assert result.insufficient_data is False
     assert result.score == 1
     assert "GPT-6" in result.evidence or "excluded" in result.evidence
-    assert result.model == JUDGE_MODELS["content_selection"] == "claude-opus-4-8"
+    assert result.model == JUDGE_MODELS["content_selection"] == "claude-opus-5-5"
     assert result.selection_disagreements == [
         {
             "story": "OpenAI ships GPT-6, new SOTA on every benchmark",
@@ -87,7 +106,7 @@ def test_content_selection_flags_an_obviously_dropped_important_story():
     tool_types = {t["type"]: t for t in sent_call["tools"]}
     assert tool_types["web_search_20250305"]["max_uses"] == 5
     assert tool_types["web_fetch_20250910"]["max_uses"] == 5
-    assert sent_call["model"] == "claude-opus-4-8"
+    assert sent_call["model"] == "claude-opus-5-5"
 
 
 def test_content_selection_degrades_gracefully_with_no_candidates_artifact():
@@ -135,7 +154,7 @@ def test_factual_accuracy_flags_a_contradicted_claim_via_research_findings():
     result = judge_factual_accuracy(client, brief_markdown=brief, sources_md=_SOURCES_MD)
 
     assert result.score == 1
-    assert result.model == JUDGE_MODELS["factual_accuracy"] == "claude-opus-4-8"
+    assert result.model == JUDGE_MODELS["factual_accuracy"] == "claude-opus-5-5"
     assert result.findings == [
         {
             "claim": "Claude Ultra 99 achieved 99.987% on SuperMegaBench-9000",
@@ -189,7 +208,7 @@ def test_factual_accuracy_passes_web_search_and_web_fetch_tools_with_max_uses_ei
     tool_types = {t["type"]: t for t in sent_call["tools"]}
     assert tool_types["web_search_20250305"] == {"type": "web_search_20250305", "name": "web_search", "max_uses": 8}
     assert tool_types["web_fetch_20250910"] == {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 8}
-    assert sent_call["model"] == "claude-opus-4-8"
+    assert sent_call["model"] == "claude-opus-5-5"
 
 
 # --- FR-9 length/format compliance (v2: model only, prompt unchanged) ---------------
@@ -215,7 +234,7 @@ def test_length_format_flags_a_brief_that_is_three_times_the_target_length():
     assert "8-15" in sent_call["system"]
     # v2: model moves to Opus 4.8; the prompt itself is otherwise untouched, and
     # no tools are passed for this judge.
-    assert sent_call["model"] == "claude-opus-4-8"
+    assert sent_call["model"] == "claude-opus-5-5"
     assert "tools" not in sent_call
 
 
@@ -248,7 +267,7 @@ def test_dedup_flags_a_brief_that_repeats_yesterdays_top_story_verbatim():
 
     assert result.score == 1
     assert "Model X" in result.evidence
-    assert result.model == JUDGE_MODELS["dedup"] == "claude-opus-4-8"
+    assert result.model == JUDGE_MODELS["dedup"] == "claude-opus-5-5"
     assert result.findings == [
         {
             "story": "Big Lab releases Model X",
@@ -322,8 +341,8 @@ def test_run_judge_uses_the_default_model_when_none_is_passed():
 
     result = run_judge(client, criterion="test", system_prompt="sys", user_prompt="user")
 
-    assert result.model == "claude-opus-4-8"
-    assert client.messages.calls[0]["model"] == "claude-opus-4-8"
+    assert result.model == "claude-opus-5-5"
+    assert client.messages.calls[0]["model"] == "claude-opus-5-5"
 
 
 def test_run_judge_passes_through_an_explicit_model():
@@ -557,5 +576,455 @@ def test_run_judge_enables_automatic_prompt_caching():
     from eval_core.judges.base import run_judge
 
     client = make_fake_client('{"score": 4, "rationale": "r", "evidence": "e", "insufficient_data": false}')
-    run_judge(client, criterion="length_format", system_prompt="s", user_prompt="u", model="claude-opus-4-8")
+    run_judge(client, criterion="length_format", system_prompt="s", user_prompt="u", model="claude-opus-5-5")
     assert client.messages.calls[0]["cache_control"] == {"type": "ephemeral"}
+
+
+# --- Claude Opus 5.5 request surface (2026-10-11, owner-directed model move) ---------
+
+
+_OK_RESPONSE = '{"score": 4, "rationale": "r", "evidence": "e", "insufficient_data": false}'
+
+
+def test_all_four_judges_resolve_to_opus_5_5():
+    assert set(JUDGE_MODELS.values()) == {"claude-opus-5-5"}
+
+
+def test_every_judge_call_sends_explicit_high_effort():
+    """Opus 5.5's API default effort is `medium` where Opus 4.8's was `high`, so
+    without this field the model move would quietly drop the judges one
+    deliberation level below every previously-committed run -- a change to the
+    measuring instrument. Asserted per judge, not just on run_judge()."""
+    assert JUDGE_EFFORT == "high"
+
+    calls = []
+    for invoke in (
+        lambda c: judge_factual_accuracy(c, brief_markdown="# B", sources_md=_SOURCES_MD),
+        lambda c: judge_content_selection(
+            c, candidates_json=[{"title": "t", "source": "s", "disposition": "included"}], brief_markdown="# B"
+        ),
+        lambda c: judge_length_format(c, brief_markdown="# B"),
+        lambda c: judge_dedup(c, brief_markdown="# B", priors=[{"date": "2026-10-10", "markdown": "# prior"}]),
+    ):
+        client = make_fake_client(_OK_RESPONSE)
+        invoke(client)
+        calls.append(client.messages.calls[0])
+
+    assert len(calls) == 4
+    for call in calls:
+        assert call["output_config"] == {"effort": "high"}
+        assert call["model"] == "claude-opus-5-5"
+
+
+def test_no_judge_call_sends_a_field_opus_5_5_rejects():
+    """Opus 5.5 400s on `thinking: {"type": "disabled"}`, `budget_tokens`,
+    non-default sampling params, and forced `tool_choice` -- none of which
+    run_judge() has ever sent. This pins that it never starts (a future edit that
+    adds e.g. temperature would fail HERE instead of live, mid-batch)."""
+    client = make_fake_client(_OK_RESPONSE, _OK_RESPONSE)
+    judge_factual_accuracy(client, brief_markdown="# B", sources_md=_SOURCES_MD)
+    judge_length_format(client, brief_markdown="# B")
+
+    for call in client.messages.calls:
+        for forbidden in ("thinking", "temperature", "top_p", "top_k", "tool_choice"):
+            assert forbidden not in call
+
+
+def test_each_judges_max_tokens_leaves_room_for_always_on_thinking():
+    """Thinking tokens count against max_tokens on Opus 5.5, so the v2 caps
+    (1024-4096, sized for a no-thinking Opus 4.8) would truncate: the three
+    reasoning judges use 16000 and length_format 8000."""
+    expected = {
+        "factual_accuracy": (16000, lambda c: judge_factual_accuracy(c, brief_markdown="# B", sources_md=_SOURCES_MD)),
+        "content_selection": (
+            16000,
+            lambda c: judge_content_selection(
+                c, candidates_json=[{"title": "t", "source": "s", "disposition": "included"}], brief_markdown="# B"
+            ),
+        ),
+        "dedup": (
+            16000,
+            lambda c: judge_dedup(c, brief_markdown="# B", priors=[{"date": "2026-10-10", "markdown": "# prior"}]),
+        ),
+        "length_format": (8000, lambda c: judge_length_format(c, brief_markdown="# B")),
+    }
+    for criterion, (max_tokens, invoke) in expected.items():
+        client = make_fake_client(_OK_RESPONSE)
+        invoke(client)
+        assert client.messages.calls[0]["max_tokens"] == max_tokens, criterion
+
+
+def test_run_judge_ignores_thinking_blocks_when_extracting_the_verdict():
+    """Opus 5.5 always thinks, so a judge response routinely LEADS with one or
+    more `thinking` blocks (empty text under the default display, or progress
+    updates between tool calls). The verdict is still the last TEXT block --
+    thinking blocks must never be mistaken for it, nor break the extraction."""
+    mixed = FakeMixedMessage(
+        [
+            FakeContentBlock("thinking"),  # no .text at all, like a real omitted-display block
+            FakeContentBlock("text", text="Let me verify this. { stray braces in narration }"),
+            FakeContentBlock("server_tool_use"),
+            FakeContentBlock("web_search_tool_result"),
+            FakeContentBlock("thinking"),  # a progress-update block before the final answer
+            FakeContentBlock("text", text=json.dumps({"score": 5, "rationale": "verified", "evidence": "n/a", "insufficient_data": False})),
+        ]
+    )
+    client = make_fake_client(mixed)
+
+    result = run_judge(client, criterion="test", system_prompt="sys", user_prompt="user")
+
+    assert result.score == 5
+    assert result.rationale == "verified"
+
+
+def test_run_judge_raises_on_a_refusal_carrying_the_stop_details_category():
+    """A classifier decline is an HTTP 200 with `stop_reason: "refusal"` and
+    (possibly) a category. It must raise -- NOT fall through to the JSON parser
+    (which would record a bland insufficient_data degrade) and NOT silently retry
+    on another model (which would change the measuring instrument mid-batch)."""
+    refused = FakeMixedMessage([], stop_reason="refusal", stop_details=FakeStopDetails(category="bio", explanation="declined"))
+    client = make_fake_client(refused)
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="sys", user_prompt="user")
+
+    error = excinfo.value
+    assert error.category == "bio"
+    assert error.explanation == "declined"
+    assert error.criterion == "factual_accuracy"
+    assert "bio" in str(error)
+    # Exactly ONE call -- no fallback-model retry.
+    assert len(client.messages.calls) == 1
+
+
+def test_run_judge_raises_on_a_refusal_with_null_stop_details():
+    """`stop_details` can be null even on a real refusal -- branch on
+    `stop_reason`, treat `stop_details` as informational."""
+    client = make_fake_client(FakeMixedMessage([], stop_reason="refusal"))
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="dedup", system_prompt="sys", user_prompt="user")
+
+    assert excinfo.value.category is None
+
+
+def test_run_judge_raises_on_a_truncated_response():
+    """`stop_reason: "max_tokens"` means the verdict was cut off -- raising names
+    the real, one-line-fixable cause instead of recording a formatting degrade
+    (note the fake's text IS parseable JSON here: the raise must be driven by the
+    stop reason, not by a parse failure)."""
+    client = make_fake_client(FakeMixedMessage([FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason="max_tokens"))
+
+    with pytest.raises(JudgeTruncatedError) as excinfo:
+        run_judge(client, criterion="content_selection", system_prompt="sys", user_prompt="user", max_tokens=12345)
+
+    assert excinfo.value.max_tokens == 12345
+    assert "12345" in str(excinfo.value)
+
+
+def test_run_judge_resumes_a_paused_turn_and_sums_usage_and_searches():
+    """The server-side tool loop hitting its 10-iteration limit returns
+    `pause_turn`. run_judge() resumes by sending the paused assistant turn back
+    UNCHANGED (no "Continue." message), and the returned usage/search_count must
+    be the SUM over every iteration -- otherwise a resumed judge call is
+    under-billed in judge-cost.json."""
+    paused = FakeMixedMessage(
+        [FakeContentBlock("text", text="searching..."), FakeContentBlock("server_tool_use")],
+        usage=FakeUsage(
+            input_tokens=100,
+            output_tokens=10,
+            cache_read_input_tokens=5,
+            cache_creation_input_tokens=7,
+            server_tool_use=FakeServerToolUse(web_search_requests=8),
+        ),
+        stop_reason="pause_turn",
+    )
+    finished = FakeMixedMessage(
+        [FakeContentBlock("text", text=_OK_RESPONSE)],
+        usage=FakeUsage(
+            input_tokens=1,
+            output_tokens=20,
+            cache_read_input_tokens=50,
+            cache_creation_input_tokens=3,
+            server_tool_use=FakeServerToolUse(web_search_requests=2),
+        ),
+        stop_reason="end_turn",
+    )
+    client = make_fake_client(paused, finished)
+
+    result = run_judge(
+        client,
+        criterion="factual_accuracy",
+        system_prompt="sys",
+        user_prompt="the brief",
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
+    )
+
+    assert result.score == 4
+    assert result.search_count == 10  # 8 + 2
+    assert result.usage == {
+        "input_tokens": 101,
+        "output_tokens": 30,
+        "cache_read_input_tokens": 55,
+        "cache_creation_5m_input_tokens": 10,
+        "cache_creation_1h_input_tokens": 0,
+    }
+
+    # The continuation re-sends the original user message plus the paused
+    # assistant turn's blocks VERBATIM, and carries the same tools/effort/cache
+    # settings as the first call.
+    first, second = client.messages.calls
+    assert first["messages"] == [{"role": "user", "content": "the brief"}]
+    assert second["messages"][0] == {"role": "user", "content": "the brief"}
+    assert second["messages"][1]["role"] == "assistant"
+    assert second["messages"][1]["content"] == paused.content
+    assert not any(m["content"] == "Continue." for m in second["messages"])
+    assert second["tools"] == first["tools"]
+    assert second["output_config"] == first["output_config"]
+    assert second["cache_control"] == first["cache_control"]
+
+
+def test_run_judge_accumulates_blocks_across_several_pauses():
+    """A second pause appends to the SAME assistant turn (the server is resuming
+    one turn, and every block is still passed back unchanged) rather than adding
+    another assistant message."""
+    pause_one = FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+    pause_two = FakeMixedMessage([FakeContentBlock("web_search_tool_result")], stop_reason="pause_turn")
+    finished = FakeMixedMessage([FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason="end_turn")
+    client = make_fake_client(pause_one, pause_two, finished)
+
+    result = run_judge(client, criterion="test", system_prompt="sys", user_prompt="u")
+
+    assert result.score == 4
+    third_call_messages = client.messages.calls[2]["messages"]
+    assert [m["role"] for m in third_call_messages] == ["user", "assistant"]
+    assert third_call_messages[1]["content"] == [*pause_one.content, *pause_two.content]
+
+
+def test_run_judge_gives_up_loudly_after_the_pause_turn_bound():
+    """Each continuation is a real billed call, so the bound is on spend as well
+    as time: 1 initial call + MAX_PAUSE_TURN_CONTINUATIONS resumes, then raise."""
+    responses = [
+        FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+        for _ in range(MAX_PAUSE_TURN_CONTINUATIONS + 1)
+    ]
+    client = make_fake_client(*responses)
+
+    with pytest.raises(JudgePauseLimitError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="sys", user_prompt="u")
+
+    assert excinfo.value.continuations == MAX_PAUSE_TURN_CONTINUATIONS
+    assert len(client.messages.calls) == MAX_PAUSE_TURN_CONTINUATIONS + 1
+
+
+def test_run_judge_still_parses_a_response_with_no_stop_reason_at_all():
+    """Defensive: a response object without `stop_reason` (an older shape, or a
+    minimal test double) must behave exactly as before -- parsed, not raised."""
+    client = make_fake_client(_OK_RESPONSE)
+
+    result = run_judge(client, criterion="test", system_prompt="sys", user_prompt="u")
+
+    assert result.score == 4
+
+
+def test_run_judge_leaves_the_web_tool_versions_and_caps_untouched():
+    """The model move changes model/effort/max_tokens/stop-reason handling ONLY --
+    the tool versions and max_uses caps (verified live against Opus 5.5) stay
+    exactly as judge methodology v2 set them."""
+    accuracy_client = make_fake_client(_OK_RESPONSE)
+    judge_factual_accuracy(accuracy_client, brief_markdown="# B", sources_md=_SOURCES_MD)
+    assert accuracy_client.messages.calls[0]["tools"] == [
+        {"type": "web_search_20250305", "name": "web_search", "max_uses": 8},
+        {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 8},
+    ]
+
+    selection_client = make_fake_client(_OK_RESPONSE)
+    judge_content_selection(
+        selection_client,
+        candidates_json=[{"title": "t", "source": "s", "disposition": "included"}],
+        brief_markdown="# B",
+    )
+    assert selection_client.messages.calls[0]["tools"] == [
+        {"type": "web_search_20250305", "name": "web_search", "max_uses": 5},
+        {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5},
+    ]
+
+
+# --- REVIEWER-ADDED (2026-10-11 review): stop_reason x continuation interactions ------
+
+
+def test_run_judge_raises_when_a_resumed_continuation_is_truncated():
+    """The two new behaviors (pause-turn resume, stop_reason handling) INTERACT:
+    the accuracy judge's 8+8 tool loop is both the most likely to pause AND the
+    most likely to truncate, and its continuation re-sends a context that has
+    grown by every tool result so far. A truncated CONTINUATION must raise just
+    like a truncated first call -- never fall through to the parser and be
+    recorded as a score."""
+    paused = FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+    truncated = FakeMixedMessage(
+        [FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason="max_tokens"  # parseable text on purpose
+    )
+    client = make_fake_client(paused, truncated)
+
+    with pytest.raises(JudgeTruncatedError):
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u", max_tokens=16000)
+
+    assert len(client.messages.calls) == 2
+
+
+def test_run_judge_raises_when_a_resumed_continuation_is_refused():
+    paused = FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+    refused = FakeMixedMessage([], stop_reason="refusal", stop_details=FakeStopDetails(category="bio"))
+    client = make_fake_client(paused, refused)
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u")
+
+    assert excinfo.value.category == "bio"
+    assert len(client.messages.calls) == 2
+
+
+def test_run_judge_treats_an_unrecognized_stop_reason_as_a_finished_turn():
+    """Only three stop reasons are special-cased. Anything else (`end_turn`,
+    `stop_sequence`, `tool_use`, or a stop reason this SDK version has never seen)
+    must behave exactly as before: read the last text block and parse it. A future
+    stop reason must not silently become an unhandled crash in the judging
+    phase -- which would fail the whole repetition."""
+    for stop_reason in ("end_turn", "stop_sequence", "tool_use", "some_future_reason"):
+        client = make_fake_client(
+            FakeMixedMessage([FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason=stop_reason)
+        )
+
+        result = run_judge(client, criterion="test", system_prompt="s", user_prompt="u")
+
+        assert result.score == 4, stop_reason
+        assert len(client.messages.calls) == 1, stop_reason
+
+
+def test_a_truncated_response_never_degrades_into_a_score_or_insufficient_data():
+    """The specific failure this guards: a truncated verdict usually still looks
+    like JSON (`{"score": 3, "rationale": "the brief claims...`), so without
+    stop_reason handling it would have been recorded either as a REAL score or as
+    a bland `insufficient_data` -- both of which silently corrupt a comparison the
+    owner is about to pick a production model from."""
+    half_written = '{"score": 3, "rationale": "The brief claims that the new model'
+    client = make_fake_client(
+        FakeMixedMessage([FakeContentBlock("text", text=half_written)], stop_reason="max_tokens")
+    )
+
+    with pytest.raises(JudgeTruncatedError):
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", max_tokens=2048)
+
+
+def test_judge_models_are_recorded_on_every_result_including_the_degrade_path():
+    """`scores.json`'s new `model` key is only meaningful if it is populated on
+    EVERY path -- including the malformed-response degrade, which is exactly the
+    path whose records a reader is most likely to want to attribute to a specific
+    judge model."""
+    client = make_fake_client("this is not JSON at all")
+
+    result = run_judge(client, criterion="test", system_prompt="s", user_prompt="u", model="claude-opus-5-5")
+
+    assert result.insufficient_data is True
+    assert result.score is None
+    assert result.model == "claude-opus-5-5"
+
+
+# --- A failed judge call still reports what it billed (review-fix, reviewer L3) -------
+
+
+def test_a_refusal_carries_the_usage_it_already_billed():
+    """The refused call itself was a real, billed request -- its usage and search
+    count used to be discarded the instant the error was raised, making a refused
+    judge call look free."""
+    refused = FakeMixedMessage(
+        [],
+        usage=FakeUsage(input_tokens=1_234, output_tokens=56, server_tool_use=FakeServerToolUse(web_search_requests=2)),
+        stop_reason="refusal",
+        stop_details=FakeStopDetails(category="bio"),
+    )
+    client = make_fake_client(refused)
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u")
+
+    error = excinfo.value
+    assert error.usage["input_tokens"] == 1_234
+    assert error.usage["output_tokens"] == 56
+    assert error.search_count == 2
+
+
+def test_a_truncated_call_carries_the_usage_it_already_billed():
+    client = make_fake_client(
+        FakeMixedMessage(
+            [FakeContentBlock("text", text="{half")],
+            usage=FakeUsage(input_tokens=99, output_tokens=16_000),
+            stop_reason="max_tokens",
+        )
+    )
+
+    with pytest.raises(JudgeTruncatedError) as excinfo:
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", max_tokens=16000)
+
+    assert excinfo.value.usage["output_tokens"] == 16_000
+    assert excinfo.value.search_count == 0
+
+
+def test_the_pause_limit_error_carries_the_usage_of_every_billed_iteration():
+    """The expensive case: exhausting the bound means 1 + MAX_PAUSE_TURN_CONTINUATIONS
+    real billed calls, each with its own searches."""
+    responses = [
+        FakeMixedMessage(
+            [FakeContentBlock("server_tool_use")],
+            usage=FakeUsage(input_tokens=1_000, output_tokens=100, server_tool_use=FakeServerToolUse(web_search_requests=3)),
+            stop_reason="pause_turn",
+        )
+        for _ in range(MAX_PAUSE_TURN_CONTINUATIONS + 1)
+    ]
+    client = make_fake_client(*responses)
+
+    with pytest.raises(JudgePauseLimitError) as excinfo:
+        run_judge(client, criterion="content_selection", system_prompt="s", user_prompt="u")
+
+    iterations = MAX_PAUSE_TURN_CONTINUATIONS + 1
+    assert excinfo.value.usage["input_tokens"] == 1_000 * iterations
+    assert excinfo.value.usage["output_tokens"] == 100 * iterations
+    assert excinfo.value.search_count == 3 * iterations
+
+
+def test_a_judge_call_error_defaults_to_zero_usage_when_none_is_supplied():
+    """A caller constructing one by hand (or an older call site) must still get a
+    valid, priceable zero-usage dict, never a missing attribute."""
+    error = JudgeCallError("boom", criterion="dedup", model="claude-opus-5-5")
+
+    assert error.search_count == 0
+    assert error.usage == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 0,
+        "cache_creation_1h_input_tokens": 0,
+    }
+
+
+def test_the_errors_usage_shape_is_priceable_by_the_cost_module():
+    """The attached usage is the SAME flat shape `JudgeResult.usage` uses, so it
+    needs no translation to be priced -- which is the only reason to attach it."""
+    from datetime import date
+
+    from harness import cost
+
+    client = make_fake_client(
+        FakeMixedMessage([], usage=FakeUsage(input_tokens=10_000, output_tokens=2_000), stop_reason="refusal")
+    )
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", model="claude-opus-5-5")
+
+    priced = cost.price_usage(
+        excinfo.value.usage,
+        model="claude-opus-5-5",
+        pricing_table=cost.load_pricing_table(),
+        on_date=date(2026, 10, 11),
+    )
+    assert priced > 0

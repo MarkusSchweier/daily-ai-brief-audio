@@ -16,7 +16,7 @@ import run as run_cli
 from candidate_sync import trigger as trigger_module
 from candidate_sync.loader import AgentDeclaration, CandidateDeclaration
 
-from conftest import git_init_and_commit, make_fake_client
+from conftest import FakeContentBlock, FakeMixedMessage, FakeStopDetails, git_init_and_commit, make_fake_client
 
 
 def _write_json(path: Path, data) -> None:
@@ -24,7 +24,9 @@ def _write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | None = "agent_test") -> Path:
+def _build_candidate_dir(
+    candidates_dir: Path, slug: str, *, agent_id: str | None = "agent_test", model: str = "claude-sonnet-5"
+) -> Path:
     candidate_dir = candidates_dir / slug
     candidate_dir.mkdir(parents=True)
     candidate_json = {"slug": slug, "composition": "single-agent"}
@@ -32,7 +34,7 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
         candidate_json["agent_id"] = agent_id
     _write_json(candidate_dir / "candidate.json", candidate_json)
     _write_json(candidate_dir / "agent.json", {"name": f"{slug}-agent", "description": "a test candidate"})
-    (candidate_dir / "model.txt").write_text("claude-sonnet-5", encoding="utf-8")
+    (candidate_dir / "model.txt").write_text(model, encoding="utf-8")
     (candidate_dir / "system-prompt.md").write_text("You are a test agent.", encoding="utf-8")
     (candidate_dir / "task-prompt.md").write_text("Write the brief and cat it out.", encoding="utf-8")
     _write_json(candidate_dir / "skills.json", [])
@@ -47,7 +49,15 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
 _FAKE_SOURCES_MD = "# Fake Source List\n\n## Tier 1\n- Fake Outlet: https://fake-outlet.example.test/news\n"
 
 
-def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None = "agent_test", commit: bool = True) -> Path:
+def _setup_env(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    slug: str,
+    agent_id: str | None = "agent_test",
+    commit: bool = True,
+    model: str = "claude-sonnet-5",
+) -> Path:
     """`commit=True` (the default) makes `candidates_dir` a real, freshly-committed
     git repo -- required for `run.py`'s dirty-working-tree guard
     (`harness.run_store.candidate_declaration_is_dirty()`) to behave correctly
@@ -57,7 +67,7 @@ def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None =
     candidates_dir = tmp_path / "candidates"
     candidates_dir.mkdir()
     _write_json(candidates_dir / "environment.json", {"environment_id": "env_fake"})
-    _build_candidate_dir(candidates_dir, slug, agent_id=agent_id)
+    _build_candidate_dir(candidates_dir, slug, agent_id=agent_id, model=model)
     if commit:
         git_init_and_commit(candidates_dir)
 
@@ -178,7 +188,7 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     # fixture content actually reaching the system prompt (end-to-end plumbing of
     # run.py's _load_sources_md()), and the web_search/web_fetch tools attached.
     judge_call = fake_judge_client.messages.calls[0]
-    assert judge_call["model"] == "claude-opus-4-8"
+    assert judge_call["model"] == "claude-opus-5-5"
     assert "Fake Outlet: https://fake-outlet.example.test/news" in judge_call["system"]
     tool_types = {t["type"] for t in judge_call["tools"]}
     assert tool_types == {"web_search_20250305", "web_fetch_20250910"}
@@ -196,13 +206,13 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     # judge methodology v2 amends the shape for per-judge model config + search
     # cost) -- a SIBLING file to cost.json, never folded into pipeline cost.
     judge_cost = json.loads((rep_dir / "judge-cost.json").read_text())
-    assert judge_cost["models"] == ["claude-opus-4-8"]
+    assert judge_cost["models"] == ["claude-opus-5-5"]
     assert judge_cost["total_cost_usd"] > 0
     assert judge_cost["total_search_count"] == 0  # the fake response reports no server_tool_use
     assert judge_cost["total_search_cost_usd"] == 0
     assert judge_cost["grand_total_cost_usd"] == judge_cost["total_cost_usd"]
     assert set(judge_cost["per_criterion"]) == {"factual_accuracy"}
-    assert judge_cost["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
+    assert judge_cost["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-5-5"
     assert judge_cost["total_cost_usd"] != cost_data["total_cost_usd"]  # never confused with pipeline cost
 
     summary = json.loads((run_dir / "summary.json").read_text())
@@ -214,8 +224,10 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     assert (run_dir / "human-eval.md").is_file()
 
 
-def test_run_marks_the_production_baseline_slug_as_the_production_config(tmp_path, monkeypatch):
-    _setup_env(monkeypatch, tmp_path, slug="production-baseline")
+def _record_a_run(tmp_path, monkeypatch, slug: str) -> dict:
+    """Record one full run of `slug` with everything faked, and return its
+    `eval-run.json` -- the shared body of the production-config-marker tests below."""
+    _setup_env(monkeypatch, tmp_path, slug=slug)
     runs_root = tmp_path / "runs"
     monkeypatch.setattr(
         trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
@@ -223,11 +235,96 @@ def test_run_marks_the_production_baseline_slug_as_the_production_config(tmp_pat
     monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
     monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(5)))
 
-    run_cli.main(["production-baseline", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+    run_cli.main([slug, "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
 
-    run_dir = next((runs_root / "production-baseline").iterdir())
-    meta = json.loads((run_dir / "eval-run.json").read_text())
+    run_dir = next((runs_root / slug).iterdir())
+    return json.loads((run_dir / "eval-run.json").read_text())
+
+
+def test_run_marks_the_production_slug_as_the_production_config(tmp_path, monkeypatch):
+    """`haiku-5-5-hardened` is what production runs (Haiku 5.5 at effort high, since
+    2026-10-11), so a NEW run of it records `is_production_config: true`
+    (reviewer M4)."""
+    meta = _record_a_run(tmp_path, monkeypatch, "haiku-5-5-hardened")
     assert meta["is_production_config"] is True
+
+
+def test_run_no_longer_marks_production_baseline_as_the_production_config(tmp_path, monkeypatch):
+    """The other half of reviewer M4: a NEW `production-baseline` run records
+    `false` now (production moved off Sonnet 5 on 2026-07-13). The July records
+    already on disk are NOT touched -- nothing recomputes a stored flag."""
+    meta = _record_a_run(tmp_path, monkeypatch, "production-baseline")
+    assert meta["is_production_config"] is False
+
+
+def test_run_no_longer_marks_haiku_swap_hardened_as_the_production_config(tmp_path, monkeypatch):
+    """Production ran `haiku-swap-hardened` (Haiku 4.5) only from 2026-07-13 until
+    2026-10-11, so a NEW run of it records `false` -- while its 2026-10-11 record
+    taken hours before the switch keeps the `true` it was written with."""
+    meta = _record_a_run(tmp_path, monkeypatch, "haiku-swap-hardened")
+    assert meta["is_production_config"] is False
+
+
+def test_changing_the_production_slug_never_rewrites_an_already_stored_flag(tmp_path, monkeypatch):
+    """The stored flag is HISTORICAL: reading back a record written under an EARLIER
+    production era must return exactly what was stored, whatever
+    `PRODUCTION_CANDIDATE_SLUG` says now. This is why the committed
+    `haiku-swap-hardened/2026-10-11-...-matched-5-5-2026-10-11` record keeps `true`
+    (it ran hours before that day's switch) and today's `haiku-5-5-hardened` records
+    keep `false` (recorded while it was still only a candidate)."""
+    from harness import production_config, run_store
+
+    # A record from era 2, written when `haiku-swap-hardened` WAS production...
+    historical = tmp_path / "haiku-swap-hardened-run"
+    run_store.write_eval_run_meta(
+        historical,
+        run_store.EvalRunMeta(
+            name="matched batch, hours before the switch",
+            slug="haiku-swap-hardened",
+            agent_id="agent_x",
+            git_ref="a" * 40,
+            composition="single-agent",
+            models=["claude-haiku-4-5-20251001"],
+            parameters={"agent": {}, "sub_agents": []},
+            repetitions=1,
+            criteria=["factual_accuracy"],
+            state=run_store.STATE_COMPLETED,
+            email_sent=False,
+            is_production_config=True,
+            created_at=1000,
+        ),
+    )
+    # ...and a record of the candidate that only BECAME production afterwards.
+    candidate = tmp_path / "haiku-5-5-hardened-run"
+    run_store.write_eval_run_meta(
+        candidate,
+        run_store.EvalRunMeta(
+            name="matched batch, still a candidate",
+            slug="haiku-5-5-hardened",
+            agent_id="agent_y",
+            git_ref="b" * 40,
+            composition="single-agent",
+            models=["claude-haiku-5-5"],
+            parameters={"agent": {"effort": "high"}, "sub_agents": []},
+            repetitions=1,
+            criteria=["factual_accuracy"],
+            state=run_store.STATE_COMPLETED,
+            email_sent=False,
+            is_production_config=False,
+            created_at=2000,
+        ),
+    )
+
+    # The constant has since moved on -- the stored flags must not follow it.
+    assert production_config.PRODUCTION_CANDIDATE_SLUG == "haiku-5-5-hardened"
+    assert run_store.read_eval_run_meta(historical).is_production_config is True
+    assert run_store.read_eval_run_meta(candidate).is_production_config is False
+    assert json.loads((historical / "eval-run.json").read_text())["is_production_config"] is True
+    assert json.loads((candidate / "eval-run.json").read_text())["is_production_config"] is False
+
+    # Not even an unrelated state transition recomputes it.
+    run_store.update_state(historical, run_store.STATE_FAILED)
+    assert run_store.read_eval_run_meta(historical).is_production_config is True
 
 
 def test_a_failed_repetition_marks_the_run_failed_and_records_the_error(tmp_path, monkeypatch):
@@ -384,16 +481,52 @@ def _agent(name="", description="", model="claude-sonnet-5", agent_id=None, para
     )
 
 
-def test_is_production_config_true_for_the_production_baseline_slug():
+def test_is_production_config_true_for_the_slug_production_actually_runs():
+    """Production has run `haiku-5-5-hardened` (Haiku 5.5 at effort high + the
+    unchanged hardened prompt) since 2026-10-11 -- see
+    docs/prd/cost-optimization-candidates.md §6 (reviewer M4)."""
+    candidate = CandidateDeclaration(
+        slug="haiku-5-5-hardened", directory=Path("."), candidate_json={}, agent=_agent()
+    )
+    assert run_cli._is_production_config(candidate) is True
+
+
+def test_is_production_config_false_for_the_old_sonnet_production_baseline():
+    """`production-baseline` is no longer production's configuration -- it is how
+    step C keeps measuring the OLD Sonnet config. Its ALREADY-RECORDED July runs
+    keep `is_production_config: true` (the stored flag is historical and is never
+    rewritten); only NEW records resolve to false."""
     candidate = CandidateDeclaration(
         slug="production-baseline", directory=Path("."), candidate_json={}, agent=_agent()
     )
-    assert run_cli._is_production_config(candidate) is True
+    assert run_cli._is_production_config(candidate) is False
+
+
+def test_is_production_config_false_for_the_superseded_haiku_4_5_configuration():
+    """`haiku-swap-hardened` was production only for era 2 (2026-07-13 ->
+    2026-10-11); since the Haiku 5.5 move it is just the candidate that measures the
+    OLD Haiku 4.5 config, so NEW records of it resolve to false."""
+    candidate = CandidateDeclaration(
+        slug="haiku-swap-hardened", directory=Path("."), candidate_json={}, agent=_agent()
+    )
+    assert run_cli._is_production_config(candidate) is False
 
 
 def test_is_production_config_false_for_any_other_slug():
     candidate = CandidateDeclaration(slug="haiku-swap", directory=Path("."), candidate_json={}, agent=_agent())
     assert run_cli._is_production_config(candidate) is False
+
+
+def test_run_py_and_ui_py_read_the_same_production_config_source():
+    """Reviewer M4: the slug must live in ONE place both files use -- not two
+    hardcoded copies that silently drift (which is exactly how both went stale on
+    the 2026-07-13 production move; the 2026-10-11 move to Haiku 5.5 then needed a
+    single-line edit)."""
+    import ui as ui_app
+    from harness import production_config
+
+    assert run_cli._PRODUCTION_CANDIDATE_SLUG is production_config.PRODUCTION_CANDIDATE_SLUG
+    assert ui_app.production_config is production_config
 
 
 def test_is_production_config_explicit_flag_overrides_the_slug_heuristic():
@@ -547,6 +680,400 @@ def test_dedup_criterion_skips_the_priors_fetch_when_no_brief_date_is_parseable(
     assert "DEDUP_PRIORS_SKIPPED" in capsys.readouterr().err
 
 
+# --- Never judge a PRIOR brief as the candidate's output (2026-10-11) -----------------
+
+_PRIOR_OCT_08 = "# Daily AI Brief - 2026-10-08\n\nThursday's real production brief.\n"
+_PRIOR_OCT_09 = "# Daily AI Brief - 2026-10-09\n\nFriday's real production brief.\n"
+_TODAYS_BRIEF = "# Daily AI Brief - 2026-10-11\n\nWhat the candidate actually wrote.\n"
+
+_FAKE_FEED = [
+    {"date": "2026-10-09", "markdown": _PRIOR_OCT_09},
+    {"date": "2026-10-08", "markdown": _PRIOR_OCT_08},
+]
+
+
+def _fake_feed_fetch(**kwargs):
+    return list(_FAKE_FEED)
+
+
+def _run_result_capturing(*catted: tuple[str, str]) -> trigger_module.CandidateRunResult:
+    """A fake run whose captured (`cat`'d) artifacts are exactly `catted`
+    `(path, content)` pairs -- lets a test reproduce the real 2026-10-11 failure,
+    where the candidate's OWN brief was never captured (its final `cat` was piped
+    through `head -100`) and only the priors it had read remained."""
+    events: list[dict] = []
+    for i, (path, content) in enumerate(catted, start=1):
+        events.extend(_cat_events(f"t{i}", path, content))
+    return trigger_module.CandidateRunResult(
+        deployment_id="depl_fake", session_id="sesn_fake", final_status="idle", events=events
+    )
+
+
+def _setup_a_run(monkeypatch, tmp_path, *, result: trigger_module.CandidateRunResult):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    monkeypatch.setattr(trigger_module, "run_candidate", lambda client, **kwargs: result)
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+    return tmp_path / "runs"
+
+
+def test_a_repetition_that_captured_only_feed_priors_fails_loud(tmp_path, monkeypatch, capsys):
+    """The real 2026-10-11 defect: `haiku-swap-hardened` repetition 3 wrote today's
+    brief but ran `cat "..." | head -100` at the capture step, so the only briefs
+    the harness held were the two PRIORS the hardened prompt makes the agent read
+    -- and Friday's REAL PRODUCTION brief was then scored as the candidate's work
+    and recorded as a success."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-08.md", _PRIOR_OCT_08),
+        ("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09),
+        ("/workspace/oct8.txt", "a stray scratch file"),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    run_meta = json.loads((rep_dir / "run-meta.json").read_text())
+    assert run_meta["final_status"] == "judging_failed"
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+    assert "2026-10-09" in run_meta["error"]  # the feed date it matched
+    assert "AI Brief - 2026-10-08.md" in run_meta["error"]  # the artifacts that WERE captured
+    assert not (rep_dir / "scores.json").exists()  # nothing was judged
+    # The paid artifacts, events and cost are still on disk (cost mining happens
+    # BEFORE the guard, deliberately).
+    assert (rep_dir / "cost.json").is_file()
+    assert (rep_dir / "threads-usage.json").is_file()
+    assert (rep_dir / "events.json").is_file()
+    assert (rep_dir / "artifacts" / "AI Brief - 2026-10-09.md").is_file()
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    assert "EVAL_REPETITION_JUDGING_FAILED" in capsys.readouterr().err
+
+
+def test_a_repetition_that_captured_todays_brief_alongside_the_priors_is_unaffected(tmp_path, monkeypatch):
+    """The normal hardened-prompt shape: priors AND today's brief are captured.
+    The greatest-dated brief is the candidate's own output, which the feed does
+    NOT carry -- judging proceeds exactly as before."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-08.md", _PRIOR_OCT_08),
+        ("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09),
+        ("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF),
+        ("/workspace/listening-script.txt", "Script."),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    assert json.loads((rep_dir / "scores.json").read_text())["factual_accuracy"]["score"] == 4
+    assert json.loads((rep_dir / "run-meta.json").read_text())["final_status"] == "idle"
+
+
+def test_a_repetition_that_captured_no_brief_at_all_fails_loud(tmp_path, monkeypatch):
+    """Previously a SILENT degrade: the judges were handed "" and reported
+    insufficient_data, which the comparison table renders as a blank -- visually
+    identical to "this criterion wasn't tested"."""
+    result = _run_result_capturing(("/workspace/listening-script.txt", "Script, but no brief."))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    run_meta = json.loads((rep_dir / "run-meta.json").read_text())
+    assert run_meta["final_status"] == "judging_failed"
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+    assert "no brief artifact was captured at all" in run_meta["error"]
+    assert "listening-script.txt" in run_meta["error"]
+    assert not (rep_dir / "scores.json").exists()
+
+
+def test_an_unreadable_feed_warns_and_does_not_block_the_repetition(tmp_path, monkeypatch, capsys):
+    """No signing key configured -> the check cannot be performed. That must never
+    block an otherwise-paid run: warn loudly and proceed."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF),
+        ("/workspace/listening-script.txt", "Script."),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.local_config, "resolve_recent_briefs_signing_key", lambda: None)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    assert "BRIEF_PRIOR_CHECK_SKIPPED" in capsys.readouterr().err
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    assert (run_dir / "repetitions" / "01" / "scores.json").is_file()
+
+
+def test_a_feed_transport_failure_also_only_warns(tmp_path, monkeypatch, capsys):
+    result = _run_result_capturing(("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+
+    def _boom(**kwargs):
+        raise run_cli.dedup_priors.RecentBriefsUnavailableError("GET /recent-briefs failed: connection reset")
+
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _boom)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    err = capsys.readouterr().err
+    assert "BRIEF_PRIOR_CHECK_SKIPPED" in err
+    assert "connection reset" in err
+
+
+def test_the_prior_check_runs_for_every_criteria_subset(tmp_path, monkeypatch):
+    """The guard is not tied to the dedup criterion (which is the only other thing
+    that reads the feed) -- a run judging ONLY length_format must still refuse a
+    prior brief."""
+    result = _run_result_capturing(("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    run_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+
+
+def test_the_prior_match_is_whitespace_insensitive(monkeypatch):
+    """The feed's copy of a brief and an artifact's copy differ in trailing
+    newlines/indentation often enough that an exact string compare would miss the
+    match it exists to catch."""
+    monkeypatch.setattr(
+        run_cli.dedup_priors,
+        "fetch_recent_briefs_unfiltered",
+        lambda **kwargs: [{"date": "2026-10-09", "markdown": "# A brief\n\nBody text.\n"}],
+    )
+
+    with pytest.raises(run_cli.CandidateBriefNotCapturedError):
+        run_cli._verify_candidate_brief_was_captured(
+            "#  A   brief\r\n\r\n   Body text.   \n\n",
+            {"/workspace/AI Brief - 2026-10-09.md": "x"},
+            repetition=1,
+        )
+
+
+def test_a_brief_the_feed_does_not_carry_passes_the_check(monkeypatch):
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    # Returns None (no exception) -- the whole contract of the happy path.
+    assert (
+        run_cli._verify_candidate_brief_was_captured(
+            _TODAYS_BRIEF, {"/workspace/AI Brief - 2026-10-11.md": _TODAYS_BRIEF}, repetition=1
+        )
+        is None
+    )
+
+
+def test_a_whitespace_only_brief_counts_as_not_captured(monkeypatch):
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    with pytest.raises(run_cli.CandidateBriefNotCapturedError, match="no brief artifact was captured"):
+        run_cli._verify_candidate_brief_was_captured("   \n\t\n", {}, repetition=2)
+
+
+# --- Opus 5.5 judge stop_reason errors flow into the existing containment -------------
+
+
+def test_a_refused_judge_call_fails_the_repetition_through_the_existing_containment(tmp_path, monkeypatch, capsys):
+    """A judge call refused by a safety classifier (`stop_reason: "refusal"`)
+    raises `JudgeRefusedError` -- which must land in run.py's EXISTING
+    per-repetition containment exactly like any other judging-phase exception:
+    final_status="judging_failed" with the error recorded, run state failed, paid
+    artifacts/events still on disk, no traceback, no silent degrade, and NO retry
+    on a different judge model."""
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    refusal = FakeMixedMessage([], stop_reason="refusal", stop_details=FakeStopDetails(category="cyber"))
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(refusal))
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    assert "EVAL_REPETITION_JUDGING_FAILED" in capsys.readouterr().err
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "JudgeRefusedError" in rep_meta["error"]
+    assert "cyber" in rep_meta["error"]
+    assert (run_dir / "repetitions" / "01" / "events.json").exists()
+    assert not (run_dir / "repetitions" / "01" / "scores.json").exists()
+
+
+def test_a_truncated_judge_call_fails_the_repetition_through_the_existing_containment(tmp_path, monkeypatch):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    truncated = FakeMixedMessage(
+        [FakeContentBlock("text", text=_score_response(4))], stop_reason="max_tokens"
+    )
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(truncated))
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "JudgeTruncatedError" in rep_meta["error"]
+
+
+def test_scores_json_records_the_opus_5_5_judge_model_end_to_end(tmp_path, monkeypatch):
+    """The written scores.json must name the model that actually judged -- old
+    records (Opus 4.8) and new ones (Opus 5.5) have to be distinguishable from the
+    scores file itself, not just from the sibling judge-cost.json."""
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    scores = json.loads((run_dir / "repetitions" / "01" / "scores.json").read_text())
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+    judge_cost = json.loads((run_dir / "repetitions" / "01" / "judge-cost.json").read_text())
+    assert judge_cost["per_criterion"]["length_format"]["model"] == "claude-opus-5-5"
+
+
+# --- Per-request rate-carded pricing wiring (2026-10-11) ------------------------------
+
+
+def _model_request_end_event(input_tokens=0, output_tokens=0, cache_read=0, cache_creation=0) -> dict:
+    return {
+        "type": "span.model_request_end",
+        "id": "sevt_fake",
+        "is_error": False,
+        "model_request_start_id": "sevt_fake_start",
+        "model_usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_input_tokens": cache_read,
+            "cache_creation_input_tokens": cache_creation,
+        },
+    }
+
+
+def test_run_passes_session_events_into_the_cost_computation_for_a_rate_carded_model(tmp_path, monkeypatch):
+    """END-TO-END wiring proof for Claude Haiku 5.5's two prompt-length rate
+    cards: `run.py` must hand `mine_session_cost()` the SAME event list it already
+    fetched for artifact retrieval, or a rate-carded candidate cannot be costed at
+    all (it would raise PerRequestPricingError and fail the repetition). Two
+    requests straddle the 100,000-token threshold, so the written cost.json must
+    also carry the per-card breakdown."""
+    _setup_env(monkeypatch, tmp_path, slug="haiku-5-5-test", model="claude-haiku-5-5")
+    runs_root = tmp_path / "runs"
+
+    short_request = _model_request_end_event(input_tokens=10, output_tokens=500, cache_read=50_000, cache_creation=1_000)
+    long_request = _model_request_end_event(input_tokens=5, output_tokens=1_000, cache_read=150_000)
+
+    def _result(client, **kwargs):
+        base = _fake_run_result("# Daily AI Brief\n\nSome content.", "Hello.")
+        return trigger_module.CandidateRunResult(
+            deployment_id=base.deployment_id,
+            session_id=base.session_id,
+            final_status=base.final_status,
+            events=[*base.events, short_request, long_request],
+        )
+
+    threads = [
+        {
+            "id": "sthr_1",
+            "parent_thread_id": None,
+            "created_at": "2026-10-11T00:00:00Z",
+            "agent": {"id": "agent_test", "name": "a", "description": "", "model": {"id": "claude-haiku-5-5"}},
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 1_500,
+                "cache_read_input_tokens": 200_000,
+                "cache_creation": {"ephemeral_5m_input_tokens": 1_000, "ephemeral_1h_input_tokens": 0},
+            },
+        }
+    ]
+
+    monkeypatch.setattr(trigger_module, "run_candidate", _result)
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: threads)
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    exit_code = run_cli.main(
+        ["haiku-5-5-test", "--criteria", "length_format", "--runs-root", str(runs_root)]
+    )
+
+    assert exit_code == 0
+    run_dir = next((runs_root / "haiku-5-5-test").iterdir())
+    cost_data = json.loads((run_dir / "repetitions" / "01" / "cost.json").read_text())
+    thread_cost = cost_data["threads"][0]
+    assert thread_cost["model"] == "claude-haiku-5-5"
+    assert thread_cost["request_card_counts"] == {"standard": 1, "long_prompt": 1}
+    # $0.000876 (standard card) + $0.0100025 (long-prompt card) -- hand-computed in
+    # tests/test_cost.py's rate-card section, rounded to 4dp here.
+    assert cost_data["total_cost_usd"] == pytest.approx(round(0.000876 + 0.0100025, 4))
+
+
+def test_run_fails_the_repetition_loudly_when_a_rate_carded_model_cannot_be_priced(tmp_path, monkeypatch):
+    """A rate-carded thread whose per-request events don't sum to its own totals
+    must NOT be silently mis-priced: the PerRequestPricingError lands in run.py's
+    existing per-repetition containment (state=failed, the paid artifacts/events
+    kept on disk), exactly like any other post-trigger bookkeeping failure."""
+    _setup_env(monkeypatch, tmp_path, slug="haiku-5-5-test", model="claude-haiku-5-5")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )  # NO span.model_request_end events at all
+    threads = [
+        {
+            "id": "sthr_1",
+            "parent_thread_id": None,
+            "created_at": "2026-10-11T00:00:00Z",
+            "agent": {"id": "agent_test", "name": "a", "description": "", "model": {"id": "claude-haiku-5-5"}},
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 0,
+                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0},
+            },
+        }
+    ]
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: threads)
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    exit_code = run_cli.main(["haiku-5-5-test", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    run_dir = next((runs_root / "haiku-5-5-test").iterdir())
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "PerRequestPricingError" in rep_meta["error"]
+    assert (run_dir / "repetitions" / "01" / "events.json").exists()
+
+
 # --- _price_judge_results (review-fix: judge cost accounting; judge methodology v2) ----
 
 
@@ -557,7 +1084,7 @@ def test_price_judge_results_prices_every_criterion_against_its_own_recorded_mod
 
     judge_results = {
         "factual_accuracy": JudgeResult(
-            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-4-8",
+            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-5-5",
             usage={"input_tokens": 1000, "output_tokens": 500, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
         ),
         "content_selection": JudgeResult(
@@ -568,15 +1095,15 @@ def test_price_judge_results_prices_every_criterion_against_its_own_recorded_mod
 
     result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
 
-    assert result["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
+    assert result["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-5-5"
     assert result["per_criterion"]["factual_accuracy"]["cost_usd"] > 0
     assert result["per_criterion"]["content_selection"]["cost_usd"] == 0
     assert result["total_cost_usd"] == result["per_criterion"]["factual_accuracy"]["cost_usd"]
     assert result["total_usage"]["input_tokens"] == 1000
     # Both judges' models are reported (content_selection defaults to the base
-    # JUDGE_MODEL fallback, claude-opus-4-8, even though it never actually called
+    # JUDGE_MODEL fallback, claude-opus-5-5, even though it never actually called
     # the API -- see JudgeResult's own default).
-    assert result["models"] == ["claude-opus-4-8"]
+    assert result["models"] == ["claude-opus-5-5"]
 
 
 def test_price_judge_results_prices_different_criteria_against_different_models():
@@ -685,7 +1212,29 @@ def test_scores_to_dict_omits_findings_when_the_judge_result_has_none():
 
     scores = run_cli._scores_to_dict(judge_results)
 
-    assert set(scores["length_format"]) == {"score", "rationale", "evidence", "insufficient_data"}
+    # `model` (2026-10-11) is always present -- which judge model produced a score
+    # must be readable from scores.json itself; findings/selection_disagreements
+    # stay omitted unless the judge actually returned one.
+    assert set(scores["length_format"]) == {"score", "rationale", "evidence", "insufficient_data", "model"}
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+
+
+def test_scores_to_dict_records_the_actual_judge_model_per_criterion():
+    """Old records were judged by Opus 4.8 and new ones by Opus 5.5 -- a mixed
+    dict must report each criterion's OWN model, never one global constant."""
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "length_format": JudgeResult(
+            criterion="length_format", score=5, rationale="r", evidence="e", model="claude-opus-5-5"
+        ),
+        "dedup": JudgeResult(criterion="dedup", score=4, rationale="r", evidence="e", model="claude-opus-4-8"),
+    }
+
+    scores = run_cli._scores_to_dict(judge_results)
+
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+    assert scores["dedup"]["model"] == "claude-opus-4-8"
 
 
 def test_scores_to_dict_includes_findings_when_present():

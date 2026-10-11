@@ -45,8 +45,23 @@ claims merely READ as plausible against training-data familiarity:
    -- not itemized by the owner, but a deliberate, documented safety bound so an
    uncapped fetch tool can't unboundedly inflate token cost/time on a single
    judge call).
-5. **Model: Opus 4.8** (judge methodology v2's owner-directed "judges must be
-   stronger than what they judge" principle -- see `base.JUDGE_MODELS`).
+5. **Model: the current strongest Opus** (judge methodology v2's owner-directed
+   "judges must be stronger than what they judge" principle -- see
+   `base.JUDGE_MODELS`; Opus 4.8 at the v2 rework, `claude-opus-5-5` since
+   2026-10-11).
+
+MODEL UPDATE (2026-10-11, owner-directed): `claude-opus-5-5`, with
+`output_config={"effort": "high"}` and `max_tokens=16000`. The prompt, the tool
+versions, and the `max_uses: 8` caps are UNCHANGED -- verified live the same day
+that Opus 5.5 accepts `web_search_20250305` + `web_fetch_20250910` together with
+`output_config.effort` and top-level `cache_control` on the installed SDK
+(anthropic 0.116.0). The max_tokens raise is not cosmetic: Opus 5.5's thinking is
+always on and counts against `max_tokens`, so this judge's old 4096 cap (set when
+it ran without thinking) would truncate its verdict -- which `run_judge()` now
+raises on (`JudgeTruncatedError`) instead of silently recording as a formatting
+degrade. `pause_turn` (this judge's 8+8 server-side tool loop is the most likely
+place in the harness to hit the API's 10-iteration limit) is resumed by
+`run_judge()` with usage summed.
 
 ## Tool schema/version, verified live 2026-07-07 (record of what was confirmed)
 
@@ -167,7 +182,9 @@ def judge_factual_accuracy(client: Any, *, brief_markdown: str, sources_md: str)
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         model=_MODEL,
-        max_tokens=4096,
+        # 16000: Opus 5.5's always-on thinking counts against max_tokens (the old
+        # 4096 was sized for a no-thinking Opus 4.8 and would truncate).
+        max_tokens=16000,
         tools=[_WEB_SEARCH_TOOL, _WEB_FETCH_TOOL],
     )
 

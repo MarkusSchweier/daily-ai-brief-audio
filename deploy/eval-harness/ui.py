@@ -91,7 +91,7 @@ from candidate_sync.loader import CandidateLoadError, load_candidate  # noqa: E4
 from eval_core.record import V1_CRITERIA  # noqa: E402
 from flask import Flask, redirect, render_template, request, url_for  # noqa: E402
 
-from harness import git_show, run_store  # noqa: E402
+from harness import git_show, production_config, run_store  # noqa: E402
 
 app = Flask(__name__)
 
@@ -136,8 +136,18 @@ def list_candidate_options(*, candidates_dir: Path | None = None) -> list[dict[s
             {
                 "slug": candidate.slug,
                 "composition": "multi-agent" if candidate.is_multi_agent else "single-agent",
-                "is_production_config": candidate.slug == "production-baseline"
-                or bool(candidate.candidate_json.get("is_production_config", False)),
+                # The CURRENT production configuration, from the one shared source
+                # `run.py` also reads (review-fix, reviewer M4 -- this used to
+                # hardcode "production-baseline" independently of run.py's own
+                # copy, and both went stale on the 2026-07-13 production move off
+                # Sonnet 5; production moved again on 2026-10-11, to
+                # `haiku-5-5-hardened`, and this label followed for free). Note
+                # this is a "right now" label for the Conduct dropdown; the Assess
+                # table instead renders each run's STORED flag, which is historical
+                # (see production_config.py).
+                "is_production_config": production_config.is_production_config(
+                    candidate.slug, candidate.candidate_json
+                ),
                 "has_agent_id": candidate.agent.agent_id is not None,
             }
         )
@@ -163,6 +173,51 @@ def _format_parameters(parameters: dict[str, Any]) -> str:
             name = sub_agent.get("name", "?")
             parts.append(name + ": " + ", ".join(f"{k}={v}" for k, v in sub_params.items()))
     return " | ".join(parts) if parts else "—"
+
+
+def _judge_models_in_repetition(run_dir: Path, index: int) -> list[str]:
+    """Which judge model(s) produced ONE repetition's scores, read from the record
+    itself (never assumed from today's `JUDGE_MODELS` constant -- the whole point
+    is to tell a July record, judged by Opus 4.8, from an October one judged by
+    Opus 5.5).
+
+    Three shapes are tolerated, oldest last: `judge-cost.json`'s `models` list
+    (judge methodology v2), its pre-v2 single `model` string, and -- as a last
+    resort -- the per-criterion `model` key `scores.json` carries since
+    2026-10-11. Any read error (including a partially-written file from a run
+    still in flight) yields no models rather than breaking the page."""
+    models: set[str] = set()
+    try:
+        judge_cost = run_store.read_judge_cost(run_dir, index) or {}
+    except (OSError, ValueError):
+        judge_cost = {}
+    for model in judge_cost.get("models") or []:
+        models.add(str(model))
+    if not models and judge_cost.get("model"):
+        models.add(str(judge_cost["model"]))
+    if models:
+        return sorted(models)
+
+    try:
+        scores = run_store.read_scores(run_dir, index)
+    except (OSError, ValueError):
+        scores = {}
+    for entry in scores.values():
+        if isinstance(entry, dict) and entry.get("model"):
+            models.add(str(entry["model"]))
+    return sorted(models)
+
+
+def _judge_models_for_run(run_dir: Path, repetitions: int) -> list[str]:
+    """The judge model(s) for the Assess table's own column (review-fix, reviewer
+    L4) -- the first repetition that names any, so a run whose repetition 01
+    failed still reports what judged it. Cheap: at most a couple of small JSON
+    reads per row."""
+    for index in range(1, max(repetitions, 1) + 1):
+        models = _judge_models_in_repetition(run_dir, index)
+        if models:
+            return models
+    return []
 
 
 def _load_run_row(run_dir: Path) -> dict[str, Any]:
@@ -201,11 +256,22 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         "parameters_display": _format_parameters(meta.parameters),
         "composition": meta.composition,
         "repetitions": meta.repetitions,
+        # The STORED flag, never recomputed: it means "was the production
+        # configuration at the time of THIS run" (review-fix, reviewer M4 -- see
+        # harness/production_config.py). That is why `production-baseline`'s July
+        # records, and the `haiku-swap-hardened` run taken hours before the
+        # 2026-10-11 switch, still show "yes" even though production has run
+        # `haiku-5-5-hardened` (Haiku 5.5, effort high) since 2026-10-11.
         "is_production_config": meta.is_production_config,
         "criteria": meta.criteria,
         "criterion_scores": criterion_scores,
         "mean_cost_usd": mean_cost_usd,
         "mean_judge_cost_usd": mean_judge_cost_usd,
+        # Which model JUDGED this run (review-fix, reviewer L4) -- the judges moved
+        # from Opus 4.8 to Opus 5.5 on 2026-10-11, so two rows' scores are only
+        # comparable once the reader can see they were scored by the same
+        # instrument.
+        "judge_models": _judge_models_for_run(run_dir, meta.repetitions),
         "state": meta.state,
         "human_eval_present": human_eval_present,
         "created_at": meta.created_at,
@@ -394,6 +460,36 @@ def assess():
     return render_template("assess.html", rows=rows, criteria=list(V1_CRITERIA))
 
 
+def _read_declaration_for_display(git_ref: str, slug: str) -> dict[str, Any]:
+    """`git_show.read_candidate_declaration_at_ref()`, guaranteed never to break
+    the run detail page (review-fix, reviewer H2).
+
+    `git_show` already fails soft on every git problem it anticipates (no working
+    git, an unknown ref, a file that no longer parses -- all reported via the
+    returned dict's `read_error`). This wrapper is the belt-and-braces outer
+    guard: ANY unexpected exception from that call is turned into the same
+    empty-declaration-plus-`read_error` shape, so one unreadable configuration
+    panel can never cost the operator the scores, costs and brief render on the
+    rest of the page. That is exactly how this route used to return HTTP 500 for
+    EVERY run: a `subprocess`-level git failure (launchd's PATH resolving to the
+    Xcode-license-blocked /usr/bin/git) escaped straight out of here."""
+    try:
+        return git_show.read_candidate_declaration_at_ref(git_ref, slug)
+    except Exception as e:  # noqa: BLE001 -- display-only panel; never 500 the page over it
+        return {
+            "slug": slug,
+            "ref": git_ref,
+            "name": "",
+            "description": "",
+            "model": "",
+            "system_prompt": "",
+            "task_prompt": "",
+            "sub_agents": [],
+            "is_multi_agent": False,
+            "read_error": f"the candidate declaration could not be read at this ref: {e!r}",
+        }
+
+
 @app.route("/runs/<slug>/<eval_run_id>")
 def run_detail(slug: str, eval_run_id: str):
     # Explicit containment check (review-fix, security L2, defense-in-depth):
@@ -412,7 +508,7 @@ def run_detail(slug: str, eval_run_id: str):
         return render_template("not_found.html", slug=slug, eval_run_id=eval_run_id), 404
 
     meta = run_store.read_eval_run_meta(run_dir)
-    declaration = git_show.read_candidate_declaration_at_ref(meta.git_ref, meta.slug)
+    declaration = _read_declaration_for_display(meta.git_ref, meta.slug)
 
     repetitions = []
     for index in range(1, meta.repetitions + 1):

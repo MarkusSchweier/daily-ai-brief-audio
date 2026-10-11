@@ -79,7 +79,7 @@ from eval_core.record import (  # noqa: E402
     aggregate_replicates,
 )
 
-from harness import cost, dedup_priors, local_config, run_store  # noqa: E402
+from harness import cost, dedup_priors, local_config, production_config, run_store  # noqa: E402
 
 _ENVIRONMENT_JSON_PATH = CANDIDATES_DIR / "environment.json"
 
@@ -100,13 +100,16 @@ _SOURCES_MD_PATH = HARNESS_DIR.parent / "managed-agent" / "skills" / "daily-ai-b
 # wall-clock "today" (see that module's docstring).
 _BRIEF_FILENAME_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-# The candidate slug this repo treats as "the current production configuration"
-# (D4: "production-config marker for production-baseline"). A candidate's own
-# candidate.json MAY set an explicit "is_production_config" flag (checked first,
-# so this is overridable without editing this script); the slug is the fallback
-# so today's one real production-parity candidate is marked with no extra field
-# needed.
-_PRODUCTION_CANDIDATE_SLUG = "production-baseline"
+# The candidate slug this repo treats as "the configuration production runs today"
+# (D4's production-config marker) lives in ONE place both this CLI and ui.py read
+# -- `harness/production_config.py` -- so the recorded flag and the Conduct page's
+# label can never disagree (review-fix, reviewer M4: this used to be
+# "production-baseline" hardcoded here AND, separately, in ui.py, both of them
+# stale since the owner moved production off Sonnet 5 on 2026-07-13; production
+# moved again on 2026-10-11, to `haiku-5-5-hardened`, and that single edit was all
+# it took). Re-exported under its original private name so this module's own
+# references (and tests) keep reading naturally.
+_PRODUCTION_CANDIDATE_SLUG = production_config.PRODUCTION_CANDIDATE_SLUG
 
 
 def _load_shared_environment_id() -> str:
@@ -130,9 +133,14 @@ def _load_shared_environment_id() -> str:
 
 
 def _is_production_config(candidate: CandidateDeclaration) -> bool:
-    if "is_production_config" in candidate.candidate_json:
-        return bool(candidate.candidate_json["is_production_config"])
-    return candidate.slug == _PRODUCTION_CANDIDATE_SLUG
+    """Was `candidate` the production configuration AT THE TIME OF THIS RUN?
+
+    Resolved exactly once, here, when the run record is written -- the value
+    stored in `eval-run.json` is HISTORICAL and is never recomputed or rewritten
+    afterwards (`production-baseline`'s July records keep `true`, and so does the
+    `haiku-swap-hardened` run taken hours before the 2026-10-11 switch; see
+    `harness/production_config.py` for the full semantics)."""
+    return production_config.is_production_config(candidate.slug, candidate.candidate_json)
 
 
 def _declared_models(candidate: CandidateDeclaration) -> list[str]:
@@ -230,6 +238,101 @@ def _extract_brief_date(artifacts: dict[str, str]) -> str | None:
             if match:
                 dates.append(match.group(1))
     return max(dates) if dates else None
+
+
+class CandidateBriefNotCapturedError(RuntimeError):
+    """The repetition did NOT capture the candidate's own brief -- either no brief
+    artifact at all, or the only brief(s) recovered are PRIOR briefs already in the
+    delivery feed (2026-10-11, found in a real paid batch).
+
+    What happened: `haiku-swap-hardened` repetition 3 wrote today's brief with the
+    `write` tool, then ran `cat "/workspace/AI Brief - 2026-10-11.md" | head -100`
+    at the capture step -- a piped `cat` that
+    `candidate_sync.trigger.fetch_catted_file_contents()` does not recognize -- so
+    the brief was never captured. The only briefs in the artifact map were the two
+    PRIORS the hardened prompt makes the agent read (2026-10-08, 2026-10-09), and
+    `_extract_named_artifacts()` dutifully picked the greatest-dated one: Friday's
+    REAL PRODUCTION brief. Three judges then scored that as the candidate's work
+    and the repetition was recorded as a normal success -- a silently invalid data
+    point in a paid comparison.
+
+    Raised INSIDE the per-repetition containment, so the repetition is recorded
+    `final_status="judging_failed"` with this error, no `scores.json` is written,
+    and the paid artifacts/events/cost (mined BEFORE this check) stay on disk."""
+
+
+def _normalize_markdown_for_comparison(text: str | None) -> str:
+    """Collapse every run of whitespace to a single space (and strip) so an
+    artifact's copy of a brief and the delivery feed's copy of the SAME brief
+    compare equal despite trailing-newline / CRLF / re-indentation differences --
+    the only normalization the captured-brief guard applies (it must not normalize
+    so hard that two genuinely different briefs could collide)."""
+    return " ".join((text or "").split())
+
+
+def _verify_candidate_brief_was_captured(
+    brief_markdown: str | None,
+    artifacts: dict[str, str],
+    *,
+    repetition: int,
+    feed_client: Any = None,
+) -> None:
+    """Fail loud (`CandidateBriefNotCapturedError`) unless `brief_markdown` really
+    is the candidate's OWN output -- run for EVERY repetition, before any judging,
+    regardless of which criteria were selected.
+
+    Two refusals:
+
+      1. **No brief at all.** Previously a silent degrade: the judges were handed
+         `""` and reported `insufficient_data`, which the comparison table renders
+         as a blank -- indistinguishable from "this criterion wasn't tested."
+      2. **The selected brief IS a brief the delivery feed already carries**
+         (whitespace-normalized exact content match). CONTENT, not dates: a date
+         rule cannot work, because on a weekday the feed legitimately carries a
+         brief dated the same day as the eval brief, and the mangled-capture case
+         leaves behind priors whose dates look perfectly plausible.
+
+    If the feed cannot be read at all (no signing key, no base URL, transport
+    failure) the check is SKIPPED with a `BRIEF_PRIOR_CHECK_SKIPPED` warning on
+    stderr -- an unreachable read endpoint must not block an otherwise-paid run.
+    `feed_client` is an injection seam for tests only."""
+    captured = sorted({PurePosixPath(name).name for name in artifacts})
+    captured_display = ", ".join(captured) if captured else "(none)"
+
+    if not (brief_markdown or "").strip():
+        raise CandidateBriefNotCapturedError(
+            f"repetition {repetition}: no brief artifact was captured at all -- the candidate's "
+            f"own brief never reached the harness. Captured artifacts: {captured_display}. "
+            "Refusing to judge an empty brief as a result (check the task prompt's final `cat` "
+            "step: a piped/truncated cat, e.g. `cat \"...\" | head -100`, is not recognized as a "
+            "file capture)."
+        )
+
+    try:
+        feed = dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key=local_config.resolve_recent_briefs_signing_key() or "",
+            delivery_base_url=local_config.resolve_delivery_base_url(),
+            client=feed_client,
+        )
+    except dedup_priors.RecentBriefsUnavailableError as e:
+        print(
+            f"BRIEF_PRIOR_CHECK_SKIPPED: repetition {repetition}: could not read the recent-briefs "
+            f"feed ({e}) -- proceeding WITHOUT verifying that the captured brief is the "
+            "candidate's own output",
+            file=sys.stderr,
+        )
+        return
+
+    normalized_brief = _normalize_markdown_for_comparison(brief_markdown)
+    for entry in feed:
+        if _normalize_markdown_for_comparison(entry.get("markdown")) == normalized_brief:
+            raise CandidateBriefNotCapturedError(
+                f"repetition {repetition}: the brief selected for judging is IDENTICAL to the "
+                f"delivery feed's brief dated {entry.get('date')!r} -- i.e. a PRIOR brief the "
+                "candidate merely read, not output it wrote. Captured artifacts: "
+                f"{captured_display}. Refusing to judge a prior brief as this candidate's work "
+                "(check the task prompt's final `cat` step)."
+            )
 
 
 def _parse_candidates_json(candidates_json_raw: str | None, *, repetition: int) -> list | None:
@@ -362,7 +465,19 @@ def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str
     are included ONLY when a judge's result actually carries one (a v1-shaped
     judge, or a v2 judge's degrade path that never called the API, simply omits
     the key -- never an empty-list placeholder that would look like "the judge
-    checked nothing")."""
+    checked nothing").
+
+    ALSO ADDITIVE (2026-10-11): each criterion now records the `model` that
+    actually judged it. The judge model moved from `claude-opus-4-8` to
+    `claude-opus-5-5` that day, so scores produced before and after must be
+    distinguishable from the scores file itself -- previously that was only
+    recoverable from the sibling `judge-cost.json`, which doesn't exist for a
+    repetition whose judging phase failed, and isn't where a reader of a SCORE
+    looks. Backward compatible in both directions: every `scores.json` committed
+    before this date simply lacks the key (`ui.py`/`run_detail.html` read named
+    keys, never a fixed key set), and `eval_core.record.CriterionScore` is
+    deliberately NOT given the field -- it is the judge's identity, not part of
+    the score itself."""
     out: dict[str, dict[str, Any]] = {}
     for criterion, result in judge_results.items():
         entry: dict[str, Any] = {
@@ -370,6 +485,7 @@ def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str
             "rationale": result.rationale,
             "evidence": result.evidence,
             "insufficient_data": result.insufficient_data,
+            "model": result.model,
         }
         if result.findings is not None:
             entry["findings"] = result.findings
@@ -664,13 +780,32 @@ def main(argv: list[str] | None = None) -> int:
             run_store.write_artifacts(run_dir, index, artifacts)
             run_store.write_events(run_dir, index, result.events)
 
+            # `events=` (2026-10-11) is what lets a PER-REQUEST rate-carded model
+            # (Claude Haiku 5.5's two prompt-length cards) be priced at all -- it
+            # is the SAME already-fetched event list used for artifact retrieval
+            # above, so this costs no extra API call. Ignored for every
+            # aggregate-priced family; see harness/cost.py's module docstring.
             breakdown = cost.mine_session_cost(
-                result.session_id, threads, pricing_table=pricing_table, on_date=date.today(), candidate_declaration=candidate
+                result.session_id,
+                threads,
+                pricing_table=pricing_table,
+                on_date=date.today(),
+                candidate_declaration=candidate,
+                events=result.events,
             )
             run_store.write_threads_usage(run_dir, index, breakdown)
             run_store.write_cost(run_dir, index, breakdown)
 
             brief_markdown, listening_script, candidates_json_raw, _source_usage_raw = _extract_named_artifacts(artifacts)
+
+            # GUARD (2026-10-11): never judge a PRIOR brief as this candidate's
+            # output, and never judge "no brief" as a bland insufficient_data.
+            # Deliberately placed AFTER cost mining above so a repetition rejected
+            # here still has its real spend recorded, and INSIDE the containment
+            # below so it fails the one repetition, not the run. Runs for every
+            # repetition regardless of the selected criteria.
+            _verify_candidate_brief_was_captured(brief_markdown, artifacts, repetition=index)
+
             candidates_json = _parse_candidates_json(candidates_json_raw, repetition=index)
 
             prior_briefs: list[dict[str, str]] = []

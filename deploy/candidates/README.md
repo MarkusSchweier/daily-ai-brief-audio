@@ -27,6 +27,28 @@ invoke. Separately, `smoke-test-example/` (documented above) and two clearly-fak
 `tests/fixtures/example-multi-agent/`) exist purely to exercise the sync script's
 logic in tests — never deploy the synthetic fixtures for real.
 
+### The 2026-10-11 model-generation comparison batch
+
+Three candidates compare the current-generation models against the configuration
+**production actually runs today** — `haiku-swap-hardened` (promoted to production
+2026-07-13, see `docs/prd/cost-optimization-candidates.md` §6):
+
+| Slug | `model.txt` | `parameters.json` | `agent_id` (synced 2026-10-11) |
+|---|---|---|---|
+| `haiku-5-5-hardened` | `claude-haiku-5-5` | `{"effort": "high"}` | `agent_011NVS18rxsu6WHUfYPVt11N` |
+| `sonnet-5-5-hardened` | `claude-sonnet-5-5` | `{"effort": "high"}` | `agent_01Bp84gBQZ3J8YyeyviYTRdr` |
+| `opus-5-5-hardened` | `claude-opus-5-5` | `{"effort": "medium"}` | `agent_01JecBBzqmQuPAfCsKUTqTis` |
+
+Each is a copy of `haiku-swap-hardened` with **model + effort as the only changed
+dimensions**: `system-prompt.md`, `task-prompt.md` and `skills.json` are
+**byte-identical** to the baseline's, as are `agent.json`'s `tools`/`mcp_servers` (only
+`name`/`description` differ, since each is its own agent resource). That single-variable
+discipline is the whole point — a reworded prompt would quietly turn a model comparison
+into a prompt comparison — so it is enforced mechanically by
+`tests/test_model_generation_candidates.py`, not by eyeball. All three were **synced on
+2026-10-11** and carry the real `agent_id`s above (each written once, at first sync, by
+`sync.py`); they are no longer "declared, not yet synced."
+
 ## Directory schema
 
 A single-agent candidate:
@@ -39,7 +61,7 @@ deploy/candidates/<slug>/
   system-prompt.md     # the agent system prompt -- diffable alone
   task-prompt.md        # the deployment initial_prompt (the run task) -- diffable alone
   skills.json           # [{skill_id, version}] concrete pinned versions -- diffable alone
-  parameters.json       # effort / thinking budget / other tunables -- diffable alone
+  parameters.json       # tunables -- exactly one supported key: {"effort": "<level>"} (or {})
   skill/                 # OPTIONAL: candidate-owned skill source (SKILL.md, sources.md, ...)
 ```
 
@@ -67,8 +89,68 @@ specifically so a `git diff` on a candidate directory makes it immediately obvio
 | `system-prompt.md` | The agent's `system` prompt | The identity/approach prompt — changes independently from the per-run task. |
 | `task-prompt.md` | The deployment's `initial_prompt` (the per-run task) | Distinct from the system prompt: this is "what to do this run," reusable across many sessions of the same agent identity. Optional (may be empty) for a sub-agent that has no run-triggering role of its own. |
 | `skills.json` | `[{skill_id, version}, ...]` — **concrete, pinned** skill version(s), never the moving `"latest"` label | A skill-content change is its own, separately-reviewable event (see "Skill content" below); recording a concrete numeric version makes the candidate reproducible. |
-| `parameters.json` | Effort / thinking-budget / other tunables | Orthogonal to model/prompt — a parameter sweep should diff only this file. |
+| `parameters.json` | Tunables — **exactly one supported key, `effort`** (see below) | Orthogonal to the prompt — an effort sweep should diff only this file. |
 | `skill/` (optional) | The candidate's OWN skill source, if it ships one instead of referencing an existing Skills-API resource | See "Skill content," below. |
+
+### `parameters.json` — the `effort` key (2026-10-11)
+
+`parameters.json` supports **exactly one key**, and the Agents API maps it onto the
+agent's **model object**, not a top-level field:
+
+```json
+{ "effort": "high" }
+```
+
+- Valid levels: **`low`, `medium`, `high`, `xhigh`, `max`**. `{}` (or no
+  `parameters.json` at all) means "no effort declared."
+- **Validated at load, not at the API.** Any other key, or an invalid level, raises
+  `CandidateLoadError` before a single HTTP call is made — including for a
+  `multiagent.json` roster entry's inline `parameters` (a sub-agent may declare its own
+  level). This is deliberately loud: the API's failure modes here are a 400 with an
+  opaque message *or* silent acceptance-and-discard, and the second one would leave a
+  candidate that **reads** as tuned while **running** at default — a cost/quality
+  comparison built on that is invalid and looks fine.
+- **How it reaches the API:** `AgentDeclaration.to_agent_body()` sends
+  `"model": {"id": "<model.txt>", "effort": "<level>"}` when a level is declared, and
+  the **bare model-id string** (byte-identical to what it always sent) when none is.
+  A top-level `parameters` field is **never** sent — the Agents API has no such field.
+  `model.txt` therefore stays the plain model id, which is also what the eval harness's
+  per-thread cost attribution reads.
+- **Re-sync comparison:** a live `GET /v1/agents/{id}` echoes `model` as an object with
+  omitted fields filled in with **defaults**, and `effort` as either `"high"` or
+  `{"type": "high"}`. `sync.py` normalizes both forms and ignores every other live
+  model key (`speed`, …). With **no** effort declared it compares **model ids only**, so
+  a defaulted `effort` in the echo can't trigger a spurious update on the pre-effort
+  candidates; with a level declared it compares id **and** level, so changing the level
+  in `parameters.json` is a genuine diff that drives a real update. A live model object
+  carrying **no** `effort` key at all means the model has no effort support (the live
+  Haiku 4.5 agent returns exactly `{"id": "claude-haiku-4-5-20251001", "speed":
+  "standard"}`) — that falls back to ids-only, deliberately, since there is nothing an
+  update could ever converge on.
+- **Two formerly-silent cases are now reported (review-fix, 2026-10-11)** — loud at
+  the *reporting* level, still a no-op at the *mutation* level:
+  - a declaration that sets `effort` for a model whose live echo carries **no**
+    `effort` key prints an `EFFORT_NOT_SUPPORTED` **WARNING on stderr** (naming the
+    agent/sub-agent and the model) and the message is carried in `SyncResult.warnings`
+    and its printed summary. The platform drops the level, so the candidate reads as
+    tuned while running at the model's default — previously with nothing anywhere
+    saying so. No update is issued (it could never converge).
+  - a declaration with **no** effort whose live agent echoes one prints an
+    **informational** line (`live agent runs at effort=<level>; declaration sets
+    none`) on stdout. It is deliberately *not* a warning: an API-filled default and a
+    deliberately-set level are indistinguishable from the client side, and treating it
+    as a difference is exactly the Phase 5 spurious-update bug.
+  - a matching declared/live level prints nothing at all.
+
+**History — why this was blocked until now.** When this mechanism was built (July 2026)
+the Agents API had **no** effort knob: a top-level `parameters` field was rejected
+(`unknown field "parameters"`), `model.thinking` likewise, and `model.effort` was
+**accepted but silently discarded** (proven by a no-op discriminator: re-sending the
+same model with `effort: low`, then `effort: high`, produced no new agent version
+either time). `parameters.json` was therefore declaration-only, every candidate carried
+`{}`, and the planned effort/thinking sweep was parked — see
+`docs/prd/cost-optimization-candidates.md` §3's "#7 BLOCKED BY THE PLATFORM" note. The
+API now documents effort on the model object, which is what this key implements.
 
 ### Multi-agent candidates use the SAME schema (FR-10/AC-10)
 
@@ -1137,6 +1219,20 @@ triggered to validate this specific instruction; that validation happens
 naturally whenever `production-baseline` (or any candidate referencing this
 skill) is next synced to the new version and triggered for a real run.
 
+**Partially re-pinned, 2026-10-11 (the model-generation comparison batch).**
+`haiku-swap-hardened` and the three 5.5 candidates (`haiku-5-5-hardened`,
+`sonnet-5-5-hardened`, `opus-5-5-hardened`) now pin `1783347998026490` — the
+version live production's own agent resolves to — so that batch's four
+`skills.json` files are byte-identical to each other and the comparison measures
+models against the skill content production actually runs. Every OTHER candidate
+(`production-baseline`, `haiku-swap`, `haiku-swap-verified`,
+`multiagent-aggressive-haiku`, `session-restructure`, `haiku-digest-sonnet-select`)
+deliberately still pins `1783340601977967`, for the reason above: their committed
+run records were produced against that content. Note this cuts the same way for
+`haiku-swap-hardened` itself — **its July 2026 run record ($0.52; 3/4/4/2) was
+produced on the OLD pin**, so that record is not strictly comparable against a
+fresh run on the new pin.
+
 Two reviewer-found follow-ups on the ORIGINAL three Phase 5 bugs (the
 `model`-shape scope-check and the single-quoted-`cat`-path parsing gap) are
 documented above, in "Real bugs found."
@@ -1151,9 +1247,12 @@ python3 -m venv .venv
 .venv/bin/python3 -m pytest tests/ -v
 ```
 
-This runs the FULL mocked test suite (Phase 2's sync-logic tests plus Phase 3's
-trigger-tool and skill-creation/skill-update-detection tests) — no real network
-calls, no real Anthropic API credentials needed. The one real, live proof (creating
+This runs the FULL mocked test suite (Phase 2's sync-logic tests, Phase 3's
+trigger-tool and skill-creation/skill-update-detection tests, the
+`parameters.json`-effort validation/body-shape/live-echo-comparison tests, and
+`tests/test_model_generation_candidates.py`'s single-variable byte-identity contract
+for the 2026-10-11 batch) — **183 tests**, no real network calls, no real Anthropic API
+credentials needed. The one real, live proof (creating
 the shared environment, `smoke-test-example`, and its two triggered runs — see
 "Phase 3 live validation," above) was run once, by hand, as a genuine validation; it
 is deliberately **not** part of this repeatable, offline `pytest` invocation.

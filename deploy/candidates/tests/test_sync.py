@@ -105,7 +105,11 @@ def test_first_sync_single_agent_sends_correct_body(single_agent_dir):
     assert sent_body["model"] == "claude-example-model"
     assert "EXAMPLE SYSTEM PROMPT" in sent_body["system"]
     assert sent_body["tools"] == [{"type": "agent_toolset_20260401"}]
-    assert sent_body["parameters"] == {"effort": "example-low", "thinking_budget_tokens": 1}
+    # A top-level `parameters` field is NEVER sent -- the Agents API has no such field
+    # (`unknown field "parameters"`, live-probed). `parameters.json`'s one supported
+    # key, `effort`, is mapped onto `model.effort` instead; with none declared (the
+    # fixture, and every pre-existing candidate) `model` stays the bare id string.
+    assert "parameters" not in sent_body
     assert "multiagent" not in sent_body
     assert "version" not in sent_body  # create never sends a version
 
@@ -1011,6 +1015,337 @@ def test_zip_skill_source_excludes_a_symlinked_file(tmp_path):
 
     assert names == ["symlink-test/SKILL.md"]
     assert not any("evil-link" in name for name in names)
+
+
+# --- parameters.json's `effort` -> model.effort (2026-10-11) ------------------------
+# The Agents API now documents effort on the agent's model object: `model` takes either
+# a bare id string or `{"id": ..., "effort": ...}`, and `effort` is either a level
+# string or `{"type": <level>}`. The create/update RESPONSE echoes `model` in object
+# form with omitted fields filled in with defaults -- so BOTH echo forms must compare
+# equal to a locally-declared level, and a model with no effort support echoes no
+# `effort` key at all (confirmed live: the Haiku 4.5 agent returns exactly
+# `{"id": "claude-haiku-4-5-20251001", "speed": "standard"}`).
+#
+# These tests pin the three things that can go wrong in the comparison:
+#   1. an effort-declaring candidate re-syncing as a NO-OP (either echo form), and
+#   2. a CHANGED level registering as a genuine diff (-> a real update call), and
+#   3. a no-effort candidate (i.e. every pre-existing one) staying a no-op even when
+#      the live echo carries a filled-in default effort -- the Phase 5 spurious-update
+#      bug, which an effort-aware comparison could easily re-introduce.
+
+
+def _declare_effort(candidate_dir, level: str) -> None:
+    (candidate_dir / "parameters.json").write_text(json.dumps({"effort": level}))
+
+
+def _live_agent_matching_fixture(candidate_dir, *, live_model, version: int = 1) -> FakeResponse:
+    """A live `GET /v1/agents/{id}` echo that matches the single-agent fixture's
+    declaration exactly, EXCEPT for whatever `live_model` shape the test is pinning."""
+    agent_json = json.loads((candidate_dir / "agent.json").read_text())
+    return _agent_response(
+        "agent_ALREADY_SYNCED",
+        version=version,
+        name=agent_json["name"],
+        description=agent_json["description"],
+        model=live_model,
+        system=(candidate_dir / "system-prompt.md").read_text(),
+        tools=agent_json["tools"],
+        mcp_servers=agent_json["mcp_servers"],
+        skills=[],
+    )
+
+
+@pytest.mark.parametrize(
+    "live_effort",
+    [
+        pytest.param("high", id="effort echoed as a bare level string"),
+        pytest.param({"type": "high"}, id="effort echoed as a {'type': level} object"),
+    ],
+)
+def test_resync_of_an_effort_declaring_candidate_is_a_full_no_op_for_either_live_echo_form(
+    single_agent_dir, live_effort
+):
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "high")
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        # Other live model keys (`speed`, and a plausible future one) must be ignored.
+        _live_agent_matching_fixture(
+            single_agent_dir,
+            live_model={"id": model, "speed": "standard", "inference_geo": "global", "effort": live_effort},
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.no_op is True
+    assert not result.updated
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
+def test_a_changed_effort_level_is_a_genuine_diff_and_drives_an_update(single_agent_dir):
+    """The whole point of declaring effort: changing ONLY `parameters.json`'s level
+    must reach the live agent. The model id is identical on both sides here, so this
+    fails if the comparison only ever looks at ids."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "medium")  # local: medium
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir,
+            # live: still high, the level before the local edit
+            live_model={"id": model, "speed": "standard", "effort": {"type": "high"}},
+            version=7,
+        ),
+    )
+    agents_client.when("POST", "/v1/agents/agent_ALREADY_SYNCED", _agent_response("agent_ALREADY_SYNCED", version=8))
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.updated == ["agent example-single-agent-EXAMPLE"]
+    assert not result.no_op
+    update_body = agents_client.calls[1].kwargs["json"]
+    assert update_body["model"] == {"id": model, "effort": "medium"}
+    assert update_body["version"] == 7  # read from the fresh GET, as always
+    assert "parameters" not in update_body
+
+
+def test_newly_declaring_effort_on_a_previously_effortless_candidate_drives_an_update(single_agent_dir):
+    """The migration case: a candidate synced before effort existed (live echo carries
+    a filled-in DEFAULT effort) gains `{"effort": "max"}` locally -- that must be
+    detected and pushed, not swallowed by the no-effort comparison path."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "max")
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": {"type": "high"}}
+        ),
+    )
+    agents_client.when("POST", "/v1/agents/agent_ALREADY_SYNCED", _agent_response("agent_ALREADY_SYNCED", version=2))
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.updated == ["agent example-single-agent-EXAMPLE"]
+    assert agents_client.calls[1].kwargs["json"]["model"] == {"id": model, "effort": "max"}
+
+
+def test_a_no_effort_candidate_is_still_a_full_no_op_when_the_live_echo_carries_a_default_effort(single_agent_dir):
+    """Regression guard for the Phase 5 class of bug, in its new form: the API fills in
+    omitted model fields with DEFAULTS, so a live GET can echo `effort` for an agent
+    whose declaration (`parameters.json` == `{}`) never mentioned it. Every one of this
+    repo's eight pre-effort candidates is in exactly this position -- if a declared-
+    effort-less comparison looked at the live effort at all, each of them would issue a
+    spurious update, and bump its live version, on every single sync forever."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    assert json.loads((single_agent_dir / "parameters.json").read_text()) == {}  # no effort declared
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": {"type": "high"}}
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.no_op is True
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
+def test_a_changed_model_id_is_still_a_diff_when_effort_is_declared_and_unchanged(single_agent_dir):
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "high")
+    (single_agent_dir / "model.txt").write_text("claude-example-model-v2\n")
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": "claude-example-model", "speed": "standard", "effort": "high"}
+        ),
+    )
+    agents_client.when("POST", "/v1/agents/agent_ALREADY_SYNCED", _agent_response("agent_ALREADY_SYNCED", version=2))
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.updated == ["agent example-single-agent-EXAMPLE"]
+    assert agents_client.calls[1].kwargs["json"]["model"] == {"id": "claude-example-model-v2", "effort": "high"}
+
+
+def test_declared_effort_against_a_model_that_echoes_no_effort_at_all_stays_a_no_op(single_agent_dir, capsys):
+    """A model WITHOUT effort support echoes no `effort` key whatsoever -- confirmed
+    live on the Haiku 4.5 agent (`{"id": "claude-haiku-4-5-20251001", "speed":
+    "standard"}`). The platform has no effort to store for such a model, so a declared
+    level can never be satisfied: comparing it would mean an update call on every sync,
+    forever, converging on nothing. The deliberate choice (documented in
+    `_normalize_live_field_for_comparison()`) is to compare ids only in that case, so
+    the no-op guarantee survives.
+
+    AMENDED (review-fix, reviewer M2, 2026-10-11 -- this test's own earlier note
+    said "if it ever becomes a loud warning instead, this is the test that should
+    change", and it has): still a no-op at the MUTATION level (no update call, no
+    loop that can never converge), but no longer SILENT -- a declaration can no
+    longer claim `effort: high` while the live agent runs at its model's default
+    with nothing anywhere saying so."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "high")
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(single_agent_dir, live_model={"id": model, "speed": "standard"}),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    assert result.no_op is True
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+    # ...but LOUD: a WARNING on stderr, in the result's warnings, and in its summary.
+    err = capsys.readouterr().err
+    assert "EFFORT_NOT_SUPPORTED" in err
+    assert "'high'" in err
+    assert model in err
+    assert len(result.warnings) == 1
+    assert "EFFORT_NOT_SUPPORTED" in result.warnings[0]
+    assert "EFFORT_NOT_SUPPORTED" in str(result)
+
+
+def test_a_sub_agents_unsupported_effort_is_warned_about_by_name(multi_agent_dir, capsys):
+    """A per-sub-agent effort level buried in the roster must be just as loud as the
+    coordinator's own -- named by roster index so the operator knows WHICH agent."""
+    _mark_synced(multi_agent_dir, agent_id="agent_COORD")
+    multiagent_json_path = multi_agent_dir / "multiagent.json"
+    multiagent_data = json.loads(multiagent_json_path.read_text())
+    multiagent_data["agents"][0]["agent_id"] = "agent_SUB_0"
+    multiagent_data["agents"][0]["parameters"] = {"effort": "max"}
+    multiagent_json_path.write_text(json.dumps(multiagent_data))
+
+    agents_client = FakeHttpxClient()
+    agents_client.when("GET", "/v1/agents/agent_SUB_0", _agent_response("agent_SUB_0", model={"id": "claude-example-sub-model", "speed": "standard"}))
+    agents_client.when("GET", "/v1/agents/agent_COORD", _agent_response("agent_COORD", model={"id": "claude-example-model", "speed": "standard"}))
+    agents_client.when("POST", "/v1/agents/agent_SUB_0", _agent_response("agent_SUB_0", version=2))
+    agents_client.when("POST", "/v1/agents/agent_COORD", _agent_response("agent_COORD", version=2))
+
+    result = sync_candidate(multi_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    err = capsys.readouterr().err
+    assert "EFFORT_NOT_SUPPORTED" in err
+    assert "sub-agent[0]" in err
+    assert any("sub-agent[0]" in w for w in result.warnings)
+
+
+def test_no_declared_effort_against_a_live_echoed_effort_is_only_informational(single_agent_dir, capsys):
+    """Case (b): the live echo's effort could just as well be the API's own
+    filled-in DEFAULT, so it cannot honestly be called a mismatch -- it must stay
+    an informational line (and must NEVER become a warning or a diff, which was
+    the Phase 5 spurious-update bug)."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    assert json.loads((single_agent_dir / "parameters.json").read_text()) == {}  # no effort declared
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": {"type": "high"}}
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    captured = capsys.readouterr()
+    assert "live agent runs at effort=high; declaration sets none" in captured.out
+    assert captured.err == ""  # informational, NOT a warning
+    assert result.warnings == []
+    assert result.no_op is True  # and definitely not a diff
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
+def test_a_matching_declared_and_live_effort_says_nothing_at_all(single_agent_dir, capsys):
+    """The ordinary, healthy case must stay completely quiet -- a sync that prints
+    something every time trains the operator to ignore it."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "high")
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": "high"}
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert result.warnings == []
+    assert result.no_op is True
+
+
+def test_first_sync_sends_the_model_object_when_effort_is_declared(single_agent_dir):
+    _declare_effort(single_agent_dir, "high")
+
+    agents_client = FakeHttpxClient()
+    agents_client.when("POST", "/v1/agents", _agent_response("agent_SINGLE_NEW"))
+
+    sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    sent_body = agents_client.calls[0].kwargs["json"]
+    assert sent_body["model"] == {"id": "claude-example-model", "effort": "high"}
+    assert "parameters" not in sent_body
+
+
+def test_first_sync_of_a_multi_agent_candidate_sends_per_agent_effort(multi_agent_dir):
+    """A roster entry's own effort level must land on that sub-agent's create body, and
+    nowhere else."""
+    _declare_effort(multi_agent_dir, "low")  # the COORDINATOR's own level
+    multiagent_json_path = multi_agent_dir / "multiagent.json"
+    multiagent_data = json.loads(multiagent_json_path.read_text())
+    multiagent_data["agents"][0]["parameters"] = {"effort": "max"}  # the SUB-AGENT's level
+    multiagent_json_path.write_text(json.dumps(multiagent_data))
+
+    agents_client = FakeHttpxClient()
+    agents_client.when("POST", "/v1/agents", _agent_response("agent_SUB_NEW"), _agent_response("agent_COORD_NEW"))
+    skills_client = FakeHttpxClient()
+    skills_client.when(
+        "POST",
+        "/v1/skills/skill_EXAMPLE_NOT_REAL/versions",
+        FakeResponse(200, {"id": "skill_EXAMPLE_NOT_REAL", "version": 1783096569199829}),
+    )
+
+    sync_candidate(multi_agent_dir, agents_client=agents_client, skills_client=skills_client)
+
+    sub_agent_create_body = agents_client.calls[0].kwargs["json"]
+    coordinator_create_body = agents_client.calls[1].kwargs["json"]
+    assert sub_agent_create_body["model"] == {"id": "claude-example-sub-agent-model", "effort": "max"}
+    assert coordinator_create_body["model"] == {"id": "claude-example-coordinator-model", "effort": "low"}
+    assert "parameters" not in sub_agent_create_body
+    assert "parameters" not in coordinator_create_body
 
 
 # --- Helpers -------------------------------------------------------------------------

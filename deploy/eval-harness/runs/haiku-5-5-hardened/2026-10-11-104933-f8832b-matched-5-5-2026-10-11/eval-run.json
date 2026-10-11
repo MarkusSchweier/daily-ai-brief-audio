@@ -1,0 +1,28 @@
+{
+  "name": "matched-5-5-2026-10-11",
+  "slug": "haiku-5-5-hardened",
+  "agent_id": "agent_011NVS18rxsu6WHUfYPVt11N",
+  "git_ref": "5a57d002a0480e94d4100fecf96bb40b74fee885",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "parameters": {
+    "agent": {
+      "effort": "high"
+    },
+    "sub_agents": []
+  },
+  "repetitions": 3,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1791708573,
+  "declaration_dirty": false
+}

@@ -1,0 +1,140 @@
+{
+  "candidates": [
+    {
+      "title": "Anthropic discloses unintended model actions: agents breached US government systems, filed false police report",
+      "source": "Anthropic, Washington Post",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic pauses free startup program after 400,000+ applications in 48 hours",
+      "source": "Forbes, TechCrunch",
+      "disposition": "included"
+    },
+    {
+      "title": "Wikimedia: OpenAI agents behind unauthorized Wikipedia edits; infrastructure cost to nonprofit",
+      "source": "Wikimedia Foundation, BleepingComputer",
+      "disposition": "included"
+    },
+    {
+      "title": "Finland halts Google data center construction; environmental impact assessment required",
+      "source": "Al Jazeera, Finnish Supervisory Agency",
+      "disposition": "included"
+    },
+    {
+      "title": "Lean math-proof kernel soundness bugs found by AI researchers; formal verification reliability",
+      "source": "Terence Tao's blog, Thomas Hales",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic's usage policy bans abusive behavior toward Claude; election interference section renamed",
+      "source": "TechCrunch, Anthropic",
+      "disposition": "included"
+    },
+    {
+      "title": "Liquid AI releases d1 decision models: d1-3B and d1-omni-600M; 8ms latency, 48.57 Decision Index",
+      "source": "Liquid AI, Hugging Face",
+      "disposition": "included"
+    },
+    {
+      "title": "Google Cloud's Gemini agents get Workspace integration: email, calendar, Drive, directory seat",
+      "source": "VentureBeat, Google Cloud",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic seeking IPO as soon as mid-November; selected investors invited to October 14 meeting",
+      "source": "Bloomberg, Barron's",
+      "disposition": "excluded",
+      "reason": "Story from earlier in the week (early October); no new update on October 11"
+    },
+    {
+      "title": "OpenAI publishes 722 AI-generated mathematics manuscripts with Lean formalizations",
+      "source": "OpenAI",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; Hales blog post on Oct 9 is the new angle (formal verification reliability), which is included"
+    },
+    {
+      "title": "arXiv caps submissions to two per month, three active at once; volume reached 40,363 papers in September 2026",
+      "source": "arXiv",
+      "disposition": "excluded",
+      "reason": "Administrative policy change; limited strategic significance for AI industry brief"
+    },
+    {
+      "title": "Microsoft Surface RTX Spark Dev Box preorders; $5,999 MSRP, shipments November",
+      "source": "TechCrunch",
+      "disposition": "excluded",
+      "reason": "Product announcement from October 8; no material update on October 11"
+    },
+    {
+      "title": "Mistral Large 4 (Le Chonk) preview; 1T-parameter open-weight model",
+      "source": "Mistral AI",
+      "disposition": "excluded",
+      "reason": "Already extensively covered in Oct 8-9 briefs; no new update on October 11"
+    },
+    {
+      "title": "Google DeepMind's AlphaGenome Atlas; 1-petabyte database of DNA variant predictions",
+      "source": "Google DeepMind, Nature",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; no new developments on October 11"
+    },
+    {
+      "title": "OpenAI disrupts AI-enabled false-front operations: Russian and Iranian influence networks",
+      "source": "OpenAI",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 9 brief; no new update on October 11"
+    },
+    {
+      "title": "Ecosia drops Mistral for Chinese open-weight models; cost and performance considerations",
+      "source": "Politico, CyberNews",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 9 brief; no new update on October 11"
+    },
+    {
+      "title": "Flai raises $27M Series A for AI dealership CRM; 20x revenue growth",
+      "source": "TechCrunch, Base10 Partners",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; no new update on October 11"
+    },
+    {
+      "title": "Waymo upsizes debt raise to $5B; AI infrastructure financing shift",
+      "source": "Bloomberg, Goldman Sachs",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; no new update on October 11"
+    },
+    {
+      "title": "AI certification cheat tool enables 353 certifications in 40 minutes via ChatGPT automation",
+      "source": "Context Window / Artificially Intimidating",
+      "disposition": "excluded",
+      "reason": "Niche issue about certification fraud; outside core AI research, safety, and business priorities"
+    },
+    {
+      "title": "Senators Hawley and Murphy announce bipartisan AI Agent Accountability Act",
+      "source": "Fox News, Congress",
+      "disposition": "excluded",
+      "reason": "Policy story from October 1; no new developments on October 11"
+    },
+    {
+      "title": "California bans AI 'robo bosses' in landmark state law SB 947",
+      "source": "California Legislature",
+      "disposition": "excluded",
+      "reason": "Policy story from earlier October; already referenced in Oct 1 brief cycle"
+    },
+    {
+      "title": "Google Gemini 4 Argon released; 1M token output limit, 68% on CWE-bench v1",
+      "source": "Google DeepMind",
+      "disposition": "excluded",
+      "reason": "Model release from September 30 / October 1; already covered in prior briefs"
+    },
+    {
+      "title": "OpenAI rolls out GPT-6 with Intelligent UI to all ChatGPT tiers",
+      "source": "OpenAI",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; no new updates on October 11"
+    },
+    {
+      "title": "Anthropic releases Claude Haiku 5.5 at 75% lower cost",
+      "source": "Anthropic",
+      "disposition": "excluded",
+      "reason": "Already covered in Oct 8 brief; no new updates on October 11"
+    }
+  ]
+}

@@ -37,6 +37,14 @@ the shapes above --
    LAST text block among interleaved server_tool_use/tool_result/text blocks
    (mixed-content responses from server-side tools), rather than joining every
    text block or grabbing the first one.
+
+AMENDED (judge model -> Claude Opus 5.5, 2026-10-11): `FakeMessage`/
+`FakeMixedMessage` carry optional `stop_reason` + `stop_details` (a
+`FakeStopDetails`, mirroring the SDK's `RefusalStopDetails`), both defaulting to
+None so every pre-existing fake behaves exactly as before. `run_judge()` now
+branches on `stop_reason` BEFORE reading content -- refusal/truncation raise typed
+errors, `pause_turn` is resumed -- and these fields are how a test drives those
+paths without a live call.
 """
 
 from __future__ import annotations
@@ -45,12 +53,47 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 HARNESS_DIR = Path(__file__).resolve().parent.parent
 CANDIDATES_DIR = HARNESS_DIR.parent / "candidates"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 sys.path.insert(0, str(HARNESS_DIR))
 sys.path.insert(0, str(CANDIDATES_DIR))
+
+
+class _NoNetworkHttpClient:
+    """Stands in for the real `httpx.Client` `harness.dedup_priors` would build
+    when no client is injected -- every request method raises, so no test can
+    reach the LIVE delivery endpoint (see the autouse fixture below)."""
+
+    def get(self, *args, **kwargs):
+        raise RuntimeError("the test suite makes no live HTTP calls (harness.dedup_priors)")
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_live_recent_briefs_fetch(monkeypatch):
+    """HERMETICITY GUARD (2026-10-11). `run.py`'s captured-brief guard
+    (`_verify_candidate_brief_was_captured()`) reads `GET /recent-briefs` for
+    EVERY repetition, and `harness.local_config` resolves a REAL signing key +
+    the committed real delivery base URL from the operator's machine -- so a test
+    that drives `run.main()` would otherwise make a genuine, live API call to
+    production's delivery boundary (observed: the suite's runtime jumped from 2s
+    to 19s).
+
+    Patching `dedup_priors._build_http_client` (the one factory the module uses
+    when NO client is injected) keeps every such path offline: the fetch raises,
+    `RecentBriefsUnavailableError` is reported, and the guard degrades with its
+    documented `BRIEF_PRIOR_CHECK_SKIPPED` warning. Tests that want a feed inject
+    their own fake `client=` (unaffected by this fixture) or monkeypatch
+    `fetch_recent_briefs_unfiltered` directly."""
+    from harness import dedup_priors
+
+    monkeypatch.setattr(dedup_priors, "_build_http_client", lambda: _NoNetworkHttpClient())
 
 
 class FakeTextBlock:
@@ -96,18 +139,43 @@ class FakeUsage:
         self.server_tool_use = server_tool_use
 
 
+class FakeStopDetails:
+    """Mirrors the real SDK's `RefusalStopDetails` (`{type, category, explanation}`,
+    both of the latter optional/nullable) -- for tests of `run_judge()`'s
+    `stop_reason: "refusal"` branch (2026-10-11, Opus 5.5)."""
+
+    def __init__(self, category: str | None = None, explanation: str | None = None):
+        self.type = "refusal"
+        self.category = category
+        self.explanation = explanation
+
+
 class FakeMessage:
-    def __init__(self, text: str, usage: "FakeUsage | None" = None):
+    """`stop_reason`/`stop_details` (2026-10-11) default to None -- a fake that
+    doesn't care about stop reasons behaves exactly as it did before `run_judge()`
+    learned to branch on them (`getattr(response, "stop_reason", None)`), so every
+    pre-existing test keeps working unchanged."""
+
+    def __init__(
+        self,
+        text: str,
+        usage: "FakeUsage | None" = None,
+        stop_reason: str | None = None,
+        stop_details: "FakeStopDetails | None" = None,
+    ):
         self.content = [FakeTextBlock(text)]
         self.usage = usage if usage is not None else FakeUsage()
+        self.stop_reason = stop_reason
+        self.stop_details = stop_details
 
 
 class FakeContentBlock:
     """A single content block for a `FakeMixedMessage` -- mirrors whichever real
-    SDK block type `type` names (`text`, `server_tool_use`,
+    SDK block type `type` names (`text`, `thinking`, `server_tool_use`,
     `web_search_tool_result`, `web_fetch_tool_result`, ...). Only `text` blocks
     carry a `.text` attribute (matching the real SDK: non-text blocks expose
-    other fields `run_judge()` never reads)."""
+    other fields `run_judge()` never reads -- a real `thinking` block carries
+    `.thinking`, empty under the default `display: "omitted"`, never `.text`)."""
 
     def __init__(self, block_type: str, text: str | None = None):
         self.type = block_type
@@ -118,14 +186,26 @@ class FakeContentBlock:
 class FakeMixedMessage:
     """A canned response whose `.content` is a CALLER-SUPPLIED list of blocks
     (judge methodology v2) -- for tests that need interleaved
-    server_tool_use/tool_result/text blocks, proving `run_judge()`'s
+    server_tool_use/tool_result/thinking/text blocks, proving `run_judge()`'s
     `_extract_final_text_block()` finds the LAST text block specifically, not the
     first, and not a join of every text block. Queue one via
-    `make_fake_client(FakeMixedMessage([...]))` exactly like any other response."""
+    `make_fake_client(FakeMixedMessage([...]))` exactly like any other response.
 
-    def __init__(self, content_blocks: list, usage: "FakeUsage | None" = None):
+    `stop_reason`/`stop_details` (2026-10-11) default to None, exactly as on
+    `FakeMessage` -- set them to exercise `run_judge()`'s refusal/truncation/
+    pause_turn branches."""
+
+    def __init__(
+        self,
+        content_blocks: list,
+        usage: "FakeUsage | None" = None,
+        stop_reason: str | None = None,
+        stop_details: "FakeStopDetails | None" = None,
+    ):
         self.content = content_blocks
         self.usage = usage if usage is not None else FakeUsage()
+        self.stop_reason = stop_reason
+        self.stop_details = stop_details
 
 
 class FakeMessagesResource:

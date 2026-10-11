@@ -16,11 +16,16 @@ stories kept. Two additions on top:
    documents `{story, judge_view, rationale}` -- forcing the disagreement to be
    explicit and reviewable rather than buried in prose.
 
-Model moves to **Opus 4.8** per judge methodology v2's owner-directed "judges must
-be stronger than what they judge" principle (`base.JUDGE_MODELS`) -- the owner's
+Model moves to **Opus** per judge methodology v2's owner-directed "judges must be
+stronger than what they judge" principle (`base.JUDGE_MODELS`) -- the owner's
 original spec allowed Haiku to stay "unless you find a hard reason otherwise," but
 a later, binding direction moved ALL FOUR judges to Opus uniformly; see
 `base.py`'s module docstring and the ADR-0016 amendment for the full rationale.
+
+MODEL UPDATE (2026-10-11, owner-directed): `claude-opus-5-5` (from Opus 4.8), with
+`output_config={"effort": "high"}` and `max_tokens` raised 3072 -> 16000 because
+Opus 5.5's always-on thinking counts against `max_tokens`. Prompt, tool versions
+and `max_uses: 5` caps UNCHANGED.
 
 Tool schema/version: SAME as `accuracy.py` (`web_search_20250305` /
 `web_fetch_20250910`, no beta header) -- see that module's docstring for the
@@ -118,7 +123,7 @@ def judge_content_selection(client: Any, *, candidates_json: list[dict] | None, 
         system_prompt=_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         model=_MODEL,
-        max_tokens=3072,
+        max_tokens=16000,  # Opus 5.5: thinking counts against max_tokens (was 3072)
         tools=[_WEB_SEARCH_TOOL, _WEB_FETCH_TOOL],
     )
 

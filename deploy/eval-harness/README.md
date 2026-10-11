@@ -76,15 +76,49 @@ kind of "real" call this suite makes).
 
 ## The cost model (D2)
 
-`pricing.json` pins, per model family, a base input/output price per tier (each
-with `effective_from`/`effective_until` and a `source_url`) plus fixed cache-bucket
-multipliers (5m write ×1.25, 1h write ×2, read ×0.1 — all relative to that model's
-own base input rate). `harness/cost.py` consumes a session's per-thread `usage`
-(`GET /v1/sessions/{id}/threads`) and multiplies it out per thread, resolving each
-thread's model PRIMARILY from the triggered candidate's own declaration
-(`multiagent.json` roster / `model.txt`), falling back to the thread's own embedded
-`agent` object (the same shape `GET /v1/agents/{id}` returns) when no declaration is
-given or a thread's `agent_id` isn't in it.
+`pricing.json` pins, per model family, a base input/output price per tier (each with
+`effective_from`/`effective_until` and a `source_url`) plus cache-bucket multipliers
+relative to the applicable rate card's own base input rate. `harness/cost.py` consumes a
+session's per-thread `usage` (`GET /v1/sessions/{id}/threads`) and multiplies it out per
+thread, resolving each thread's model PRIMARILY from the triggered candidate's own
+declaration (`multiagent.json` roster / `model.txt`), falling back to the thread's own
+embedded `agent` object (the same shape `GET /v1/agents/{id}` returns) when no declaration
+is given or a thread's `agent_id` isn't in it.
+
+**Cache multipliers are per model, not uniform (changed 2026-10-11).** The table's
+top-level `cache_multipliers` (5m write ×1.25, 1h write ×2, read ×0.1) are now DEFAULTS; a
+model entry may carry its own `cache_multipliers` object, merged over them key by key.
+Claude Opus 5.5 and Claude Sonnet 5.5 use `{"read": 0.05}` — the pricing page's footnote
+"Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the
+base input price" — and inherit the ×1.25/×2 write ratios. The pre-2026-10-11 claim that
+the ratios apply uniformly to every family is no longer true; never add a model on that
+assumption.
+
+**Two rate cards, priced per request (Claude Haiku 5.5).** A tier may carry an optional
+`long_prompt` card (`{threshold_prompt_tokens, input_per_million_usd,
+output_per_million_usd}`). Haiku 5.5 is $0.10/$0.50 per MTok for prompts up to 100,000
+tokens and $0.50/$2.50 above it, and the page bills **each request on its own card**
+("prompt length counts all of its input tokens, including cache reads and cache writes …
+a request over the threshold pays the higher prices even when part of its prompt is a
+cache hit"). Aggregate thread usage cannot say which card each request hit, so such a
+thread is priced **per request** from the `span.model_request_end.model_usage` entries in
+the session events `run.py` already fetches (and stores as `events.json`) — no extra API
+call. `cost.json`'s thread entry then also carries `request_card_counts`
+(`{"standard": n, "long_prompt": m}`) so the split that produced the number is visible.
+Four fail-loud refusals, never a guess (`cost.PerRequestPricingError`): no events
+supplied; a **multi-thread** session (a `span.model_request_end` event carries no thread
+identifier, so a request can't be attributed to a thread — single-thread sessions only);
+a non-zero 1h cache-write bucket (the per-request `cache_creation_input_tokens` is flat,
+with no TTL split); or per-request usages that don't sum to the thread's own totals
+(verified exact on every stored single-thread run: 29/27/18 requests). `price_usage()`
+(judge-call pricing) refuses a rate-carded model for the same reason.
+
+Claude Sonnet 5's "standard from 2026-09-01 at $3/$15" tier was **corrected** on
+2026-10-11: per the page's own footnote that increase will not occur and $2/$10 is the
+standard price on every date. Claude Haiku 4.5 and Claude Opus 4.8 are retained unchanged
+so every record committed under `runs/` still re-prices to exactly its stored numbers —
+asserted by `tests/test_cost_golden.py`, which walks every committed `cost.json` /
+`threads-usage.json`.
 
 ```bash
 # Fail loud if today's date falls outside every declared model's price coverage:
@@ -107,16 +141,44 @@ Each of the four v1 criteria (`content_selection`, `factual_accuracy`, `length_f
 three of the four after two real committed runs exposed genuine judge-quality defects;
 `length_format` is unchanged.
 
-**Models — ALL FOUR default to `claude-opus-4-8`.** The owner's principle: a judge must be
-run on a model STRONGER than what it judges, or the evaluation doesn't mean much. Per-judge
-model config stays flippable — `eval_core/judges/base.JUDGE_MODELS` is the one small mapping
-(`{criterion: model_id}`) every judge module resolves its own entry from; changing one
-judge's model back down is a one-line edit there, not a hunt through four files. Each
-`JudgeResult` records which model actually ran the call (`.model`), so `run.py`'s
-`_price_judge_results()` prices every criterion against ITS OWN model — `judge-cost.json`'s
-top-level `models` field is the sorted set of models actually used across the criteria a run
-tested (usually just `["claude-opus-4-8"]`, but would show more than one entry if a judge's
-model is ever flipped).
+**Models — ALL FOUR run on `claude-opus-5-5`** (owner-directed 2026-10-11; `claude-opus-4-8`
+before that). The owner's principle: a judge must be run on a model STRONGER than what it
+judges, or the evaluation doesn't mean much. Per-judge model config stays flippable —
+`eval_core/judges/base.JUDGE_MODELS` is the one small mapping (`{criterion: model_id}`) every
+judge module resolves its own entry from; changing one judge's model back down is a one-line
+edit there, not a hunt through four files. Each `JudgeResult` records which model actually ran
+the call (`.model`), so `run.py`'s `_price_judge_results()` prices every criterion against ITS
+OWN model — `judge-cost.json`'s top-level `models` field is the sorted set of models actually
+used across the criteria a run tested (usually just `["claude-opus-5-5"]`), and each
+criterion's entry in **`scores.json` also carries its `model`** so a score committed before
+2026-10-11 (judged by Opus 4.8) stays distinguishable from one after it. `pricing.json`
+deliberately retains the Opus 4.8 entry for that reason.
+
+**What the Opus 5.5 move changed in the judge call** (and nothing else — prompts, tool
+versions, `max_uses` caps and top-level `cache_control` are untouched; verified live
+2026-10-11 that `claude-opus-5-5` accepts `web_search_20250305` + `web_fetch_20250910`
+together with `output_config.effort` and top-level `cache_control` on the installed SDK,
+anthropic 0.116.0):
+
+- **Explicit `output_config={"effort": "high"}`** on every call. Opus 5.5's API default is
+  `medium` where Opus 4.8's was `high`, so a bare model swap would quietly drop the judges one
+  deliberation level below every previously-committed run.
+- **`max_tokens` raised** to 16000 for the three reasoning judges and 8000 for `length_format`
+  (from 1024–4096). Thinking is always on and cannot be disabled on this model, and thinking
+  tokens count against `max_tokens`, so the old caps would truncate. `run_judge()` sends no
+  `thinking` field, no `budget_tokens`, no sampling params and no forced `tool_choice` — all
+  of which 400 on Opus 5.5.
+- **`stop_reason` is handled before the content is read** (there was none before):
+  `"refusal"` raises `JudgeRefusedError` carrying `stop_details.category` — deliberately with
+  NO fallback to another model, since a silent model swap mid-batch would change the measuring
+  instrument; `"max_tokens"` raises `JudgeTruncatedError`; `"pause_turn"` (the server-side tool
+  loop's 10-iteration limit) is resumed by sending the paused assistant turn back unchanged, up
+  to 5 continuations, SUMMING token usage and web-search counts across iterations so a resumed
+  call is never under-billed. All three are plain exceptions that land in `run.py`'s existing
+  per-repetition containment (`final_status="judging_failed"`, run state `failed`, paid
+  artifacts/events kept) — no new silent-degrade path.
+- Thinking blocks (`type: "thinking"`, empty text under the default display) are ignored by the
+  verdict extraction, which has always selected only `type == "text"` blocks.
 
 - **`factual_accuracy` — full rework.** Previously judged PLAUSIBILITY against the judge's
   own training data (a real committed run penalized a correctly-dated brief for being
@@ -157,7 +219,8 @@ model is ever flipped).
   need no external verification).
 - **`length_format` — UNCHANGED.** Prompt, rubric, and approach are exactly as they were
   (a length/format check needs no live research and was never implicated by either
-  live-run finding) — the ONLY change is its model, per the uniform Opus default above.
+  live-run finding) — the ONLY changes are its model, effort and `max_tokens`, per the
+  uniform Opus default above.
 
 **Web-tool schema/versions** (verified live 2026-07-07 against
 `platform.claude.com/docs/en/docs/agents-and-tools/tool-use/{web-search,web-fetch}-tool`,
@@ -181,20 +244,25 @@ prices as $0. Every judge call enables **automatic prompt caching** (top-level
 loop re-sends the whole accumulated context every iteration, and the first live uncached
 smoke of the v2 accuracy judge cost **$1.60** (281,543 full-price input tokens); the
 identical cached re-run cost **$0.88 (-45%)** — 10 full-price input + ~99K cache-write +
-~193K cache-read tokens. Measured judge cost: **~$0.88 for the accuracy judge alone;
-roughly $1.40–$1.60 per repetition all-in across all four** (incl. up to 8+5=13 web searches
-at $0.01 each) — note Opus 4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more
+~193K cache-read tokens. Those figures were measured on **Opus 4.8**; on Opus 5.5 the same
+call is cheaper on both axes (base input $4 vs $5, and cache reads at 0.05x base input vs
+0.1x — i.e. $0.20 vs $0.50 per MTok), though explicit `high` effort means more thinking
+tokens, so re-baseline from the first real 5.5 run rather than scaling the old numbers.
+Historical measured judge cost (Opus 4.8): **~$0.88 for the accuracy judge alone; roughly
+$1.40–$1.60 per repetition all-in across all four** (incl. up to 8+5=13 web searches at
+$0.01 each) — note Opus 4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more
 tokens for the same text** than Haiku 4.5's tokenizer (part of why an Opus judge costs more
 per call than a raw token-count comparison alone would suggest — see `pricing.json`'s own
 comment).
 
-**Response parsing**: a server-side-tool response can carry MIXED content (narration text,
-`server_tool_use`/tool-result blocks, then a final text block) — `run_judge()` parses ONLY
-the LAST text block for the JSON verdict, never joins every text block (an earlier narration
-block's own stray braces could otherwise corrupt the parse) and never assumes the first block
-is the answer. The `scores.json` schema stays additive: the original
-`{score, rationale, evidence, insufficient_data}` shape is unchanged; `findings`/
-`selection_disagreements` are included only when a judge's result actually carries one. The
+**Response parsing**: a server-side-tool response can carry MIXED content (`thinking` blocks,
+narration text, `server_tool_use`/tool-result blocks, then a final text block) — `run_judge()`
+parses ONLY the LAST text block for the JSON verdict, never joins every text block (an earlier
+narration block's own stray braces could otherwise corrupt the parse) and never assumes the
+first block is the answer. The `scores.json` schema stays additive: the original
+`{score, rationale, evidence, insufficient_data}` shape is unchanged, plus `model` (always,
+since 2026-10-11) and `findings`/`selection_disagreements` only when a judge's result actually
+carries one. The
 Deep Dive UI (`templates/run_detail.html`) renders both as plain tables, escaped exactly like
 every other judge-authored field (never `| safe`).
 
@@ -240,6 +308,36 @@ The `--email` flag is a **deferred stub** (ADR-0016 D3): passing it exits
 immediately with an error pointing at the ADR, rather than sending anything. An
 eval run never emails anyone and never touches AWS delivery, by construction.
 
+### The captured-brief guard (2026-10-11)
+
+Before any judging, **every** repetition (whatever criteria subset was selected)
+must prove it actually captured the candidate's *own* brief —
+`run._verify_candidate_brief_was_captured()` raises
+`CandidateBriefNotCapturedError` when:
+
+- **no brief artifact was captured at all** (previously a silent degrade: the
+  judges got `""` and reported `insufficient_data`, which the Assess table renders
+  as a blank — indistinguishable from "untested"), or
+- **the selected brief is one the delivery feed already carries**, compared by
+  whitespace-normalized *content* against an unfiltered
+  `GET /recent-briefs` read (`dedup_priors.fetch_recent_briefs_unfiltered()`).
+
+Why content and not dates: in a real paid batch, a `haiku-swap-hardened`
+repetition wrote today's brief and then ran `cat "…" | head -100` at the capture
+step — a piped `cat` the retrieval layer does not recognize — so the only briefs
+on hand were the two **priors** the hardened prompt makes the agent read, and
+Friday's real production brief got scored as the candidate's work and recorded as
+a success. A date rule cannot catch that (on a weekday the feed legitimately holds
+a same-dated brief).
+
+The error flows into the existing per-repetition containment:
+`final_status="judging_failed"` with the error and the captured filenames named,
+no `scores.json`, and the paid `artifacts/`, `events.json`, `cost.json` and
+`threads-usage.json` all still written (cost is mined **before** the guard, on
+purpose, so the spend is always recorded). If the feed cannot be read at all
+(no signing key, transport failure) the check prints
+`BRIEF_PRIOR_CHECK_SKIPPED` on stderr and the repetition proceeds.
+
 ## The UI (`ui.py`, D5)
 
 ```bash
@@ -277,11 +375,29 @@ it so template/code changes take effect.
   which auto-refreshes every 5s while `configured`/`running`.
 - **Assess** (`/assess`) — one-page table of every eval run: name, model(s),
   agent-vs-multi-agent, repetitions, production-config marker, all four criteria
-  (blank where untested), mean cost, whether a human eval exists.
+  (blank where untested), mean cost, the **judge model** that scored the run
+  (so a July record judged by Opus 4.8 is distinguishable from an October one
+  judged by Opus 5.5), mean judge cost, whether a human eval exists.
 - **Deep dive** (`/runs/<slug>/<eval-run-id>`) — per-repetition explorer (scores,
   cost by thread, artifacts, the rendered brief), plus the candidate's full
   configuration (main + every sub-agent's prompts) read via `git show <git_ref>:<path>`
   at the EXACT commit the run was triggered against — no repo checkout/rollback.
+
+#### `git` resolution for the Deep Dive page (review-fix, 2026-10-11)
+
+`harness/git_show.py` does **not** trust the process's `PATH` to hold a working
+`git`, because under launchd it does not: launchd's default `PATH` resolves `git`
+to `/usr/bin/git`, Apple's command-line-tools shim, which on a Mac whose Xcode
+license has not been accepted prints *"You have not agreed to the Xcode license
+agreements"* instead of doing anything — which made **every** Deep Dive page
+return HTTP 500 while `/opt/homebrew/bin/git` worked fine. The module now probes
+for a git that actually works (PATH's `git` first, then `/opt/homebrew/bin/git`,
+`/usr/local/bin/git`, `/usr/bin/git`), accepting a candidate only if `git
+--version` both exits 0 **and** prints a real `git version ...` line **and** a
+`git rev-parse --show-toplevel` call succeeds; the result is cached per process.
+If nothing works — or a `git show` fails, or the recorded ref is unknown to this
+clone — the page still renders everything else and shows a visible note in the
+candidate-configuration section. Fixing this needed no change to the plist.
 
 ## Run records (ADR-0016 D4)
 
@@ -298,7 +414,8 @@ runs/<candidate-slug>/<eval-run-id>/
       artifacts/          AI Brief - <date>.md, listening-script.txt,
                           candidates.json, source-usage.json (whichever were cat'd)
       threads-usage.json / cost.json   per-thread usage + cost (harness.cost)
-      scores.json          per-criterion {score, rationale, evidence, insufficient_data}
+      scores.json          per-criterion {score, rationale, evidence,
+                            insufficient_data, model (the judge model)}
       run-meta.json         deployment_id, session_id, thread_count, final_status
       events.json           GITIGNORED (runs/**/events.json) -- the full raw trace
     02/ ...
@@ -310,6 +427,29 @@ runs/<candidate-slug>/<eval-run-id>/
 Everything above is committed EXCEPT the large raw `events.json` per repetition —
 see `.gitignore`'s targeted `runs/**/events.json` pattern (not a blanket `runs/`
 ignore).
+
+### `is_production_config` is HISTORICAL (review-fix, 2026-10-11)
+
+The flag means **“this candidate *was* the production configuration at the time of
+this run”** — resolved once by `run.py` when the record is written, from the single
+shared source `harness/production_config.py`, and then never recomputed or
+rewritten (the Assess table renders the stored value). Production's configuration
+has had three eras: `production-baseline`’s Sonnet 5 until **2026-07-13**,
+**`haiku-swap-hardened`** (Haiku 4.5 + hardened prompt — see
+`docs/prd/cost-optimization-candidates.md` §6) from then until **2026-10-11**, and
+**`haiku-5-5-hardened`** (Haiku 5.5 at effort high, same unchanged hardened prompt)
+since 2026-10-11. So:
+
+- `production-baseline`’s July records legitimately keep `true`, and so does the
+  `haiku-swap-hardened` run of 2026-10-11 that was taken a few hours *before* that
+  day's switch;
+- today's `haiku-5-5-hardened` records legitimately keep `false` (taken while it was
+  still only a candidate);
+- new `haiku-5-5-hardened` runs record `true`, and new `production-baseline` /
+  `haiku-swap-hardened` runs record `false`;
+- a candidate can also claim the marker itself via `candidate.json`’s optional
+  `is_production_config` field, which wins over the slug — so the next production
+  promotion is a declaration edit, not a code change.
 
 ## Calibration (parked, not wired in)
 

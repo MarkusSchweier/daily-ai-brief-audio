@@ -10,37 +10,82 @@
     "`--check-pricing-drift` guard, which fails loud when today's date falls outside",
     "every tier's window for a model family.",
     "",
-    "`cache_multipliers` are fixed and (per ADR-0016 D2's live-confirmed arithmetic,",
-    "reproduced exactly by the golden test in tests/test_cost_golden.py) apply",
-    "UNIFORMLY across both model families below: a cache-write (creation) token costs",
-    "`write_5m`/`write_1h` times the model's OWN base INPUT rate; a cache-read token",
-    "costs `read` times that same base input rate. Output happens to price out to",
-    "~5x each model's own base input rate on every tier below -- noted as a sanity",
-    "observation, NOT stored/derived as a multiplier (output_per_million_usd is",
-    "pinned explicitly per tier, not computed, for maximum accuracy per the ADR's",
-    "'prices must be pinned, not formula-derived' stance).",
+    "SCHEMA (three layers, smallest-to-most-specific -- see harness/cost.py's",
+    "`resolve_price_tier()`):",
+    "  1. the top-level `cache_multipliers` block = the DEFAULT cache ratios, each",
+    "     relative to the applicable rate card's OWN base input rate (a cache-write",
+    "     token costs `write_5m`/`write_1h` x that input rate; a cache-read token",
+    "     costs `read` x it);",
+    "  2. an OPTIONAL per-model `cache_multipliers` object, MERGED OVER those",
+    "     defaults key-by-key (so `{\"read\": 0.05}` overrides only the read ratio and",
+    "     inherits the 1.25/2.0 write ratios);",
+    "  3. an OPTIONAL per-tier `long_prompt` object -- a SECOND rate card for models",
+    "     Anthropic prices by prompt length, with its own input/output rates and its",
+    "     own `threshold_prompt_tokens`. The cache multipliers (own or inherited)",
+    "     apply to whichever card a request lands on, against THAT card's input rate.",
     "",
-    "Judge methodology v2 (2026-07-07, owner-directed, docs/adr/0016 amendment):",
-    "'claude-opus-4-8' was added -- ALL FOUR judges now default to Opus 4.8 (a judge",
-    "must be a stronger model than what it judges), verified live against the pricing",
-    "page the same day: $5/$25 per MTok in/out, standard (non-introductory) pricing,",
-    "no effective_until. Its cache multipliers ($6.25/$10/$0.50) reproduce the SAME",
-    "uniform 1.25/2.0/0.1-of-base-input ratios as every other family, so no",
-    "per-model cache_multipliers override was needed. Note the pricing page's own",
-    "tokenizer caveat: Opus 4.7+ (incl. 4.8) and Sonnet 5 use a newer tokenizer that",
-    "produces ~30% MORE tokens for the same text than Haiku 4.5's tokenizer -- part",
-    "of why an Opus judge costs more per call than a token-count comparison alone",
-    "would suggest, not a pricing.json concern but worth knowing when reading a",
-    "judge-cost.json total. The 'web_search' block below is a SEPARATE, flat,",
-    "per-call (not per-token, not per-model) rate Anthropic bills web-search tool",
-    "invocations at -- confirmed live the same day against the web-search-tool docs",
-    "page ('$10 per 1,000 searches' = $0.01/search); web fetch is NOT priced here",
-    "because it is billed at token cost only, no separate per-call fee (confirmed",
-    "live against the web-fetch-tool docs page: 'available at no additional cost...",
-    "you only pay standard token costs')."
+    "The pre-2026-10-11 version of this file asserted the cache ratios applied",
+    "UNIFORMLY across every family. That is NO LONGER TRUE (layer 2 above exists",
+    "precisely because it stopped being true), and no new model may be added here on",
+    "the assumption that it is -- read the pricing page's own per-model cache rates.",
+    "Output rates are still pinned explicitly per tier, never formula-derived from",
+    "the input rate (ADR-0016 D2: 'prices must be pinned, not formula-derived').",
+    "",
+    "CAPTURED 2026-10-11 (verified against the live pricing page the same day, for",
+    "the Haiku 5.5 / Sonnet 5.5 / Opus 5.5 matched eval):",
+    "  - `claude-opus-5-5` $4/$20 per MTok, 5m write $5, 1h write $8, cache read",
+    "    $0.20 = 0.05x base input -- the page's own footnote: 'Cache hits and",
+    "    refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the",
+    "    base input price.' Hence the per-model `cache_multipliers: {read: 0.05}`",
+    "    override; the write ratios are the usual 1.25x/2x.",
+    "  - `claude-sonnet-5-5` $2/$10, 5m write $2.50, 1h write $4, cache read $0.10",
+    "    = the same 0.05x read override.",
+    "  - `claude-haiku-5-5` has TWO rate cards, chosen PER REQUEST by prompt length:",
+    "    up to 100,000 prompt tokens $0.10/$0.50 (5m $0.125, 1h $0.20, read $0.01);",
+    "    over 100,000 prompt tokens $0.50/$2.50 (5m $0.625, 1h $1, read $0.05).",
+    "    Both cards' cache rates are exactly the DEFAULT 1.25/2.0/0.1 ratios of that",
+    "    card's own input rate, so Haiku 5.5 needs NO cache override -- only the",
+    "    `long_prompt` card. Page wording: 'A request's prompt length counts all of",
+    "    its input tokens, including cache reads and cache writes. Each request is",
+    "    priced on its own: a request over the threshold pays the higher prices even",
+    "    when part of its prompt is a cache hit, and earlier requests keep the prices",
+    "    they were billed at.' This is why a rate-carded model CANNOT be priced from",
+    "    a thread's aggregate usage -- `harness/cost.py` prices it per REQUEST from",
+    "    the session events' `span.model_request_end.model_usage`, with a fail-loud",
+    "    integrity check against the thread's own totals.",
+    "  - `claude-sonnet-5` CORRECTED: this table previously carried a 'standard from",
+    "    2026-09-01' tier at $3/$15, transcribed from the then-scheduled increase.",
+    "    The page's own footnote now reads: the $2/$10 introductory pricing 'is now",
+    "    the standard price. The previously scheduled increase to $3/$15 ... on",
+    "    September 1, 2026 will not occur.' So Sonnet 5 is $2/$10 on EVERY date, one",
+    "    tier, cache read unchanged at 0.1x = $0.20. (Tier history, kept honest: the",
+    "    $2/$10 rate was introduced as 'introductory' with an effective_until of",
+    "    2026-08-31; nothing re-priced on 2026-09-01, and no run was ever costed",
+    "    against the phantom $3/$15 tier -- every committed run record predates it",
+    "    and re-prices identically under this correction.)",
+    "  - `claude-haiku-4-5` ($1/$5) and `claude-opus-4-8` ($5/$25) are UNCHANGED and",
+    "    deliberately retained: the production config ran on Haiku 4.5, and every",
+    "    eval run committed before 2026-10-11 was judged by Opus 4.8 -- both must",
+    "    keep re-pricing to exactly their recorded numbers.",
+    "",
+    "Judge model (owner-directed 2026-10-11, docs/adr/0016 amendment): ALL FOUR",
+    "judges now run on `claude-opus-5-5` (previously Opus 4.8) -- so judge-cost",
+    "pricing picks up that 0.05x cache-read rate, which matters a lot for the",
+    "web-tool judges whose server-side loop re-reads a cached prefix every",
+    "iteration. Note the pricing page's own tokenizer caveat: Opus 4.7+ (incl. 4.8,",
+    "Opus 5, Opus 5.5) and Sonnet 5/5.5 use a newer tokenizer that produces ~30%",
+    "MORE tokens for the same text than Haiku 4.5's tokenizer -- not a pricing.json",
+    "concern, but worth knowing when reading a judge-cost.json total or comparing a",
+    "Haiku 4.5 candidate's token counts against a Haiku 5.5 one.",
+    "",
+    "The 'web_search' block below is a SEPARATE, flat, per-call (not per-token, not",
+    "per-model) rate Anthropic bills web-search tool invocations at -- confirmed live",
+    "2026-07-07 against the web-search-tool docs page ('$10 per 1,000 searches' =",
+    "$0.01/search) and UNCHANGED at the 2026-10-11 capture; web fetch is NOT priced",
+    "here because it is billed at token cost only, no separate per-call fee."
   ],
   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
-  "captured_on": "2026-07-07",
+  "captured_on": "2026-10-11",
   "cache_multipliers": {
     "write_5m": 1.25,
     "write_1h": 2.0,
@@ -53,23 +98,32 @@
   },
   "models": {
     "claude-sonnet-5": {
+      "_comment": "Tier history: the $2/$10 rate shipped as 'introductory' with a scheduled increase to $3/$15 on 2026-09-01. Per the pricing page's 2026-10-11 footnote that increase WILL NOT OCCUR and $2/$10 is now the standard price -- one tier, every date.",
       "aliases": ["claude-sonnet-5"],
       "tiers": [
         {
-          "label": "introductory",
+          "label": "standard",
           "effective_from": null,
-          "effective_until": "2026-08-31",
+          "effective_until": null,
           "input_per_million_usd": 2.0,
           "output_per_million_usd": 10.0,
-          "captured_on": "2026-07-07"
-        },
+          "captured_on": "2026-10-11"
+        }
+      ]
+    },
+    "claude-sonnet-5-5": {
+      "aliases": ["claude-sonnet-5-5"],
+      "cache_multipliers": {
+        "read": 0.05
+      },
+      "tiers": [
         {
           "label": "standard",
-          "effective_from": "2026-09-01",
+          "effective_from": null,
           "effective_until": null,
-          "input_per_million_usd": 3.0,
-          "output_per_million_usd": 15.0,
-          "captured_on": "2026-07-07"
+          "input_per_million_usd": 2.0,
+          "output_per_million_usd": 10.0,
+          "captured_on": "2026-10-11"
         }
       ]
     },
@@ -86,6 +140,25 @@
         }
       ]
     },
+    "claude-haiku-5-5": {
+      "_comment": "TWO rate cards, chosen per REQUEST by prompt length (input + cache reads + cache writes). A thread's aggregate usage cannot pick a card, so harness/cost.py prices this family per request from the session events.",
+      "aliases": ["claude-haiku-5-5"],
+      "tiers": [
+        {
+          "label": "standard",
+          "effective_from": null,
+          "effective_until": null,
+          "input_per_million_usd": 0.1,
+          "output_per_million_usd": 0.5,
+          "long_prompt": {
+            "threshold_prompt_tokens": 100000,
+            "input_per_million_usd": 0.5,
+            "output_per_million_usd": 2.5
+          },
+          "captured_on": "2026-10-11"
+        }
+      ]
+    },
     "claude-opus-4-8": {
       "aliases": ["claude-opus-4-8"],
       "tiers": [
@@ -96,6 +169,22 @@
           "input_per_million_usd": 5.0,
           "output_per_million_usd": 25.0,
           "captured_on": "2026-07-07"
+        }
+      ]
+    },
+    "claude-opus-5-5": {
+      "aliases": ["claude-opus-5-5"],
+      "cache_multipliers": {
+        "read": 0.05
+      },
+      "tiers": [
+        {
+          "label": "standard",
+          "effective_from": null,
+          "effective_until": null,
+          "input_per_million_usd": 4.0,
+          "output_per_million_usd": 20.0,
+          "captured_on": "2026-10-11"
         }
       ]
     }

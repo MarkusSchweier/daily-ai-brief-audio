@@ -1,0 +1,207 @@
+[
+  {
+    "title": "Anthropic cuts live internet from all internal evals after Claude unintended actions",
+    "source": "Anthropic; The Hacker News; Gizmodo; PPC Land",
+    "disposition": "included"
+  },
+  {
+    "title": "White House Super Intelligence Force mandates AI incident disclosure",
+    "source": "Axios; Philadelphia Inquirer",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI misalignment reports: grader model damaging its task environment (+2 June incidents)",
+    "source": "OpenAI Alignment; The Decoder",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI withdraws 3 of 722 AI-generated math manuscripts (sign error)",
+    "source": "Retraction Watch; OpenAI GitHub; MLQ",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI annualized revenue ~$50B vs reported $70B",
+    "source": "FT; CNBC; Dealroom; TechTimes",
+    "disposition": "included"
+  },
+  {
+    "title": "Broadcom $50B+ financing for OpenAI custom chips; Oracle and SpaceX debt deals",
+    "source": "WSJ (paywall); FT (paywall); Benzinga; AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Nvidia in talks to acquire/deepen stake in Reflection AI (plus Beam and Mistral Large 4 independent evals)",
+    "source": "FT (paywall); Reuters; Bloomberg; TechCrunch; Mistral",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Gemini agent with coworker agents (own Workspace account)",
+    "source": "Google Cloud blog; VentureBeat; Implicator",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft-Decision-1 decision model at $0.042/M",
+    "source": "Dealroom; CellCog; Progressive Robot",
+    "disposition": "included"
+  },
+  {
+    "title": "Epoch InnovationEval: agents fail to rediscover SDPO",
+    "source": "Epoch AI",
+    "disposition": "included"
+  },
+  {
+    "title": "Australia: developers must prove safety systems work",
+    "source": "ABC News; Region Canberra",
+    "disposition": "included"
+  },
+  {
+    "title": "Berkeley-led study: 10 minutes of AI use reduces persistence (headline only)",
+    "source": "Berkeley News; arXiv",
+    "disposition": "included"
+  },
+  {
+    "title": "Manus parent Butterfly Effect raises $500M+ (headline only; truncated source)",
+    "source": "TechNode via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders 15-20% on memory costs (headline only)",
+    "source": "Nikkei Asia via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Amodei asked Meta's Wang for compute; Meta declined (paywalled WSJ scoop, headline only)",
+    "source": "WSJ (paywall); AI Weekly; Techmeme",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic 2026 Usage Policy update (effective Nov 12; abuse of Claude, democratic processes)",
+    "source": "Anthropic; TechCrunch via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cloudflare acquires Deno",
+    "source": "The New Stack via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cloudflare Clef decision models (9B/27B open weights)",
+    "source": "Cloudflare via CellCog/AIXVZ",
+    "disposition": "excluded"
+  },
+  {
+    "title": "NVIDIA Nemotron 3 gold-level IOI 2026 (535.4/600, unofficial) and IMO 2026 (30/42)",
+    "source": "Hugging Face blog (NVIDIA)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Cloud AI Research RRSI: regularized recursive self-improvement of agent harnesses",
+    "source": "The Decoder; arXiv 2609.24972",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SemiAnalysis China datacenter model: 24 GW vs US 56 GW",
+    "source": "SemiAnalysis",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Reflection AI Beam launch (Oct 5) as a standalone story",
+    "source": "TechCrunch; Reflection AI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mistral Large 4 preview launch as a standalone story (Oct 6)",
+    "source": "Mistral; VentureBeat",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Amazon blocks Meta's Muse agent from shopping (Sept 20-21)",
+    "source": "GeekWire; Bloomberg",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Warner/Schatz/Kim AI Risk Management and Security Act S.5576 (Sept 24/29) as standalone",
+    "source": "Warner press release",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Banks-Gillibrand bill: DoD oversight of frontier AI contractors (Oct 8)",
+    "source": "DefenseScoop",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embedding models (Oct 7)",
+    "source": "AI Weekly (Perplexity)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "HF paper 'Optimizing the Optimizer' (Claude Fable 5.1 + GPT-6 Astra cut DFT force calls ~60%)",
+    "source": "AI Weekly (HF Daily Papers)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SCAPO: spurious token sensitivity in RLVR (+5.63pp AIME)",
+    "source": "AI Weekly (HF Daily Papers)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Gemini 4 'Argon' / 'Carbon' internal testing (single-staffer rumor)",
+    "source": "Business Insider via Techmeme",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Colab perks in Google AI plans",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Underdog Saluki 27B 2-bit GGUF of Qwen3.8-27B",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Nous Research $90M Series B at $1.5B (Oct 7)",
+    "source": "TechCrunch via AIXVZ",
+    "disposition": "excluded"
+  },
+  {
+    "title": "TypeSafe $870M Series A at $7.5B (included only as hedged context inside the Decision-1 item; date unverified)",
+    "source": "Techmeme; Unite.AI",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI DevDay 2026 recap (Agents API, plugins, Private Intelligence)",
+    "source": "OpenAI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI first teen ChatGPT report / Common Sense Media rating",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "a16z consumer AI: only 4.5% of Americans pay for AI",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Kotaku: AI-decompiled game clones in browsers",
+    "source": "explainx.ai; Kotaku",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Senate investigation: data center developers misled on costs",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude Haiku 5.5 / GPT-6 Intelligent UI (already covered Oct 8 brief)",
+    "source": "Anthropic; OpenAI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Isomorphic Labs $40-50B funding talks; Ecosia drops Mistral; Anthropic Cyber Mission/Genesis (already covered Oct 9 brief; no material new development found)",
+    "source": "Bloomberg; Politico; Anthropic",
+    "disposition": "excluded"
+  }
+]

@@ -36,11 +36,17 @@ No web tools needed here (owner spec) -- this judge compares two pieces of TEXT
 it already has (today's brief + the dated priors), not a claim needing external
 verification.
 
-Model moves to **Opus 4.8** per judge methodology v2's owner-directed "judges must
-be stronger than what they judge" principle (`base.JUDGE_MODELS`) -- the owner's
+Model moves to **Opus** per judge methodology v2's owner-directed "judges must be
+stronger than what they judge" principle (`base.JUDGE_MODELS`) -- the owner's
 original spec said "model stays Haiku," but a later, binding direction moved ALL
 FOUR judges to Opus uniformly; see `base.py`'s module docstring and the ADR-0016
 amendment for the full rationale.
+
+MODEL UPDATE (2026-10-11, owner-directed): `claude-opus-5-5` (from Opus 4.8), with
+`output_config={"effort": "high"}` and `max_tokens` raised 2048 -> 16000 because
+Opus 5.5's always-on thinking counts against `max_tokens` -- this judge reads
+today's brief plus several full prior editions, so its reasoning is long even
+before the verdict. Prompt UNCHANGED; still no web tools.
 
 PORTED base structure (ADR-0016 Phase 1, 2026-07-07) from
 `deploy/eval/eval_core/judges/dedup.py`.
@@ -108,7 +114,7 @@ def judge_dedup(client: Any, *, brief_markdown: str, priors: list[dict[str, str]
         system_prompt=_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         model=_MODEL,
-        max_tokens=2048,
+        max_tokens=16000,  # Opus 5.5: thinking counts against max_tokens (was 2048)
     )
 
 

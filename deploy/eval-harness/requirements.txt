@@ -7,7 +7,12 @@ httpx>=0.27.0
 # The real Anthropic Messages API client the four ported judges call at runtime
 # (eval_core/judges/base.py's `run_judge(client, ...)` -- tests inject a fake, but
 # harness/run.py's live `run` CLI builds a real anthropic.Anthropic() client).
-anthropic>=0.40.0
+# Floor raised 0.40.0 -> 0.116.0 (2026-10-11): the judges now pass `output_config`
+# (the explicit `effort` Claude Opus 5.5 needs) and read `stop_reason`/
+# `stop_details`, alongside the top-level `cache_control` added in the v2 rework.
+# 0.116.0 is the version this combination was verified live against; an older SDK
+# would reject `output_config` as an unexpected keyword at the call site.
+anthropic>=0.116.0
 # D5: the tiny local Flask web app that triggers + views eval runs (127.0.0.1 only,
 # no auth needed -- ADR-0016 D5).
 flask>=3.0.0,<4.0.0
