@@ -1189,16 +1189,21 @@ def test_a_changed_model_id_is_still_a_diff_when_effort_is_declared_and_unchange
     assert agents_client.calls[1].kwargs["json"]["model"] == {"id": "claude-example-model-v2", "effort": "high"}
 
 
-def test_declared_effort_against_a_model_that_echoes_no_effort_at_all_stays_a_no_op(single_agent_dir):
+def test_declared_effort_against_a_model_that_echoes_no_effort_at_all_stays_a_no_op(single_agent_dir, capsys):
     """A model WITHOUT effort support echoes no `effort` key whatsoever -- confirmed
     live on the Haiku 4.5 agent (`{"id": "claude-haiku-4-5-20251001", "speed":
     "standard"}`). The platform has no effort to store for such a model, so a declared
     level can never be satisfied: comparing it would mean an update call on every sync,
     forever, converging on nothing. The deliberate choice (documented in
     `_normalize_live_field_for_comparison()`) is to compare ids only in that case, so
-    the no-op guarantee survives. This test exists to make that choice explicit and
-    reviewable rather than accidental -- if it ever becomes a loud warning instead,
-    this is the test that should change."""
+    the no-op guarantee survives.
+
+    AMENDED (review-fix, reviewer M2, 2026-10-11 -- this test's own earlier note
+    said "if it ever becomes a loud warning instead, this is the test that should
+    change", and it has): still a no-op at the MUTATION level (no update call, no
+    loop that can never converge), but no longer SILENT -- a declaration can no
+    longer claim `effort: high` while the live agent runs at its model's default
+    with nothing anywhere saying so."""
     _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
     _declare_effort(single_agent_dir, "high")
     model = (single_agent_dir / "model.txt").read_text().strip()
@@ -1214,6 +1219,92 @@ def test_declared_effort_against_a_model_that_echoes_no_effort_at_all_stays_a_no
 
     assert result.no_op is True
     assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+    # ...but LOUD: a WARNING on stderr, in the result's warnings, and in its summary.
+    err = capsys.readouterr().err
+    assert "EFFORT_NOT_SUPPORTED" in err
+    assert "'high'" in err
+    assert model in err
+    assert len(result.warnings) == 1
+    assert "EFFORT_NOT_SUPPORTED" in result.warnings[0]
+    assert "EFFORT_NOT_SUPPORTED" in str(result)
+
+
+def test_a_sub_agents_unsupported_effort_is_warned_about_by_name(multi_agent_dir, capsys):
+    """A per-sub-agent effort level buried in the roster must be just as loud as the
+    coordinator's own -- named by roster index so the operator knows WHICH agent."""
+    _mark_synced(multi_agent_dir, agent_id="agent_COORD")
+    multiagent_json_path = multi_agent_dir / "multiagent.json"
+    multiagent_data = json.loads(multiagent_json_path.read_text())
+    multiagent_data["agents"][0]["agent_id"] = "agent_SUB_0"
+    multiagent_data["agents"][0]["parameters"] = {"effort": "max"}
+    multiagent_json_path.write_text(json.dumps(multiagent_data))
+
+    agents_client = FakeHttpxClient()
+    agents_client.when("GET", "/v1/agents/agent_SUB_0", _agent_response("agent_SUB_0", model={"id": "claude-example-sub-model", "speed": "standard"}))
+    agents_client.when("GET", "/v1/agents/agent_COORD", _agent_response("agent_COORD", model={"id": "claude-example-model", "speed": "standard"}))
+    agents_client.when("POST", "/v1/agents/agent_SUB_0", _agent_response("agent_SUB_0", version=2))
+    agents_client.when("POST", "/v1/agents/agent_COORD", _agent_response("agent_COORD", version=2))
+
+    result = sync_candidate(multi_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    err = capsys.readouterr().err
+    assert "EFFORT_NOT_SUPPORTED" in err
+    assert "sub-agent[0]" in err
+    assert any("sub-agent[0]" in w for w in result.warnings)
+
+
+def test_no_declared_effort_against_a_live_echoed_effort_is_only_informational(single_agent_dir, capsys):
+    """Case (b): the live echo's effort could just as well be the API's own
+    filled-in DEFAULT, so it cannot honestly be called a mismatch -- it must stay
+    an informational line (and must NEVER become a warning or a diff, which was
+    the Phase 5 spurious-update bug)."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    assert json.loads((single_agent_dir / "parameters.json").read_text()) == {}  # no effort declared
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": {"type": "high"}}
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    captured = capsys.readouterr()
+    assert "live agent runs at effort=high; declaration sets none" in captured.out
+    assert captured.err == ""  # informational, NOT a warning
+    assert result.warnings == []
+    assert result.no_op is True  # and definitely not a diff
+    assert agents_client.call_signature() == [("GET", "/v1/agents/agent_ALREADY_SYNCED")]
+
+
+def test_a_matching_declared_and_live_effort_says_nothing_at_all(single_agent_dir, capsys):
+    """The ordinary, healthy case must stay completely quiet -- a sync that prints
+    something every time trains the operator to ignore it."""
+    _mark_synced(single_agent_dir, agent_id="agent_ALREADY_SYNCED")
+    _declare_effort(single_agent_dir, "high")
+    model = (single_agent_dir / "model.txt").read_text().strip()
+
+    agents_client = FakeHttpxClient()
+    agents_client.when(
+        "GET",
+        "/v1/agents/agent_ALREADY_SYNCED",
+        _live_agent_matching_fixture(
+            single_agent_dir, live_model={"id": model, "speed": "standard", "effort": "high"}
+        ),
+    )
+
+    result = sync_candidate(single_agent_dir, agents_client=agents_client, skills_client=FakeHttpxClient())
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert result.warnings == []
+    assert result.no_op is True
 
 
 def test_first_sync_sends_the_model_object_when_effort_is_declared(single_agent_dir):

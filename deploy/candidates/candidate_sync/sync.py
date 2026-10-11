@@ -41,6 +41,7 @@ Required behavior (implemented exactly, per the task brief and Decision 2c):
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,10 +66,18 @@ class SyncResult:
     updated: list[str] = field(default_factory=list)
     skill_versions_pushed: list[str] = field(default_factory=list)  # e.g. ["skill_abc123 -> version 1783..."]
     no_op: bool = False
+    # Conditions the sync DELIBERATELY does not act on, but which an operator must
+    # not miss (review-fix, reviewer M2, 2026-10-11): today the only member is a
+    # declared `effort` level against a model whose live echo carries no `effort`
+    # field at all -- the platform silently drops it, so the agent does NOT run at
+    # the declared level. Reported here (and on stderr at detection time) rather
+    # than turned into an update call that could never converge.
+    warnings: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         if self.no_op:
-            return f"candidate '{self.slug}': no-op (declaration unchanged, no create/update call made)"
+            summary = f"candidate '{self.slug}': no-op (declaration unchanged, no create/update call made)"
+            return summary + self._warning_suffix()
         parts = []
         if self.skill_versions_pushed:
             parts.append(f"skill versions pushed: {', '.join(self.skill_versions_pushed)}")
@@ -76,7 +85,15 @@ class SyncResult:
             parts.append(f"created: {', '.join(self.created)}")
         if self.updated:
             parts.append(f"updated: {', '.join(self.updated)}")
-        return f"candidate '{self.slug}': " + "; ".join(parts) if parts else f"candidate '{self.slug}': no-op"
+        summary = (
+            f"candidate '{self.slug}': " + "; ".join(parts) if parts else f"candidate '{self.slug}': no-op"
+        )
+        return summary + self._warning_suffix()
+
+    def _warning_suffix(self) -> str:
+        if not self.warnings:
+            return ""
+        return "\nWARNING: " + "\nWARNING: ".join(self.warnings)
 
 
 class _SkillSourceError(ValueError):
@@ -399,10 +416,13 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any, *, de
     `{"id": "claude-haiku-4-5-20251001", "speed": "standard"}` -- and the platform
     simply has no effort to store for it, so a declared level could never be satisfied;
     registering a diff would mean an unnecessary update call on every single sync,
-    forever, with nothing ever converging. Ids-only is the quiet, no-op-preserving
-    reading. (The declaration itself is NOT silently "wrong" -- it is faithfully sent;
-    the platform is what drops it. If that combination ever needs to be LOUD, the right
-    place is a sync-time warning, not a permanent spurious-update loop.)
+    forever, with nothing ever converging. Ids-only is the no-op-preserving reading.
+    (The declaration itself is NOT silently "wrong" -- it is faithfully sent; the
+    platform is what drops it.) It is no longer SILENT, either: as of 2026-10-11
+    (reviewer M2) `_report_effort_echo()` prints a WARNING for exactly this
+    combination and records it in the `SyncResult` summary -- loud at the REPORTING
+    level, still a no-op at the MUTATION level, which is the only combination that
+    both informs the operator and terminates.
 
     CORRECTED (agent-system-redesign epic, Phase 5, found on the FIRST real
     production-baseline sync -- not assumed, not caught by the mocked test suite):
@@ -465,6 +485,59 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any, *, de
         # (see this function's docstring for why a diff here would loop forever).
         return {"id": live_model_id, "effort": declared_effort}
     return {"id": live_model_id, "effort": _normalize_live_effort_level(live_value.get("effort"))}
+
+
+def _report_effort_echo(
+    live_agent: dict[str, Any], declaration: AgentDeclaration, result: SyncResult, *, label: str
+) -> None:
+    """Make the TWO silent effort no-ops audible (review-fix, reviewer M2,
+    2026-10-11). Called once per agent, right after the fresh `GET /v1/agents/{id}`
+    the update path already performs -- no extra HTTP call, and nothing about the
+    mutation decision changes.
+
+    (a) **Declared effort against a model with NO effort support** -- the live echo
+        carries no `effort` key at all (confirmed live: the Haiku 4.5 agent returns
+        `{"id": "claude-haiku-4-5-20251001", "speed": "standard"}`). The platform
+        stores nothing, so the agent does NOT run at the declared level, and
+        `_normalize_live_field_for_comparison()` deliberately compares ids only so
+        the sync doesn't loop forever trying to converge. That silence was the
+        problem: a declaration can SAY `effort: high` while the live agent runs at
+        the model's own default and nothing anywhere says so. Now a clear WARNING
+        on stderr, carried in the `SyncResult` summary too.
+
+    (b) **No effort declared, but the live agent echoes one** -- this is
+        indistinguishable from an API-filled DEFAULT (the API documents that it
+        fills in omitted model fields), so it is NOT a warning and must never
+        drive an update (that was the Phase 5 spurious-update bug). An
+        informational line naming the live level is all that can honestly be said.
+    """
+    live_model = live_agent.get("model")
+    live_model_id = live_model.get("id") if isinstance(live_model, dict) else live_model
+    echoes_effort_key = isinstance(live_model, dict) and "effort" in live_model
+    live_effort = _normalize_live_effort_level(live_model.get("effort")) if echoes_effort_key else None
+    declared_effort = declaration.effort
+
+    if declared_effort is not None and not echoes_effort_key:
+        message = (
+            f"EFFORT_NOT_SUPPORTED: {label} declares effort={declared_effort!r}, but the live agent's "
+            f"model ({live_model_id!r}) echoes NO effort field at all -- this model has no effort "
+            "support, so the platform drops the declared level and the agent runs at its own default. "
+            "The declaration is sent faithfully; nothing an update could do would change this, so no "
+            "update is issued (ids are compared alone to keep an unchanged declaration a no-op). "
+            "Remove the effort from parameters.json, or move the candidate to a model that supports it."
+        )
+        print(f"WARNING: {message}", file=sys.stderr)
+        result.warnings.append(message)
+        return
+
+    if declared_effort is None and live_effort is not None:
+        # Informational ONLY: an API-filled default and a deliberately-set level
+        # are indistinguishable from here, so this never becomes a warning or a
+        # diff (see this function's docstring, case (b)).
+        print(
+            f"INFO: {label}: live agent runs at effort={live_effort}; declaration sets none "
+            "(this may simply be the API's own default -- not treated as a difference)"
+        )
 
 
 def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDeclaration) -> bool:
@@ -627,6 +700,9 @@ def _update_single_agent(
 
     assert candidate.agent.agent_id is not None
     live_agent = api_client.get_agent(agents_client, candidate.agent.agent_id)
+    _report_effort_echo(
+        live_agent, candidate.agent, result, label=f"agent {candidate.agent.name or '(unnamed)'}"
+    )
     if _live_declaration_differs(live_agent, candidate.agent):
         current_version = api_client.require_field(
             live_agent, "version", context=f"reading agent {candidate.agent.agent_id} before an update"
@@ -664,6 +740,9 @@ def _update_multi_agent(
         assert sub_agent.agent_id is not None
         current_sub_agent_ids.append(sub_agent.agent_id)
         live_sub_agent = api_client.get_agent(agents_client, sub_agent.agent_id)
+        _report_effort_echo(
+            live_sub_agent, sub_agent, result, label=f"sub-agent[{index}] {sub_agent.name or '(unnamed)'}"
+        )
         if _live_declaration_differs(live_sub_agent, sub_agent):
             current_version = api_client.require_field(
                 live_sub_agent, "version", context=f"reading sub-agent {sub_agent.agent_id} before an update"
@@ -684,6 +763,12 @@ def _update_multi_agent(
     # coordinator's own declaration changed on its own merits.
     assert candidate.agent.agent_id is not None
     live_coordinator = api_client.get_agent(agents_client, candidate.agent.agent_id)
+    _report_effort_echo(
+        live_coordinator,
+        candidate.agent,
+        result,
+        label=f"agent (coordinator) {candidate.agent.name or '(unnamed)'}",
+    )
     coordinator_declaration_changed = _live_declaration_differs(live_coordinator, candidate.agent)
 
     if any_sub_agent_updated or coordinator_declaration_changed:

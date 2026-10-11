@@ -33,11 +33,11 @@ Three candidates compare the current-generation models against the configuration
 **production actually runs today** — `haiku-swap-hardened` (promoted to production
 2026-07-13, see `docs/prd/cost-optimization-candidates.md` §6):
 
-| Slug | `model.txt` | `parameters.json` |
-|---|---|---|
-| `haiku-5-5-hardened` | `claude-haiku-5-5` | `{"effort": "high"}` |
-| `sonnet-5-5-hardened` | `claude-sonnet-5-5` | `{"effort": "high"}` |
-| `opus-5-5-hardened` | `claude-opus-5-5` | `{"effort": "medium"}` |
+| Slug | `model.txt` | `parameters.json` | `agent_id` (synced 2026-10-11) |
+|---|---|---|---|
+| `haiku-5-5-hardened` | `claude-haiku-5-5` | `{"effort": "high"}` | `agent_011NVS18rxsu6WHUfYPVt11N` |
+| `sonnet-5-5-hardened` | `claude-sonnet-5-5` | `{"effort": "high"}` | `agent_01Bp84gBQZ3J8YyeyviYTRdr` |
+| `opus-5-5-hardened` | `claude-opus-5-5` | `{"effort": "medium"}` | `agent_01JecBBzqmQuPAfCsKUTqTis` |
 
 Each is a copy of `haiku-swap-hardened` with **model + effort as the only changed
 dimensions**: `system-prompt.md`, `task-prompt.md` and `skills.json` are
@@ -45,8 +45,9 @@ dimensions**: `system-prompt.md`, `task-prompt.md` and `skills.json` are
 `name`/`description` differ, since each is its own agent resource). That single-variable
 discipline is the whole point — a reworded prompt would quietly turn a model comparison
 into a prompt comparison — so it is enforced mechanically by
-`tests/test_model_generation_candidates.py`, not by eyeball. Their `agent_id` is an
-explicit `null`: **declared, not yet synced.**
+`tests/test_model_generation_candidates.py`, not by eyeball. All three were **synced on
+2026-10-11** and carry the real `agent_id`s above (each written once, at first sync, by
+`sync.py`); they are no longer "declared, not yet synced."
 
 ## Directory schema
 
@@ -126,6 +127,20 @@ agent's **model object**, not a top-level field:
   Haiku 4.5 agent returns exactly `{"id": "claude-haiku-4-5-20251001", "speed":
   "standard"}`) — that falls back to ids-only, deliberately, since there is nothing an
   update could ever converge on.
+- **Two formerly-silent cases are now reported (review-fix, 2026-10-11)** — loud at
+  the *reporting* level, still a no-op at the *mutation* level:
+  - a declaration that sets `effort` for a model whose live echo carries **no**
+    `effort` key prints an `EFFORT_NOT_SUPPORTED` **WARNING on stderr** (naming the
+    agent/sub-agent and the model) and the message is carried in `SyncResult.warnings`
+    and its printed summary. The platform drops the level, so the candidate reads as
+    tuned while running at the model's default — previously with nothing anywhere
+    saying so. No update is issued (it could never converge).
+  - a declaration with **no** effort whose live agent echoes one prints an
+    **informational** line (`live agent runs at effort=<level>; declaration sets
+    none`) on stdout. It is deliberately *not* a warning: an API-filled default and a
+    deliberately-set level are indistinguishable from the client side, and treating it
+    as a difference is exactly the Phase 5 spurious-update bug.
+  - a matching declared/live level prints nothing at all.
 
 **History — why this was blocked until now.** When this mechanism was built (July 2026)
 the Agents API had **no** effort knob: a top-level `parameters` field was rejected
@@ -1236,7 +1251,7 @@ This runs the FULL mocked test suite (Phase 2's sync-logic tests, Phase 3's
 trigger-tool and skill-creation/skill-update-detection tests, the
 `parameters.json`-effort validation/body-shape/live-echo-comparison tests, and
 `tests/test_model_generation_candidates.py`'s single-variable byte-identity contract
-for the 2026-10-11 batch) — **176 tests**, no real network calls, no real Anthropic API
+for the 2026-10-11 batch) — **183 tests**, no real network calls, no real Anthropic API
 credentials needed. The one real, live proof (creating
 the shared environment, `smoke-test-example`, and its two triggered runs — see
 "Phase 3 live validation," above) was run once, by hand, as a genuine validation; it
