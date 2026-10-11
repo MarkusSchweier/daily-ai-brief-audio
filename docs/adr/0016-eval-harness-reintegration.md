@@ -582,12 +582,12 @@ known caveat. If a decision ever hinges on a narrow Opus margin, a re-judge with
 
 ### Pricing: per-request rate cards and the 5.5 rates
 
-Re-verified against the live pricing page on 2026-10-11: Opus 5.5 is $4/$20 per MTok (input/output); Sonnet
-5.5 is $2/$10 with cache reads at 0.05× base input; Haiku 5.5 has two rate cards, chosen per request by
-prompt length: $0.10/$0.50 up to 100,000 prompt tokens, $0.50/$2.50 above. Sonnet 5's scheduled step to
-$3/$15 was cancelled, so $2/$10 stands, which resolves the D2 drift example. `pricing.json` gained
-per-model cache-multiplier overrides (the 5.5 cache reads are 0.05×, not the 0.1× that earlier families
-use) and a per-tier long-prompt rate card.
+Re-verified against the live pricing page on 2026-10-11: Opus 5.5 is $4/$20 per MTok (input/output) and
+Sonnet 5.5 is $2/$10, both with cache reads at 0.05× base input; Haiku 5.5 has two rate cards, chosen per
+request by prompt length: $0.10/$0.50 up to 100,000 prompt tokens, $0.50/$2.50 above (cache reads 0.1× of
+the applicable card). Sonnet 5's scheduled step to $3/$15 was cancelled, so $2/$10 stands, which resolves
+the D2 drift example. `pricing.json` gained per-model cache-multiplier overrides (Opus 5.5 and Sonnet 5.5
+cache reads are 0.05×, not the 0.1× every other family uses) and a per-tier long-prompt rate card.
 
 Because the Haiku 5.5 rate depends on each request's prompt length, the harness prices it per request from
 session events. That is implemented for single-thread sessions only; a multi-thread session fails loud
