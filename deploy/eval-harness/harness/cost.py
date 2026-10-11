@@ -40,6 +40,46 @@ This module makes NO network calls of its own except `fetch_threads()` at the
 bottom (mirroring `eval_core/cost_miner.py`'s original "pure functions above, thin
 network wrapper below" split, so the cost math is unit-testable with no API key or
 network access).
+
+## Per-request rate cards (2026-10-11, Claude Haiku 5.5)
+
+Most model families price every token the same way regardless of request size, so a
+thread's AGGREGATE usage is enough to cost it. Claude Haiku 5.5 is not one of them:
+it has TWO rate cards and the pricing page bills each request on the card chosen by
+THAT request's own prompt length (`input + cache_read + cache_creation` tokens,
+threshold 100,000 -- "a request over the threshold pays the higher prices even when
+part of its prompt is a cache hit, and earlier requests keep the prices they were
+billed at"). A thread that mixes small and large requests therefore CANNOT be priced
+from its aggregate usage at all -- any single-card guess is simply wrong, by up to 5x
+in either direction.
+
+So for a family whose `pricing.json` tier carries a `long_prompt` card, this module
+prices the thread PER REQUEST, from the session events `run.py` already fetches and
+stores (`events.json`): every `span.model_request_end` event carries
+`model_usage: {input_tokens, output_tokens, cache_read_input_tokens,
+cache_creation_input_tokens}` (FLAT cache_creation, no 5m/1h split -- unlike the
+threads endpoint's nested buckets). Guard rails, all fail-loud
+(`PerRequestPricingError`), never a silent guess:
+
+  - **Integrity check.** The per-request usages must sum to the thread's own usage
+    totals EXACTLY (per-request `cache_creation` sum == thread 5m + 1h buckets).
+    Verified against the stored runs on 2026-10-11: for every SINGLE-thread run the
+    sums match to the token (29 requests for `haiku-swap-hardened`, 27 for
+    `production-baseline`, 18 for `haiku-swap`).
+  - **1h cache writes.** If the thread's 1h bucket is non-zero, raise -- the flat
+    per-request `cache_creation_input_tokens` field cannot be split back into TTL
+    buckets, so the 2x-vs-1.25x write rate could not be attributed honestly.
+  - **No events, no price.** If a rate-carded model's events weren't supplied, raise.
+  - **Multi-thread sessions are refused.** `span.model_request_end` carries NO thread
+    identifier (confirmed 2026-10-11 across all six stored runs: its only keys are
+    `id`, `is_error`, `model_request_start_id`, `model_usage`, `processed_at`, `type`;
+    only the `session.thread_*` / `agent.thread_message_*` event families carry a
+    `session_thread_id`). Worse, on the stored MULTI-thread runs the retrieved event
+    list covers only part of the session -- its per-request sums fall far short of the
+    threads' totals -- so there is no honest way to attribute a request to a thread.
+    Rate-carded pricing is therefore supported only for single-thread sessions; a
+    multi-thread session containing a rate-carded agent raises (the integrity check
+    would catch it anyway, but the dedicated error says WHY).
 """
 
 from __future__ import annotations
@@ -83,8 +123,18 @@ class PricingDriftError(PricingError):
     """Raised when a model family HAS entries in `pricing.json`, but none of its
     tiers' [effective_from, effective_until] window covers the requested date --
     e.g. today is past every known tier's expiry (ADR-0016 D2's concrete example:
-    Sonnet 5's introductory tier expires 2026-08-31; querying a date in September
-    without a successor tier defined would raise this)."""
+    a tier defined with an `effective_until` and no successor tier; querying a date
+    after that expiry would raise this)."""
+
+
+class PerRequestPricingError(PricingError):
+    """Raised when a model priced by PER-REQUEST rate cards (a `pricing.json` tier
+    with a `long_prompt` card -- Claude Haiku 5.5) cannot be priced from the data
+    actually available: no session events supplied, a multi-thread session (the
+    events carry no thread identifier), an empty request list, a non-zero 1h
+    cache-write bucket (not attributable per request), or per-request usages that
+    don't sum to the thread's own totals. Always a fail-loud refusal to guess --
+    see the module docstring's "Per-request rate cards" section."""
 
 
 # --- Token usage -----------------------------------------------------------------
@@ -147,12 +197,134 @@ class ThreadUsage:
         )
 
 
+# --- Per-request usage (rate-carded models only) -----------------------------------
+
+# The two rate cards a `long_prompt`-carrying tier can bill a request on -- the keys
+# of `ThreadCost.request_card_counts` and the labels in its error messages.
+CARD_STANDARD = "standard"
+CARD_LONG_PROMPT = "long_prompt"
+
+# The one session-event type that carries a request's own token usage.
+_MODEL_REQUEST_END_EVENT = "span.model_request_end"
+
+
+@dataclass(frozen=True)
+class RequestUsage:
+    """ONE model request's token usage, in the session events' own confirmed field
+    names: `span.model_request_end.model_usage` = `{input_tokens, output_tokens,
+    cache_read_input_tokens, cache_creation_input_tokens}`.
+
+    Note the FLAT `cache_creation_input_tokens` -- the event shape carries no 5m/1h
+    split (unlike the threads endpoint's nested `cache_creation` buckets), which is
+    exactly why `verify_request_usages_match_thread()` refuses to price a thread
+    whose 1h bucket is non-zero."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+
+    @property
+    def prompt_tokens(self) -> int:
+        """The request's PROMPT length, as the pricing page defines it for rate-card
+        selection: "A request's prompt length counts all of its input tokens,
+        including cache reads and cache writes" -- so all three input-side fields,
+        never output."""
+        return self.input_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens
+
+    @classmethod
+    def from_model_usage(cls, model_usage: dict[str, Any] | None) -> "RequestUsage":
+        """Build from one event's raw `model_usage` dict. Missing fields default to
+        0 -- a partial/older shape must not raise here; the integrity check against
+        the thread's own totals is what catches a shape this under-reads."""
+        model_usage = model_usage or {}
+        return cls(
+            input_tokens=int(model_usage.get("input_tokens", 0) or 0),
+            output_tokens=int(model_usage.get("output_tokens", 0) or 0),
+            cache_read_input_tokens=int(model_usage.get("cache_read_input_tokens", 0) or 0),
+            cache_creation_input_tokens=int(model_usage.get("cache_creation_input_tokens", 0) or 0),
+        )
+
+
+def extract_request_usages(events: list[dict[str, Any]]) -> list[RequestUsage]:
+    """Every `span.model_request_end` event's `model_usage`, in event order -- one
+    `RequestUsage` per model request the session made. Events of every other type
+    are ignored; an event of this type with no `model_usage` at all is ignored too
+    (it contributes no tokens, and counting it as a zero-token request would
+    mis-report the per-card request counts)."""
+    usages: list[RequestUsage] = []
+    for event in events:
+        if event.get("type") != _MODEL_REQUEST_END_EVENT:
+            continue
+        model_usage = event.get("model_usage")
+        if not model_usage:
+            continue
+        usages.append(RequestUsage.from_model_usage(model_usage))
+    return usages
+
+
+def verify_request_usages_match_thread(
+    requests: list[RequestUsage], usage: ThreadUsage, *, model_id: str, thread_id: str = ""
+) -> None:
+    """Fail loud (`PerRequestPricingError`) unless `requests` accounts for EXACTLY
+    the thread's own usage totals -- the integrity check that makes per-request
+    pricing trustworthy instead of plausible (see the module docstring).
+
+    Two distinct refusals: a non-zero 1h cache-write bucket (the flat per-request
+    `cache_creation_input_tokens` cannot be split back into TTL buckets, so the
+    2x-vs-1.25x write rate could not be attributed honestly), and any mismatch
+    between the per-request sums and the thread totals (events missing, duplicated,
+    or belonging to a different thread)."""
+    where = f" (thread {thread_id})" if thread_id else ""
+    if usage.cache_creation_1h_input_tokens:
+        raise PerRequestPricingError(
+            f"cannot price {model_id!r}{where} per request: the thread reports "
+            f"{usage.cache_creation_1h_input_tokens} 1-HOUR cache-write tokens, but a "
+            "span.model_request_end event's model_usage carries only a FLAT "
+            "cache_creation_input_tokens with no TTL split -- the 2x 1h write rate cannot be "
+            "attributed to individual requests. Price this thread by hand, or re-run without "
+            "1h cache writes."
+        )
+
+    summed_input = sum(r.input_tokens for r in requests)
+    summed_output = sum(r.output_tokens for r in requests)
+    summed_cache_read = sum(r.cache_read_input_tokens for r in requests)
+    summed_cache_creation = sum(r.cache_creation_input_tokens for r in requests)
+    thread_cache_creation = usage.cache_creation_5m_input_tokens + usage.cache_creation_1h_input_tokens
+
+    mismatches = []
+    if summed_input != usage.input_tokens:
+        mismatches.append(f"input_tokens {summed_input} != {usage.input_tokens}")
+    if summed_output != usage.output_tokens:
+        mismatches.append(f"output_tokens {summed_output} != {usage.output_tokens}")
+    if summed_cache_read != usage.cache_read_input_tokens:
+        mismatches.append(f"cache_read_input_tokens {summed_cache_read} != {usage.cache_read_input_tokens}")
+    if summed_cache_creation != thread_cache_creation:
+        mismatches.append(f"cache_creation {summed_cache_creation} != {thread_cache_creation} (5m+1h)")
+
+    if mismatches:
+        raise PerRequestPricingError(
+            f"cannot price {model_id!r}{where} per request: the {len(requests)} "
+            "span.model_request_end event(s) do NOT sum to the thread's own usage totals -- "
+            + "; ".join(mismatches)
+            + ". The events are incomplete or belong to a different thread; refusing to guess "
+            "a per-request cost from a partial trace."
+        )
+
+
 # --- Pricing table -----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class PriceTier:
-    """One resolved price tier for one model family, ready to cost a `ThreadUsage`."""
+    """One resolved price tier for one model family, ready to cost a `ThreadUsage`.
+
+    The three `long_prompt_*` fields (2026-10-11) are the tier's OPTIONAL second
+    rate card -- present only for a family Anthropic prices by prompt length
+    (Claude Haiku 5.5). When present, this tier can NOT be costed from aggregate
+    usage at all (`cost_usd()` raises); price it per request via
+    `price_requests()`. They default to None so every other family, and every
+    hand-built `PriceTier` in a test, is unaffected."""
 
     model_family: str
     label: str
@@ -165,22 +337,99 @@ class PriceTier:
     effective_until: str | None
     source_url: str
     captured_on: str
+    long_prompt_threshold_tokens: int | None = None
+    long_prompt_input_per_million_usd: float | None = None
+    long_prompt_output_per_million_usd: float | None = None
+
+    @property
+    def has_long_prompt_card(self) -> bool:
+        """True when this tier bills PER REQUEST off two rate cards -- the single
+        flag every caller branches on."""
+        return self.long_prompt_threshold_tokens is not None
+
+    def _cost_on_card(
+        self,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        cache_read_input_tokens: int,
+        cache_creation_5m_input_tokens: int,
+        cache_creation_1h_input_tokens: int,
+        input_per_million_usd: float,
+        output_per_million_usd: float,
+    ) -> float:
+        """The one piece of cost arithmetic in this module: tokens x one rate
+        card's own rates, with the cache multipliers applied to THAT card's base
+        input rate (`pricing.json`'s schema note, layer 3)."""
+        input_rate = input_per_million_usd / 1_000_000
+        output_rate = output_per_million_usd / 1_000_000
+        return (
+            input_tokens * input_rate
+            + output_tokens * output_rate
+            + cache_creation_5m_input_tokens * input_rate * self.cache_write_5m_multiplier
+            + cache_creation_1h_input_tokens * input_rate * self.cache_write_1h_multiplier
+            + cache_read_input_tokens * input_rate * self.cache_read_multiplier
+        )
 
     def cost_usd(self, usage: ThreadUsage) -> float:
-        """Full-precision (unrounded) USD cost for `usage` under this tier. Callers
-        that need a displayable number round explicitly -- rounding INDIVIDUAL
-        thread costs before summing them into a total produces a total that can be
-        off by a cent's fraction from summing the raw, unrounded costs first (see
-        `mine_session_cost()`'s own docstring / the golden test for the concrete
-        case this matters for)."""
-        input_rate = self.input_per_million_usd / 1_000_000
-        output_rate = self.output_per_million_usd / 1_000_000
-        return (
-            usage.input_tokens * input_rate
-            + usage.output_tokens * output_rate
-            + usage.cache_creation_5m_input_tokens * input_rate * self.cache_write_5m_multiplier
-            + usage.cache_creation_1h_input_tokens * input_rate * self.cache_write_1h_multiplier
-            + usage.cache_read_input_tokens * input_rate * self.cache_read_multiplier
+        """Full-precision (unrounded) USD cost for an AGGREGATE `usage` under this
+        tier. Callers that need a displayable number round explicitly -- rounding
+        INDIVIDUAL thread costs before summing them into a total produces a total
+        that can be off by a cent's fraction from summing the raw, unrounded costs
+        first (see `mine_session_cost()`'s own docstring / the golden test for the
+        concrete case this matters for).
+
+        Raises `PerRequestPricingError` for a tier with a `long_prompt` rate card:
+        aggregate usage cannot say which card each request was billed on, and
+        picking one would be wrong by up to 5x. Use `price_requests()`."""
+        if self.has_long_prompt_card:
+            raise PerRequestPricingError(
+                f"model family {self.model_family!r} is priced on TWO rate cards by per-request "
+                f"prompt length (threshold {self.long_prompt_threshold_tokens} tokens) -- it cannot "
+                "be priced from aggregate/flat usage, which cannot say which card each request fell "
+                "on. Price it per request from the session events (harness.cost.price_requests)."
+            )
+        return self._cost_on_card(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cache_read_input_tokens=usage.cache_read_input_tokens,
+            cache_creation_5m_input_tokens=usage.cache_creation_5m_input_tokens,
+            cache_creation_1h_input_tokens=usage.cache_creation_1h_input_tokens,
+            input_per_million_usd=self.input_per_million_usd,
+            output_per_million_usd=self.output_per_million_usd,
+        )
+
+    def card_for(self, request: RequestUsage) -> str:
+        """Which rate card bills `request`: the long-prompt card iff its prompt
+        length is STRICTLY GREATER than the threshold (a request of exactly
+        100,000 tokens pays the standard card -- the page's threshold is "prompts
+        up to 100,000 tokens" for the cheap card)."""
+        if not self.has_long_prompt_card:
+            return CARD_STANDARD
+        assert self.long_prompt_threshold_tokens is not None  # narrowed by has_long_prompt_card
+        return CARD_LONG_PROMPT if request.prompt_tokens > self.long_prompt_threshold_tokens else CARD_STANDARD
+
+    def cost_usd_for_request(self, request: RequestUsage) -> float:
+        """Full-precision cost of ONE request, on whichever card `card_for()`
+        picks. The request's flat `cache_creation_input_tokens` is billed at the
+        5-minute write rate -- sound precisely because `price_requests()` only ever
+        runs after `verify_request_usages_match_thread()` has confirmed the
+        thread's 1h bucket is zero."""
+        card = self.card_for(request)
+        if card == CARD_LONG_PROMPT:
+            input_per_million = float(self.long_prompt_input_per_million_usd or 0.0)
+            output_per_million = float(self.long_prompt_output_per_million_usd or 0.0)
+        else:
+            input_per_million = self.input_per_million_usd
+            output_per_million = self.output_per_million_usd
+        return self._cost_on_card(
+            input_tokens=request.input_tokens,
+            output_tokens=request.output_tokens,
+            cache_read_input_tokens=request.cache_read_input_tokens,
+            cache_creation_5m_input_tokens=request.cache_creation_input_tokens,
+            cache_creation_1h_input_tokens=0,
+            input_per_million_usd=input_per_million,
+            output_per_million_usd=output_per_million,
         )
 
 
@@ -215,12 +464,26 @@ def _date_in_window(on_date: date, effective_from: str | None, effective_until: 
     return True
 
 
+def _resolve_cache_multipliers(pricing_table: dict[str, Any], entry: dict[str, Any]) -> dict[str, float]:
+    """The table's global `cache_multipliers` with the model entry's OWN optional
+    `cache_multipliers` merged over it, key by key (`pricing.json`'s schema note,
+    layer 2). A partial override (`{"read": 0.05}` -- Opus 5.5 / Sonnet 5.5, whose
+    cache READS are 0.05x base input while their writes keep the usual 1.25x/2x)
+    therefore inherits every ratio it doesn't mention."""
+    merged = dict(pricing_table.get("cache_multipliers", {}))
+    merged.update(entry.get("cache_multipliers", {}))
+    return {key: float(value) for key, value in merged.items()}
+
+
 def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date: date) -> PriceTier:
     """Resolve the price tier that applies to `model_id` on `on_date`. Raises
     `UnknownModelPriceError` if `model_id` has no entry at all, or
     `PricingDriftError` if it has entries but none covers `on_date` (a gap the
-    table's maintainer needs to fill in with a new tier -- ADR-0016 D2's concrete
-    "Sonnet 5 in September" example)."""
+    table's maintainer needs to fill in with a new tier).
+
+    Reads both of `pricing.json`'s optional per-model/per-tier extensions
+    (2026-10-11): the model entry's own `cache_multipliers` override (merged over
+    the global defaults) and the tier's own `long_prompt` second rate card."""
     family = _resolve_model_family(pricing_table, model_id)
     entry = pricing_table["models"][family]
     tiers = entry.get("tiers", [])
@@ -236,7 +499,8 @@ def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date:
     # matches (well-formed data should never have overlapping windows, but this
     # keeps resolution deterministic rather than order-dependent if it ever does).
     tier = max(matched, key=lambda t: t.get("effective_from") or "")
-    cache_multipliers = pricing_table.get("cache_multipliers", {})
+    cache_multipliers = _resolve_cache_multipliers(pricing_table, entry)
+    long_prompt = tier.get("long_prompt") or {}
     return PriceTier(
         model_family=family,
         label=tier.get("label", ""),
@@ -249,7 +513,41 @@ def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date:
         effective_until=tier.get("effective_until"),
         source_url=pricing_table.get("source_url", ""),
         captured_on=tier.get("captured_on") or pricing_table.get("captured_on", ""),
+        long_prompt_threshold_tokens=(
+            int(long_prompt["threshold_prompt_tokens"]) if long_prompt.get("threshold_prompt_tokens") else None
+        ),
+        long_prompt_input_per_million_usd=(
+            float(long_prompt["input_per_million_usd"]) if long_prompt.get("input_per_million_usd") is not None else None
+        ),
+        long_prompt_output_per_million_usd=(
+            float(long_prompt["output_per_million_usd"])
+            if long_prompt.get("output_per_million_usd") is not None
+            else None
+        ),
     )
+
+
+def price_requests(requests: list[RequestUsage], *, price_tier: PriceTier) -> tuple[float, dict[str, int]]:
+    """Price a thread PER REQUEST under `price_tier`, returning
+    `(full_precision_cost_usd, {card: request_count})`.
+
+    Each request is billed on the card its OWN prompt length selects (the pricing
+    page: "Each request is priced on its own"), so a thread that mixes short and
+    long prompts costs exactly what Anthropic billed rather than whatever one card
+    would have produced. The returned per-card counts are carried through to
+    `ThreadCost.request_card_counts` so a reader of `cost.json` can see the split
+    that produced the number instead of taking it on faith.
+
+    Works for a tier WITHOUT a long-prompt card too (every request lands on
+    `CARD_STANDARD`), which is what makes it safe for a test to compare the two
+    pricing paths; `mine_session_cost()` still uses aggregate pricing there,
+    because that needs no events at all."""
+    counts = {CARD_STANDARD: 0, CARD_LONG_PROMPT: 0}
+    total = 0.0
+    for request in requests:
+        counts[price_tier.card_for(request)] += 1
+        total += price_tier.cost_usd_for_request(request)
+    return total, counts
 
 
 def price_usage(usage: dict[str, int], *, model: str, pricing_table: dict[str, Any], on_date: date) -> float:
@@ -268,7 +566,15 @@ def price_usage(usage: dict[str, int], *, model: str, pricing_table: dict[str, A
 
     Raises `UnknownModelPriceError`/`PricingDriftError` (via `resolve_price_tier`)
     if `model` has no pricing.json entry -- FAILS LOUD rather than silently
-    pricing an unrecognized model as $0, per the task's explicit requirement."""
+    pricing an unrecognized model as $0, per the task's explicit requirement.
+
+    Any per-model cache-multiplier override applies automatically (2026-10-11:
+    this is how an Opus 5.5 judge call gets its 0.05x cache-read rate -- it is
+    resolved in `resolve_price_tier()`, not restated here). A model priced on
+    per-request rate cards raises `PerRequestPricingError`: a flat usage dict
+    carries no per-request breakdown, so no honest card choice exists (this would
+    only ever fire if a JUDGE were pointed at Claude Haiku 5.5, which the
+    "judges must be stronger than what they judge" principle rules out anyway)."""
     price_tier = resolve_price_tier(pricing_table, model, on_date=on_date)
     return price_tier.cost_usd(ThreadUsage.from_dict(usage))
 
@@ -399,13 +705,66 @@ def _resolve_thread_model_and_role(
     return model_id, role, agent_id
 
 
+# --- Per-request pricing gate (rate-carded models) ------------------------------------
+
+
+def _price_thread_per_request(
+    price_tier: PriceTier,
+    usage: ThreadUsage,
+    *,
+    events: list[dict[str, Any]] | None,
+    model_id: str,
+    thread_id: str,
+    thread_count: int,
+) -> tuple[float, dict[str, int]]:
+    """Price ONE rate-carded thread per request, refusing (loudly) rather than
+    guessing whenever the available data can't support it -- the three
+    preconditions from the module docstring, in the order a caller hits them."""
+    if events is None:
+        raise PerRequestPricingError(
+            f"model {model_id!r} is priced on per-request rate cards, but no session events were "
+            "supplied -- pass `events=` (the same list run.py fetches for artifact retrieval and "
+            "stores as events.json) to mine_session_cost(). Refusing to price it off aggregate "
+            "thread usage, which cannot say which card each request was billed on."
+        )
+
+    if thread_count > 1:
+        raise PerRequestPricingError(
+            f"model {model_id!r} is priced on per-request rate cards, but this session has "
+            f"{thread_count} threads and a span.model_request_end event carries NO thread "
+            "identifier (its only fields are id/is_error/model_request_start_id/model_usage/"
+            "processed_at) -- a request cannot be attributed to a thread, so per-request pricing "
+            "is supported for single-thread sessions only. Price a multi-agent rate-carded run by "
+            "hand, or run that agent as a single-agent candidate."
+        )
+
+    requests = extract_request_usages(events)
+    if not requests:
+        raise PerRequestPricingError(
+            f"model {model_id!r} is priced on per-request rate cards, but the supplied events "
+            "contain no span.model_request_end event with usage at all -- nothing to price. The "
+            "event list is empty or truncated."
+        )
+
+    verify_request_usages_match_thread(requests, usage, model_id=model_id, thread_id=thread_id)
+    return price_requests(requests, price_tier=price_tier)
+
+
 # --- Thread / session cost breakdown -------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ThreadCost:
     """One thread's role, resolved model, usage, and cost -- the per-repetition
-    `threads-usage.json`/`cost.json` unit (ADR-0016 D4)."""
+    `threads-usage.json`/`cost.json` unit (ADR-0016 D4).
+
+    `request_card_counts` (2026-10-11) is the transparency breakdown for a thread
+    priced PER REQUEST off two rate cards: `{"standard": n, "long_prompt": m}`, so
+    a reader of `cost.json` can see which cards produced the number. It stays None
+    -- and is OMITTED from `to_dict()` entirely -- for every aggregate-priced
+    thread, which keeps `cost.json`/`threads-usage.json` byte-identical to what
+    every record committed under `runs/` already carries (those records predate
+    this field; `from_dict()` tolerates its absence)."""
 
     thread_id: str
     role: str
@@ -413,9 +772,10 @@ class ThreadCost:
     model: str
     usage: ThreadUsage
     cost_usd: float
+    request_card_counts: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "thread_id": self.thread_id,
             "role": self.role,
             "agent_id": self.agent_id,
@@ -423,6 +783,9 @@ class ThreadCost:
             "usage": self.usage.to_dict(),
             "cost_usd": self.cost_usd,
         }
+        if self.request_card_counts is not None:
+            data["request_card_counts"] = dict(self.request_card_counts)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ThreadCost":
@@ -433,6 +796,7 @@ class ThreadCost:
             model=data["model"],
             usage=ThreadUsage.from_dict(data["usage"]),
             cost_usd=float(data["cost_usd"]),
+            request_card_counts=data.get("request_card_counts"),
         )
 
 
@@ -470,6 +834,7 @@ def mine_session_cost(
     pricing_table: dict[str, Any],
     on_date: date,
     candidate_declaration: CandidateDeclaration | None = None,
+    events: list[dict[str, Any]] | None = None,
 ) -> SessionCostBreakdown:
     """Mine the full per-thread cost breakdown for one session.
 
@@ -478,6 +843,14 @@ def mine_session_cost(
     calendar date to price against (the caller decides -- the live CLI uses
     today's real date; tests pin a fixed date so results don't drift with the
     calendar, see `resolve_price_tier`'s docstring).
+
+    `events` is the session's own event list (the SAME list `run.py` already
+    fetched for artifact retrieval and stores as `events.json`). It is used ONLY
+    for a model whose tier carries a `long_prompt` rate card -- Claude Haiku 5.5 --
+    which cannot be priced from aggregate usage and is instead priced per request
+    from `span.model_request_end.model_usage`, with a fail-loud integrity check
+    against the thread's own totals (see the module docstring). Every other family
+    ignores it entirely, so omitting it stays valid for them.
 
     Threads are sorted by `created_at` (defensive normalization -- the API already
     returns them chronologically, but this does not assume that) so the root
@@ -508,19 +881,33 @@ def mine_session_cost(
             thread, declaration_map=declaration_map, index=sub_agent_index, thread_count=thread_count
         )
         usage = ThreadUsage.from_api_usage(thread.get("usage"))
+        thread_id = thread.get("id", "")
         price_tier = resolve_price_tier(pricing_table, model_id, on_date=on_date)
-        raw_cost = price_tier.cost_usd(usage)
+
+        request_card_counts: dict[str, int] | None = None
+        if price_tier.has_long_prompt_card:
+            raw_cost, request_card_counts = _price_thread_per_request(
+                price_tier,
+                usage,
+                events=events,
+                model_id=model_id,
+                thread_id=thread_id,
+                thread_count=thread_count,
+            )
+        else:
+            raw_cost = price_tier.cost_usd(usage)
 
         raw_thread_costs.append(raw_cost)
         total_usage = total_usage + usage
         thread_costs.append(
             ThreadCost(
-                thread_id=thread.get("id", ""),
+                thread_id=thread_id,
                 role=role,
                 agent_id=agent_id,
                 model=model_id,
                 usage=usage,
                 cost_usd=round(raw_cost, 4),
+                request_card_counts=request_card_counts,
             )
         )
 
@@ -551,12 +938,19 @@ __all__ = [
     "PricingError",
     "UnknownModelPriceError",
     "PricingDriftError",
+    "PerRequestPricingError",
+    "CARD_STANDARD",
+    "CARD_LONG_PROMPT",
     "ThreadUsage",
+    "RequestUsage",
     "PriceTier",
     "ThreadCost",
     "SessionCostBreakdown",
     "load_pricing_table",
     "resolve_price_tier",
+    "extract_request_usages",
+    "verify_request_usages_match_thread",
+    "price_requests",
     "price_usage",
     "price_web_searches",
     "check_pricing_drift",

@@ -76,15 +76,49 @@ kind of "real" call this suite makes).
 
 ## The cost model (D2)
 
-`pricing.json` pins, per model family, a base input/output price per tier (each
-with `effective_from`/`effective_until` and a `source_url`) plus fixed cache-bucket
-multipliers (5m write ×1.25, 1h write ×2, read ×0.1 — all relative to that model's
-own base input rate). `harness/cost.py` consumes a session's per-thread `usage`
-(`GET /v1/sessions/{id}/threads`) and multiplies it out per thread, resolving each
-thread's model PRIMARILY from the triggered candidate's own declaration
-(`multiagent.json` roster / `model.txt`), falling back to the thread's own embedded
-`agent` object (the same shape `GET /v1/agents/{id}` returns) when no declaration is
-given or a thread's `agent_id` isn't in it.
+`pricing.json` pins, per model family, a base input/output price per tier (each with
+`effective_from`/`effective_until` and a `source_url`) plus cache-bucket multipliers
+relative to the applicable rate card's own base input rate. `harness/cost.py` consumes a
+session's per-thread `usage` (`GET /v1/sessions/{id}/threads`) and multiplies it out per
+thread, resolving each thread's model PRIMARILY from the triggered candidate's own
+declaration (`multiagent.json` roster / `model.txt`), falling back to the thread's own
+embedded `agent` object (the same shape `GET /v1/agents/{id}` returns) when no declaration
+is given or a thread's `agent_id` isn't in it.
+
+**Cache multipliers are per model, not uniform (changed 2026-10-11).** The table's
+top-level `cache_multipliers` (5m write ×1.25, 1h write ×2, read ×0.1) are now DEFAULTS; a
+model entry may carry its own `cache_multipliers` object, merged over them key by key.
+Claude Opus 5.5 and Claude Sonnet 5.5 use `{"read": 0.05}` — the pricing page's footnote
+"Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the
+base input price" — and inherit the ×1.25/×2 write ratios. The pre-2026-10-11 claim that
+the ratios apply uniformly to every family is no longer true; never add a model on that
+assumption.
+
+**Two rate cards, priced per request (Claude Haiku 5.5).** A tier may carry an optional
+`long_prompt` card (`{threshold_prompt_tokens, input_per_million_usd,
+output_per_million_usd}`). Haiku 5.5 is $0.10/$0.50 per MTok for prompts up to 100,000
+tokens and $0.50/$2.50 above it, and the page bills **each request on its own card**
+("prompt length counts all of its input tokens, including cache reads and cache writes …
+a request over the threshold pays the higher prices even when part of its prompt is a
+cache hit"). Aggregate thread usage cannot say which card each request hit, so such a
+thread is priced **per request** from the `span.model_request_end.model_usage` entries in
+the session events `run.py` already fetches (and stores as `events.json`) — no extra API
+call. `cost.json`'s thread entry then also carries `request_card_counts`
+(`{"standard": n, "long_prompt": m}`) so the split that produced the number is visible.
+Four fail-loud refusals, never a guess (`cost.PerRequestPricingError`): no events
+supplied; a **multi-thread** session (a `span.model_request_end` event carries no thread
+identifier, so a request can't be attributed to a thread — single-thread sessions only);
+a non-zero 1h cache-write bucket (the per-request `cache_creation_input_tokens` is flat,
+with no TTL split); or per-request usages that don't sum to the thread's own totals
+(verified exact on every stored single-thread run: 29/27/18 requests). `price_usage()`
+(judge-call pricing) refuses a rate-carded model for the same reason.
+
+Claude Sonnet 5's "standard from 2026-09-01 at $3/$15" tier was **corrected** on
+2026-10-11: per the page's own footnote that increase will not occur and $2/$10 is the
+standard price on every date. Claude Haiku 4.5 and Claude Opus 4.8 are retained unchanged
+so every record committed under `runs/` still re-prices to exactly its stored numbers —
+asserted by `tests/test_cost_golden.py`, which walks every committed `cost.json` /
+`threads-usage.json`.
 
 ```bash
 # Fail loud if today's date falls outside every declared model's price coverage:

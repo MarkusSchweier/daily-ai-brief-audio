@@ -108,3 +108,56 @@ def test_golden_run_resolves_the_correct_model_per_thread():
     assert model_by_role["research"] == "claude-haiku-4-5-20251001"
     assert model_by_role["writing"] == "claude-haiku-4-5-20251001"
     assert model_by_role["listening-script"] == "claude-haiku-4-5-20251001"
+
+
+# --- Every COMMITTED run record must still load and re-price identically ---------------
+#
+# The 2026-10-11 pricing/schema change (per-model cache overrides, per-tier
+# long-prompt rate cards, the Sonnet 5 $3/$15 correction, the new ThreadCost
+# field) must be invisible to the eval runs already committed under `runs/`:
+# they were costed on the OLD table, their numbers are the comparison baseline
+# for the 5.5 eval, and a silent re-pricing would corrupt that comparison. This
+# walks every committed `cost.json` and `threads-usage.json` and proves (a) it
+# still deserializes, (b) each thread re-prices to the SAME stored cost against
+# today's table on the run's own date, (c) the per-thread sum still reproduces
+# the stored total, and (d) serializing it back adds no new key.
+
+RUNS_ROOT = Path(__file__).resolve().parent.parent / "runs"
+
+
+def _committed_cost_records() -> list[Path]:
+    return sorted(RUNS_ROOT.glob("*/*/repetitions/*/cost.json")) + sorted(
+        RUNS_ROOT.glob("*/*/repetitions/*/threads-usage.json")
+    )
+
+
+def _run_date_of(record_path: Path) -> date:
+    """The eval-run-id directory name starts with the run's own date
+    (`2026-07-07-174129-cdafb6-...`) -- price against THAT date, not today's, so
+    this test stays a fixed historical reproduction."""
+    eval_run_id = record_path.parents[2].name
+    return date.fromisoformat(eval_run_id[:10])
+
+
+def test_every_committed_run_record_still_loads_and_reprices_to_the_same_numbers():
+    records = _committed_cost_records()
+    assert records, "no committed cost records found -- this guarantee would be vacuous"
+
+    pricing_table = cost.load_pricing_table()
+
+    for record_path in records:
+        stored = json.loads(record_path.read_text(encoding="utf-8"))
+        breakdown = cost.SessionCostBreakdown.from_dict(stored)
+
+        raw_costs = []
+        for thread in breakdown.threads:
+            tier = cost.resolve_price_tier(pricing_table, thread.model, on_date=_run_date_of(record_path))
+            raw = tier.cost_usd(thread.usage)
+            raw_costs.append(raw)
+            assert round(raw, 4) == thread.cost_usd, f"{record_path} thread {thread.thread_id} re-priced differently"
+            assert thread.request_card_counts is None  # no committed record is rate-carded
+
+        assert round(sum(raw_costs), 4) == breakdown.total_cost_usd, f"{record_path} total re-priced differently"
+        # (d) round-tripping adds no key -- a committed record's on-disk shape is
+        # byte-for-byte what this code still writes for an aggregate-priced run.
+        assert breakdown.to_dict() == stored, f"{record_path} did not round-trip unchanged"

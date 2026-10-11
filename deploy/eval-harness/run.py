@@ -664,8 +664,18 @@ def main(argv: list[str] | None = None) -> int:
             run_store.write_artifacts(run_dir, index, artifacts)
             run_store.write_events(run_dir, index, result.events)
 
+            # `events=` (2026-10-11) is what lets a PER-REQUEST rate-carded model
+            # (Claude Haiku 5.5's two prompt-length cards) be priced at all -- it
+            # is the SAME already-fetched event list used for artifact retrieval
+            # above, so this costs no extra API call. Ignored for every
+            # aggregate-priced family; see harness/cost.py's module docstring.
             breakdown = cost.mine_session_cost(
-                result.session_id, threads, pricing_table=pricing_table, on_date=date.today(), candidate_declaration=candidate
+                result.session_id,
+                threads,
+                pricing_table=pricing_table,
+                on_date=date.today(),
+                candidate_declaration=candidate,
+                events=result.events,
             )
             run_store.write_threads_usage(run_dir, index, breakdown)
             run_store.write_cost(run_dir, index, breakdown)

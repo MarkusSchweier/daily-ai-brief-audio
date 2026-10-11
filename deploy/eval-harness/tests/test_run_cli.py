@@ -24,7 +24,9 @@ def _write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | None = "agent_test") -> Path:
+def _build_candidate_dir(
+    candidates_dir: Path, slug: str, *, agent_id: str | None = "agent_test", model: str = "claude-sonnet-5"
+) -> Path:
     candidate_dir = candidates_dir / slug
     candidate_dir.mkdir(parents=True)
     candidate_json = {"slug": slug, "composition": "single-agent"}
@@ -32,7 +34,7 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
         candidate_json["agent_id"] = agent_id
     _write_json(candidate_dir / "candidate.json", candidate_json)
     _write_json(candidate_dir / "agent.json", {"name": f"{slug}-agent", "description": "a test candidate"})
-    (candidate_dir / "model.txt").write_text("claude-sonnet-5", encoding="utf-8")
+    (candidate_dir / "model.txt").write_text(model, encoding="utf-8")
     (candidate_dir / "system-prompt.md").write_text("You are a test agent.", encoding="utf-8")
     (candidate_dir / "task-prompt.md").write_text("Write the brief and cat it out.", encoding="utf-8")
     _write_json(candidate_dir / "skills.json", [])
@@ -47,7 +49,15 @@ def _build_candidate_dir(candidates_dir: Path, slug: str, *, agent_id: str | Non
 _FAKE_SOURCES_MD = "# Fake Source List\n\n## Tier 1\n- Fake Outlet: https://fake-outlet.example.test/news\n"
 
 
-def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None = "agent_test", commit: bool = True) -> Path:
+def _setup_env(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    slug: str,
+    agent_id: str | None = "agent_test",
+    commit: bool = True,
+    model: str = "claude-sonnet-5",
+) -> Path:
     """`commit=True` (the default) makes `candidates_dir` a real, freshly-committed
     git repo -- required for `run.py`'s dirty-working-tree guard
     (`harness.run_store.candidate_declaration_is_dirty()`) to behave correctly
@@ -57,7 +67,7 @@ def _setup_env(monkeypatch, tmp_path: Path, *, slug: str, agent_id: str | None =
     candidates_dir = tmp_path / "candidates"
     candidates_dir.mkdir()
     _write_json(candidates_dir / "environment.json", {"environment_id": "env_fake"})
-    _build_candidate_dir(candidates_dir, slug, agent_id=agent_id)
+    _build_candidate_dir(candidates_dir, slug, agent_id=agent_id, model=model)
     if commit:
         git_init_and_commit(candidates_dir)
 
@@ -545,6 +555,119 @@ def test_dedup_criterion_skips_the_priors_fetch_when_no_brief_date_is_parseable(
 
     assert called["fetch"] is False
     assert "DEDUP_PRIORS_SKIPPED" in capsys.readouterr().err
+
+
+# --- Per-request rate-carded pricing wiring (2026-10-11) ------------------------------
+
+
+def _model_request_end_event(input_tokens=0, output_tokens=0, cache_read=0, cache_creation=0) -> dict:
+    return {
+        "type": "span.model_request_end",
+        "id": "sevt_fake",
+        "is_error": False,
+        "model_request_start_id": "sevt_fake_start",
+        "model_usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_read_input_tokens": cache_read,
+            "cache_creation_input_tokens": cache_creation,
+        },
+    }
+
+
+def test_run_passes_session_events_into_the_cost_computation_for_a_rate_carded_model(tmp_path, monkeypatch):
+    """END-TO-END wiring proof for Claude Haiku 5.5's two prompt-length rate
+    cards: `run.py` must hand `mine_session_cost()` the SAME event list it already
+    fetched for artifact retrieval, or a rate-carded candidate cannot be costed at
+    all (it would raise PerRequestPricingError and fail the repetition). Two
+    requests straddle the 100,000-token threshold, so the written cost.json must
+    also carry the per-card breakdown."""
+    _setup_env(monkeypatch, tmp_path, slug="haiku-5-5-test", model="claude-haiku-5-5")
+    runs_root = tmp_path / "runs"
+
+    short_request = _model_request_end_event(input_tokens=10, output_tokens=500, cache_read=50_000, cache_creation=1_000)
+    long_request = _model_request_end_event(input_tokens=5, output_tokens=1_000, cache_read=150_000)
+
+    def _result(client, **kwargs):
+        base = _fake_run_result("# Daily AI Brief\n\nSome content.", "Hello.")
+        return trigger_module.CandidateRunResult(
+            deployment_id=base.deployment_id,
+            session_id=base.session_id,
+            final_status=base.final_status,
+            events=[*base.events, short_request, long_request],
+        )
+
+    threads = [
+        {
+            "id": "sthr_1",
+            "parent_thread_id": None,
+            "created_at": "2026-10-11T00:00:00Z",
+            "agent": {"id": "agent_test", "name": "a", "description": "", "model": {"id": "claude-haiku-5-5"}},
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 1_500,
+                "cache_read_input_tokens": 200_000,
+                "cache_creation": {"ephemeral_5m_input_tokens": 1_000, "ephemeral_1h_input_tokens": 0},
+            },
+        }
+    ]
+
+    monkeypatch.setattr(trigger_module, "run_candidate", _result)
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: threads)
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    exit_code = run_cli.main(
+        ["haiku-5-5-test", "--criteria", "length_format", "--runs-root", str(runs_root)]
+    )
+
+    assert exit_code == 0
+    run_dir = next((runs_root / "haiku-5-5-test").iterdir())
+    cost_data = json.loads((run_dir / "repetitions" / "01" / "cost.json").read_text())
+    thread_cost = cost_data["threads"][0]
+    assert thread_cost["model"] == "claude-haiku-5-5"
+    assert thread_cost["request_card_counts"] == {"standard": 1, "long_prompt": 1}
+    # $0.000876 (standard card) + $0.0100025 (long-prompt card) -- hand-computed in
+    # tests/test_cost.py's rate-card section, rounded to 4dp here.
+    assert cost_data["total_cost_usd"] == pytest.approx(round(0.000876 + 0.0100025, 4))
+
+
+def test_run_fails_the_repetition_loudly_when_a_rate_carded_model_cannot_be_priced(tmp_path, monkeypatch):
+    """A rate-carded thread whose per-request events don't sum to its own totals
+    must NOT be silently mis-priced: the PerRequestPricingError lands in run.py's
+    existing per-repetition containment (state=failed, the paid artifacts/events
+    kept on disk), exactly like any other post-trigger bookkeeping failure."""
+    _setup_env(monkeypatch, tmp_path, slug="haiku-5-5-test", model="claude-haiku-5-5")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )  # NO span.model_request_end events at all
+    threads = [
+        {
+            "id": "sthr_1",
+            "parent_thread_id": None,
+            "created_at": "2026-10-11T00:00:00Z",
+            "agent": {"id": "agent_test", "name": "a", "description": "", "model": {"id": "claude-haiku-5-5"}},
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 0,
+                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0},
+            },
+        }
+    ]
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: threads)
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    exit_code = run_cli.main(["haiku-5-5-test", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    run_dir = next((runs_root / "haiku-5-5-test").iterdir())
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "PerRequestPricingError" in rep_meta["error"]
+    assert (run_dir / "repetitions" / "01" / "events.json").exists()
 
 
 # --- _price_judge_results (review-fix: judge cost accounting; judge methodology v2) ----
