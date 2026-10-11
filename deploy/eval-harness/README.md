@@ -141,16 +141,44 @@ Each of the four v1 criteria (`content_selection`, `factual_accuracy`, `length_f
 three of the four after two real committed runs exposed genuine judge-quality defects;
 `length_format` is unchanged.
 
-**Models — ALL FOUR default to `claude-opus-4-8`.** The owner's principle: a judge must be
-run on a model STRONGER than what it judges, or the evaluation doesn't mean much. Per-judge
-model config stays flippable — `eval_core/judges/base.JUDGE_MODELS` is the one small mapping
-(`{criterion: model_id}`) every judge module resolves its own entry from; changing one
-judge's model back down is a one-line edit there, not a hunt through four files. Each
-`JudgeResult` records which model actually ran the call (`.model`), so `run.py`'s
-`_price_judge_results()` prices every criterion against ITS OWN model — `judge-cost.json`'s
-top-level `models` field is the sorted set of models actually used across the criteria a run
-tested (usually just `["claude-opus-4-8"]`, but would show more than one entry if a judge's
-model is ever flipped).
+**Models — ALL FOUR run on `claude-opus-5-5`** (owner-directed 2026-10-11; `claude-opus-4-8`
+before that). The owner's principle: a judge must be run on a model STRONGER than what it
+judges, or the evaluation doesn't mean much. Per-judge model config stays flippable —
+`eval_core/judges/base.JUDGE_MODELS` is the one small mapping (`{criterion: model_id}`) every
+judge module resolves its own entry from; changing one judge's model back down is a one-line
+edit there, not a hunt through four files. Each `JudgeResult` records which model actually ran
+the call (`.model`), so `run.py`'s `_price_judge_results()` prices every criterion against ITS
+OWN model — `judge-cost.json`'s top-level `models` field is the sorted set of models actually
+used across the criteria a run tested (usually just `["claude-opus-5-5"]`), and each
+criterion's entry in **`scores.json` also carries its `model`** so a score committed before
+2026-10-11 (judged by Opus 4.8) stays distinguishable from one after it. `pricing.json`
+deliberately retains the Opus 4.8 entry for that reason.
+
+**What the Opus 5.5 move changed in the judge call** (and nothing else — prompts, tool
+versions, `max_uses` caps and top-level `cache_control` are untouched; verified live
+2026-10-11 that `claude-opus-5-5` accepts `web_search_20250305` + `web_fetch_20250910`
+together with `output_config.effort` and top-level `cache_control` on the installed SDK,
+anthropic 0.116.0):
+
+- **Explicit `output_config={"effort": "high"}`** on every call. Opus 5.5's API default is
+  `medium` where Opus 4.8's was `high`, so a bare model swap would quietly drop the judges one
+  deliberation level below every previously-committed run.
+- **`max_tokens` raised** to 16000 for the three reasoning judges and 8000 for `length_format`
+  (from 1024–4096). Thinking is always on and cannot be disabled on this model, and thinking
+  tokens count against `max_tokens`, so the old caps would truncate. `run_judge()` sends no
+  `thinking` field, no `budget_tokens`, no sampling params and no forced `tool_choice` — all
+  of which 400 on Opus 5.5.
+- **`stop_reason` is handled before the content is read** (there was none before):
+  `"refusal"` raises `JudgeRefusedError` carrying `stop_details.category` — deliberately with
+  NO fallback to another model, since a silent model swap mid-batch would change the measuring
+  instrument; `"max_tokens"` raises `JudgeTruncatedError`; `"pause_turn"` (the server-side tool
+  loop's 10-iteration limit) is resumed by sending the paused assistant turn back unchanged, up
+  to 5 continuations, SUMMING token usage and web-search counts across iterations so a resumed
+  call is never under-billed. All three are plain exceptions that land in `run.py`'s existing
+  per-repetition containment (`final_status="judging_failed"`, run state `failed`, paid
+  artifacts/events kept) — no new silent-degrade path.
+- Thinking blocks (`type: "thinking"`, empty text under the default display) are ignored by the
+  verdict extraction, which has always selected only `type == "text"` blocks.
 
 - **`factual_accuracy` — full rework.** Previously judged PLAUSIBILITY against the judge's
   own training data (a real committed run penalized a correctly-dated brief for being
@@ -191,7 +219,8 @@ model is ever flipped).
   need no external verification).
 - **`length_format` — UNCHANGED.** Prompt, rubric, and approach are exactly as they were
   (a length/format check needs no live research and was never implicated by either
-  live-run finding) — the ONLY change is its model, per the uniform Opus default above.
+  live-run finding) — the ONLY changes are its model, effort and `max_tokens`, per the
+  uniform Opus default above.
 
 **Web-tool schema/versions** (verified live 2026-07-07 against
 `platform.claude.com/docs/en/docs/agents-and-tools/tool-use/{web-search,web-fetch}-tool`,
@@ -215,20 +244,25 @@ prices as $0. Every judge call enables **automatic prompt caching** (top-level
 loop re-sends the whole accumulated context every iteration, and the first live uncached
 smoke of the v2 accuracy judge cost **$1.60** (281,543 full-price input tokens); the
 identical cached re-run cost **$0.88 (-45%)** — 10 full-price input + ~99K cache-write +
-~193K cache-read tokens. Measured judge cost: **~$0.88 for the accuracy judge alone;
-roughly $1.40–$1.60 per repetition all-in across all four** (incl. up to 8+5=13 web searches
-at $0.01 each) — note Opus 4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more
+~193K cache-read tokens. Those figures were measured on **Opus 4.8**; on Opus 5.5 the same
+call is cheaper on both axes (base input $4 vs $5, and cache reads at 0.05x base input vs
+0.1x — i.e. $0.20 vs $0.50 per MTok), though explicit `high` effort means more thinking
+tokens, so re-baseline from the first real 5.5 run rather than scaling the old numbers.
+Historical measured judge cost (Opus 4.8): **~$0.88 for the accuracy judge alone; roughly
+$1.40–$1.60 per repetition all-in across all four** (incl. up to 8+5=13 web searches at
+$0.01 each) — note Opus 4.7+/Sonnet 5 use a newer tokenizer that produces **~30% more
 tokens for the same text** than Haiku 4.5's tokenizer (part of why an Opus judge costs more
 per call than a raw token-count comparison alone would suggest — see `pricing.json`'s own
 comment).
 
-**Response parsing**: a server-side-tool response can carry MIXED content (narration text,
-`server_tool_use`/tool-result blocks, then a final text block) — `run_judge()` parses ONLY
-the LAST text block for the JSON verdict, never joins every text block (an earlier narration
-block's own stray braces could otherwise corrupt the parse) and never assumes the first block
-is the answer. The `scores.json` schema stays additive: the original
-`{score, rationale, evidence, insufficient_data}` shape is unchanged; `findings`/
-`selection_disagreements` are included only when a judge's result actually carries one. The
+**Response parsing**: a server-side-tool response can carry MIXED content (`thinking` blocks,
+narration text, `server_tool_use`/tool-result blocks, then a final text block) — `run_judge()`
+parses ONLY the LAST text block for the JSON verdict, never joins every text block (an earlier
+narration block's own stray braces could otherwise corrupt the parse) and never assumes the
+first block is the answer. The `scores.json` schema stays additive: the original
+`{score, rationale, evidence, insufficient_data}` shape is unchanged, plus `model` (always,
+since 2026-10-11) and `findings`/`selection_disagreements` only when a judge's result actually
+carries one. The
 Deep Dive UI (`templates/run_detail.html`) renders both as plain tables, escaped exactly like
 every other judge-authored field (never `| safe`).
 
@@ -332,7 +366,8 @@ runs/<candidate-slug>/<eval-run-id>/
       artifacts/          AI Brief - <date>.md, listening-script.txt,
                           candidates.json, source-usage.json (whichever were cat'd)
       threads-usage.json / cost.json   per-thread usage + cost (harness.cost)
-      scores.json          per-criterion {score, rationale, evidence, insufficient_data}
+      scores.json          per-criterion {score, rationale, evidence,
+                            insufficient_data, model (the judge model)}
       run-meta.json         deployment_id, session_id, thread_count, final_status
       events.json           GITIGNORED (runs/**/events.json) -- the full raw trace
     02/ ...

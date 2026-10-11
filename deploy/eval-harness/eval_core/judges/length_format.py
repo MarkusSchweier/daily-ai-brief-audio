@@ -12,10 +12,18 @@ UNCHANGED by judge methodology v2 (2026-07-07, owner-directed, docs/adr/0016
 amendment), per the owner's explicit instruction -- this judge's PROMPT and
 approach stay exactly as they were (a length/format check needs no live web
 research, and its v1 approach was never implicated by either live-run finding
-that motivated the v2 rework). The ONE thing that changes is its MODEL: it now
-resolves `claude-opus-4-8` from `base.JUDGE_MODELS` (the same "judges must be
-stronger than what they judge" principle applied uniformly to all four judges),
-not the previous shared `claude-haiku-4-5`.
+that motivated the v2 rework). The ONE thing that changes is its MODEL: it
+resolves whatever `base.JUDGE_MODELS` names (the same "judges must be stronger
+than what they judge" principle applied uniformly to all four judges), not the
+original shared `claude-haiku-4-5`.
+
+MODEL UPDATE (2026-10-11, owner-directed): `claude-opus-5-5` (from Opus 4.8), with
+`output_config={"effort": "high"}` and an EXPLICIT `max_tokens=8000`. The explicit
+cap matters here specifically: this judge used to rely on `run_judge()`'s own
+default (1024, set for a no-thinking Opus 4.8), and Opus 5.5's always-on thinking
+counts against `max_tokens` -- 8000 is deliberately half the reasoning judges'
+16000, since counting headlines needs far less deliberation than verifying claims
+against live sources. Prompt still UNCHANGED, still no web tools.
 """
 
 from __future__ import annotations
@@ -53,7 +61,17 @@ _SYSTEM_PROMPT = (
 
 def judge_length_format(client: Any, *, brief_markdown: str) -> JudgeResult:
     user_prompt = f"BRIEF:\n{brief_markdown}\n\nJudge length/format compliance against the stated target per your system instructions."
-    return run_judge(client, criterion=CRITERION, system_prompt=_SYSTEM_PROMPT, user_prompt=user_prompt, model=_MODEL)
+    return run_judge(
+        client,
+        criterion=CRITERION,
+        system_prompt=_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        model=_MODEL,
+        # EXPLICIT (2026-10-11) rather than inheriting run_judge()'s default:
+        # Opus 5.5's thinking counts against max_tokens, and this judge needs
+        # less deliberation than the three reasoning judges' 16000.
+        max_tokens=8000,
+    )
 
 
 __all__ = ["judge_length_format", "CRITERION"]

@@ -69,6 +69,57 @@ amendment): three changes, all additive to the shape above:
    response with no tool calls, or a test double with no `server_tool_use`
    attribute, still returns a valid `JudgeResult`.
 
+AMENDED (judge model -> Claude Opus 5.5, 2026-10-11 -- owner-directed, docs/adr/0016
+amendment): all four judges move from `claude-opus-4-8` to `claude-opus-5-5`, which
+is a stronger model at a LOWER price ($4/$20 vs $5/$25, and cache reads at 0.05x
+base input instead of 0.1x). Opus 5.5's request surface forces four changes here --
+nothing else about the judges (prompts, tool versions, `max_uses` caps, top-level
+`cache_control`) changes:
+
+1. **Thinking is ALWAYS on (adaptive) and cannot be disabled.** `thinking:
+   {"type": "disabled"}`, `budget_tokens`, sampling params
+   (`temperature`/`top_p`/`top_k`) and forced `tool_choice` (`any`/`tool`) all
+   return 400 on this model. `run_judge()` has never sent ANY of them and must
+   not start -- the only new field is `output_config`.
+2. **Effort is explicit.** Opus 5.5's API default is `medium` (Opus 4.8's was
+   `high`), so a straight model swap would quietly run the judges one effort level
+   lower than before -- a change to the measuring instrument, mid-comparison.
+   Every judge call therefore sends `output_config={"effort": JUDGE_EFFORT}` with
+   `JUDGE_EFFORT = "high"`.
+3. **`max_tokens` must cover the thinking too.** Thinking tokens count against
+   `max_tokens` even though their text isn't returned under the default
+   `display: "omitted"`. The v2 caps (1024-4096) were set for a judge running
+   WITHOUT thinking on Opus 4.8 and would now truncate the verdict, so the three
+   reasoning judges use 16000 and `length_format` 8000 (non-streaming
+   `messages.create` is fine at these values).
+4. **`stop_reason` is handled BEFORE the content is read** (there was no
+   handling at all before):
+   - `"refusal"` (a safety-classifier decline; HTTP 200, `content` empty or
+     partial) raises `JudgeRefusedError` carrying `stop_details.category`.
+     DELIBERATELY NO fallback to another model: a silent model swap mid-batch
+     would change the measuring instrument and make the run's scores
+     incomparable, which is strictly worse than a loud failure.
+   - `"max_tokens"` raises `JudgeTruncatedError` -- a truncated response's text
+     is not a verdict, and letting it fall through to the JSON parser would
+     record it as a bland `insufficient_data` degrade instead of the real,
+     fixable cause.
+   - `"pause_turn"` (the server-side tool loop hitting its 10-iteration limit --
+     reachable for the two web-tool judges) is CONTINUED by sending the paused
+     assistant turn back unchanged, bounded at `MAX_PAUSE_TURN_CONTINUATIONS`
+     (5), SUMMING token usage and web-search counts across every iteration so
+     judge cost is never under-reported; exhausting the bound raises
+     `JudgePauseLimitError`.
+   All three errors are plain exceptions that propagate to `run.py`'s existing
+   per-repetition containment (the broad `except Exception` around the whole
+   post-trigger bookkeeping phase), which records `final_status="judging_failed"`
+   plus the error and finalizes the run as failed -- no weakening of that
+   containment, and no new silent-degrade path.
+
+Thinking blocks appear in `response.content` as `type: "thinking"` (empty text
+under the default display). `_extract_final_text_block()` already selects only
+`type == "text"` blocks, so they are ignored by construction -- covered by a test
+with thinking blocks interleaved.
+
 Also new: `JudgeResult.findings` / `.selection_disagreements` -- optional
 structured arrays (`list[dict] | None`) a v2 judge's JSON response may include
 alongside the original `score`/`rationale`/`evidence`/`insufficient_data` shape
@@ -86,20 +137,26 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-# Per-judge model config (judge methodology v2, 2026-07-07, owner-directed): a
-# judge must be run on a model STRONGER than what it judges, so every v1 criterion
-# -- including the length/format judge, whose PROMPT is otherwise unchanged --
-# defaults to Opus 4.8. Kept as ONE small, explicit, easily-flippable mapping (not
+# Per-judge model config (judge methodology v2, 2026-07-07, owner-directed; model
+# moved to Opus 5.5 2026-10-11, same owner principle): a judge must be run on a
+# model STRONGER than what it judges, so every v1 criterion -- including the
+# length/format judge, whose PROMPT is otherwise unchanged -- runs on the current
+# strongest Opus. Kept as ONE small, explicit, easily-flippable mapping (not
 # hardcoded inline at each judge's call site) so a future owner call to move any
-# single judge to a different model (e.g. back to Sonnet/Haiku once Opus judge
-# cost is validated in practice) is a one-line change here, not a hunt through
+# single judge to a different model is a one-line change here, not a hunt through
 # four files. Each judge module resolves its own entry at import time
 # (`_MODEL = JUDGE_MODELS[CRITERION]`) and passes it explicitly to `run_judge()`.
+#
+# Runs judged BEFORE 2026-10-11 were scored by `claude-opus-4-8`; their
+# `judge-cost.json` (`models`, `per_criterion[*].model`) and -- since 2026-10-11 --
+# their `scores.json` (`per-criterion `model`) record which model actually judged
+# them, so old and new scores stay distinguishable. `pricing.json` deliberately
+# retains the Opus 4.8 entry for exactly that reason.
 JUDGE_MODELS: dict[str, str] = {
-    "factual_accuracy": "claude-opus-4-8",
-    "content_selection": "claude-opus-4-8",
-    "length_format": "claude-opus-4-8",
-    "dedup": "claude-opus-4-8",
+    "factual_accuracy": "claude-opus-5-5",
+    "content_selection": "claude-opus-5-5",
+    "length_format": "claude-opus-5-5",
+    "dedup": "claude-opus-5-5",
 }
 
 # `run_judge()`'s own default when a caller doesn't pass `model=` explicitly (e.g.
@@ -107,7 +164,29 @@ JUDGE_MODELS: dict[str, str] = {
 # config) -- kept in sync with JUDGE_MODELS' shared value, but NOT itself "the"
 # judge model for any of the four criteria; each judge module passes its own
 # `JUDGE_MODELS[CRITERION]` rather than relying on this default.
-JUDGE_MODEL = "claude-opus-4-8"
+JUDGE_MODEL = "claude-opus-5-5"
+
+# Sent on EVERY judge call as `output_config={"effort": JUDGE_EFFORT}`. Opus 5.5's
+# API default is `medium` where Opus 4.8's was `high` (and thinking can no longer
+# be disabled at all), so leaving this implicit would silently run the judges one
+# effort level lower than every previously-committed run was judged at -- a change
+# to the measuring instrument in the middle of a comparison. Explicit `high` keeps
+# the judges at the same deliberation level as before.
+JUDGE_EFFORT = "high"
+
+# `run_judge()`'s own default `max_tokens`. Opus 5.5 counts THINKING tokens against
+# max_tokens, so the pre-2026-10-11 defaults (1024-4096, set when the judges ran
+# without thinking on Opus 4.8) truncate. Each judge still passes its own value
+# explicitly (16000 for the three reasoning judges, 8000 for length_format); this
+# default exists for direct callers/tests and is sized for thinking too.
+DEFAULT_MAX_TOKENS = 16000
+
+# How many times `run_judge()` will resume a `pause_turn` (the server-side tool
+# loop reaching its 10-iteration limit) before giving up loudly. The docs'
+# own recommendation ("Set a max_continuations limit (e.g., 5)") -- a bound, not a
+# retry policy: each continuation is a real, billed API call whose usage is summed
+# into the returned JudgeResult.
+MAX_PAUSE_TURN_CONTINUATIONS = 5
 
 # The zero-usage shape returned when a response carries no `.usage` at all (should
 # not happen against the real Anthropic SDK, but a test double or a future API
@@ -120,6 +199,89 @@ _EMPTY_USAGE: dict[str, int] = {
     "cache_creation_5m_input_tokens": 0,
     "cache_creation_1h_input_tokens": 0,
 }
+
+
+class JudgeCallError(RuntimeError):
+    """Base class for a judge call that cannot honestly produce a score (2026-10-11,
+    Opus 5.5 `stop_reason` handling).
+
+    Deliberately an EXCEPTION, not another `insufficient_data` degrade: a refused or
+    truncated call is a real, fixable condition about the measuring instrument, and
+    recording it as "the judge couldn't score this" would bury it in a field the
+    comparison table treats as a blank. These propagate into `run.py`'s existing
+    per-repetition containment, which records `final_status="judging_failed"` with
+    the error and finalizes the run as failed -- loud, contained, and with the paid
+    artifacts/events still on disk."""
+
+    def __init__(self, message: str, *, criterion: str, model: str):
+        super().__init__(message)
+        self.criterion = criterion
+        self.model = model
+
+
+class JudgeRefusedError(JudgeCallError):
+    """A safety-classifier decline: HTTP 200 with `stop_reason: "refusal"` and an
+    (informational, possibly null) `stop_details.category` -- carried on
+    `.category`/`.explanation` here so the operator can see WHICH classifier fired.
+
+    There is DELIBERATELY no fallback to another model (no `fallbacks` parameter, no
+    client-side retry on a different model): the whole point of a judge is that
+    every candidate in a comparison is scored by the SAME instrument, so silently
+    re-scoring one repetition on a different model would corrupt the comparison far
+    more than a failed repetition does."""
+
+    def __init__(self, *, criterion: str, model: str, category: str | None, explanation: str | None):
+        detail = f" category={category!r}" if category is not None else " category=None (not reported)"
+        if explanation:
+            detail += f" explanation={explanation!r}"
+        super().__init__(
+            f"judge call for criterion {criterion!r} on model {model!r} was REFUSED by a safety "
+            f"classifier (stop_reason='refusal',{detail}). NOT retried on another model -- that "
+            "would change the measuring instrument mid-batch. Rephrase the judge prompt or "
+            "exclude this input.",
+            criterion=criterion,
+            model=model,
+        )
+        self.category = category
+        self.explanation = explanation
+
+
+class JudgeTruncatedError(JudgeCallError):
+    """`stop_reason: "max_tokens"` -- the response was cut off mid-flight, so its
+    text is not a verdict. Raised rather than parsed, because a truncated response
+    usually still contains SOME JSON-looking text and would otherwise be recorded
+    as a formatting degrade, hiding the real (one-line-fixable) cause. On Opus 5.5
+    thinking tokens count against `max_tokens`, which is exactly how a cap sized
+    for a no-thinking model produces this."""
+
+    def __init__(self, *, criterion: str, model: str, max_tokens: int):
+        super().__init__(
+            f"judge call for criterion {criterion!r} on model {model!r} was TRUNCATED "
+            f"(stop_reason='max_tokens', max_tokens={max_tokens}). On this model thinking tokens "
+            "count against max_tokens -- raise the judge's max_tokens rather than parsing a "
+            "half-written verdict.",
+            criterion=criterion,
+            model=model,
+        )
+        self.max_tokens = max_tokens
+
+
+class JudgePauseLimitError(JudgeCallError):
+    """The server-side tool loop kept returning `pause_turn` after
+    `MAX_PAUSE_TURN_CONTINUATIONS` resumes. Every iteration was a real billed call,
+    so this is a bound on spend as much as on time; it should be unreachable with
+    the judges' `max_uses` caps, and if it ever fires the cap/prompt is the thing to
+    look at."""
+
+    def __init__(self, *, criterion: str, model: str, continuations: int):
+        super().__init__(
+            f"judge call for criterion {criterion!r} on model {model!r} still returned "
+            f"stop_reason='pause_turn' after {continuations} continuation(s) -- giving up rather "
+            "than looping (and billing) unboundedly. Check the judge's web-tool max_uses caps.",
+            criterion=criterion,
+            model=model,
+        )
+        self.continuations = continuations
 
 
 @dataclass(frozen=True)
@@ -137,6 +299,8 @@ class JudgeResult:
     `usage` is the judge CALL's own token usage (input/output/cache, the same flat
     shape `harness.cost.ThreadUsage` uses) -- captured so a caller can price it
     SEPARATELY from pipeline cost (ADR-0016 review-fix; see module docstring).
+    For a call that was paused and resumed (`stop_reason: "pause_turn"`), this is
+    the SUM across every iteration, not just the last one.
 
     `model` (judge methodology v2) records which model actually made this call --
     per-judge model config means this is no longer implied by a single global
@@ -181,9 +345,13 @@ def _extract_final_text_block(response: Any) -> str:
 
     A response that used server-side tools (web_search/web_fetch) carries MIXED
     content: `server_tool_use` blocks, `web_search_tool_result`/
-    `web_fetch_tool_result` blocks, and possibly more than one `text` block
-    interleaved (a judge may narrate -- "Let me verify this claim..." -- between
-    searches before committing to its final JSON verdict). The judge's structured
+    `web_fetch_tool_result` blocks, `thinking` blocks (ALWAYS possible on Opus
+    5.5, whose thinking cannot be disabled -- empty text under the default
+    `display: "omitted"`, and sometimes carrying progress updates), and possibly
+    more than one `text` block interleaved (a judge may narrate -- "Let me verify
+    this claim..." -- between searches before committing to its final JSON
+    verdict). Filtering on `type == "text"` is what makes thinking blocks (and
+    every other block type) irrelevant here. The judge's structured
     JSON response is always the LAST text block emitted; take that one
     specifically, never join every text block (an earlier narration block could
     itself contain stray `{`/`}` characters that would corrupt
@@ -234,6 +402,25 @@ def _extract_usage(response: Any) -> dict[str, int]:
     }
 
 
+def _sum_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
+    """Field-wise sum of two usage dicts -- used to accumulate usage across a
+    `pause_turn` continuation chain, so a paused-and-resumed judge call reports
+    (and is charged for) EVERY iteration it actually made, not just the last."""
+    return {key: int(left.get(key, 0) or 0) + int(right.get(key, 0) or 0) for key in _EMPTY_USAGE}
+
+
+def _extract_refusal_details(response: Any) -> tuple[str | None, str | None]:
+    """Read `(stop_details.category, stop_details.explanation)` defensively.
+
+    Both are INFORMATIONAL: `stop_details` can be null even on a real refusal, and
+    `explanation` is not guaranteed present -- which is why `run_judge()` branches
+    on `stop_reason` and only uses these to enrich the error message."""
+    stop_details = getattr(response, "stop_details", None)
+    if stop_details is None:
+        return None, None
+    return getattr(stop_details, "category", None), getattr(stop_details, "explanation", None)
+
+
 def _extract_search_count(response: Any) -> int:
     """Capture `response.usage.server_tool_use.web_search_requests` (confirmed
     live 2026-07-07 against the web-search-tool docs page's own example response:
@@ -258,7 +445,7 @@ def run_judge(
     system_prompt: str,
     user_prompt: str,
     model: str = JUDGE_MODEL,
-    max_tokens: int = 1024,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     tools: list[dict[str, Any]] | None = None,
 ) -> JudgeResult:
     """Call the Messages API once and parse a `JudgeResult` from the response.
@@ -283,12 +470,25 @@ def run_judge(
     even on the malformed-response degrade path below -- the call still cost real
     tokens (and may have made real, billable searches) whether or not the response
     could be parsed (review-fix, see module docstring).
+
+    `stop_reason` is inspected BEFORE the content is read (2026-10-11, Opus 5.5):
+    a `"refusal"` or `"max_tokens"` response raises (`JudgeRefusedError` /
+    `JudgeTruncatedError` -- see their docstrings for why these are errors rather
+    than degrades), and a `"pause_turn"` response is resumed up to
+    `MAX_PAUSE_TURN_CONTINUATIONS` times with usage and search counts summed
+    across every iteration.
     """
-    kwargs: dict[str, Any] = dict(
+    base_kwargs: dict[str, Any] = dict(
         model=model,
         max_tokens=max_tokens,
         system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
+        # Explicit effort (2026-10-11): Opus 5.5 defaults to `medium` where Opus
+        # 4.8 defaulted to `high`, and its thinking cannot be disabled -- so this
+        # is what keeps the judges deliberating at the same level every
+        # previously-committed run was judged at. NOTE what is NOT sent, all of
+        # which 400 on this model: `thinking: {"type": "disabled"}`,
+        # `budget_tokens`, temperature/top_p/top_k, forced `tool_choice`.
+        output_config={"effort": JUDGE_EFFORT},
         # AUTOMATIC prompt caching (top-level cache_control; confirmed against
         # the prompt-caching docs 2026-07-07): the API auto-manages cache
         # breakpoints as the request's context grows. This matters ENORMOUSLY
@@ -297,18 +497,55 @@ def run_judge(
         # result) on EVERY iteration -- the first live v2 accuracy-judge smoke
         # burned 281,543 UNCACHED input tokens ($1.52) across its 8-search
         # loop, cache_read=0. With this field, iterations 2..N read the shared
-        # prefix at 0.1x base instead. 5m TTL is ample (a judge call's loop
-        # completes within minutes); writes cost 1.25x base, paid back after a
-        # single loop iteration. Harmless on tool-less judges (one iteration,
-        # nothing re-read).
+        # prefix at the model's cache-read rate instead (0.05x base input on
+        # Opus 5.5, half what it was on Opus 4.8). 5m TTL is ample (a judge
+        # call's loop completes within minutes); writes cost 1.25x base, paid
+        # back after a single loop iteration. Harmless on tool-less judges (one
+        # iteration, nothing re-read).
         cache_control={"type": "ephemeral"},
     )
     if tools:
-        kwargs["tools"] = tools
+        base_kwargs["tools"] = tools
 
-    response = client.messages.create(**kwargs)
-    usage = _extract_usage(response)
-    search_count = _extract_search_count(response)
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
+    paused_assistant_blocks: list[Any] = []
+    usage: dict[str, int] = dict(_EMPTY_USAGE)
+    search_count = 0
+
+    for _ in range(MAX_PAUSE_TURN_CONTINUATIONS + 1):
+        response = client.messages.create(**base_kwargs, messages=messages)
+        # Accumulate FIRST, unconditionally: every iteration below -- including the
+        # ones that go on to raise -- was a real, billed call.
+        usage = _sum_usage(usage, _extract_usage(response))
+        search_count += _extract_search_count(response)
+
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
+            category, explanation = _extract_refusal_details(response)
+            raise JudgeRefusedError(criterion=criterion, model=model, category=category, explanation=explanation)
+        if stop_reason == "max_tokens":
+            raise JudgeTruncatedError(criterion=criterion, model=model, max_tokens=max_tokens)
+        if stop_reason != "pause_turn":
+            break
+
+        # Resume the paused server-side tool loop: send the paused assistant turn
+        # back UNCHANGED (the API detects its trailing server_tool_use block and
+        # resumes -- adding a "Continue." user message is explicitly wrong). On a
+        # second or later pause the new blocks are appended to that SAME assistant
+        # turn rather than added as another assistant message: the server is
+        # resuming one single assistant turn, every block is still passed back
+        # verbatim, and this needs no assumption about whether consecutive
+        # same-role messages are accepted.
+        paused_assistant_blocks.extend(response.content or [])
+        messages = [
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": list(paused_assistant_blocks)},
+        ]
+    else:
+        raise JudgePauseLimitError(
+            criterion=criterion, model=model, continuations=MAX_PAUSE_TURN_CONTINUATIONS
+        )
+
     text = _extract_final_text_block(response)
 
     try:
@@ -407,9 +644,16 @@ JSON_RESPONSE_INSTRUCTION_WITH_DEDUP_FINDINGS = (
 
 __all__ = [
     "JudgeResult",
+    "JudgeCallError",
+    "JudgeRefusedError",
+    "JudgeTruncatedError",
+    "JudgePauseLimitError",
     "run_judge",
     "JUDGE_MODEL",
     "JUDGE_MODELS",
+    "JUDGE_EFFORT",
+    "DEFAULT_MAX_TOKENS",
+    "MAX_PAUSE_TURN_CONTINUATIONS",
     "JSON_RESPONSE_INSTRUCTION",
     "JSON_RESPONSE_INSTRUCTION_WITH_ACCURACY_FINDINGS",
     "JSON_RESPONSE_INSTRUCTION_WITH_SELECTION_DISAGREEMENTS",

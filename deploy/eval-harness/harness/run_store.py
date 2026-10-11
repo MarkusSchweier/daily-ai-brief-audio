@@ -9,7 +9,11 @@ runs/<candidate-slug>/<eval-run-id>/
                           candidates.json, source-usage.json
       threads-usage.json  per-thread {role, agent_id, model, usage{...}}
       cost.json           per-thread + total (harness.cost.SessionCostBreakdown)
-      scores.json         per-criterion {score, rationale, evidence, insufficient_data}
+      scores.json         per-criterion {score, rationale, evidence, insufficient_data,
+                          model} -- `model` is the JUDGE model that produced the score
+                          (added 2026-10-11 with the Opus 4.8 -> Opus 5.5 judge move, so
+                          old and new scores stay distinguishable; records written before
+                          that date simply lack the key)
       run-meta.json       deployment_id, session_id, thread_count, final_status, timestamp
       events.json         GITIGNORED -- the full raw trace
     02/ ...

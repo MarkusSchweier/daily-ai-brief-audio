@@ -362,7 +362,19 @@ def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str
     are included ONLY when a judge's result actually carries one (a v1-shaped
     judge, or a v2 judge's degrade path that never called the API, simply omits
     the key -- never an empty-list placeholder that would look like "the judge
-    checked nothing")."""
+    checked nothing").
+
+    ALSO ADDITIVE (2026-10-11): each criterion now records the `model` that
+    actually judged it. The judge model moved from `claude-opus-4-8` to
+    `claude-opus-5-5` that day, so scores produced before and after must be
+    distinguishable from the scores file itself -- previously that was only
+    recoverable from the sibling `judge-cost.json`, which doesn't exist for a
+    repetition whose judging phase failed, and isn't where a reader of a SCORE
+    looks. Backward compatible in both directions: every `scores.json` committed
+    before this date simply lacks the key (`ui.py`/`run_detail.html` read named
+    keys, never a fixed key set), and `eval_core.record.CriterionScore` is
+    deliberately NOT given the field -- it is the judge's identity, not part of
+    the score itself."""
     out: dict[str, dict[str, Any]] = {}
     for criterion, result in judge_results.items():
         entry: dict[str, Any] = {
@@ -370,6 +382,7 @@ def _scores_to_dict(judge_results: dict[str, JudgeResult]) -> dict[str, dict[str
             "rationale": result.rationale,
             "evidence": result.evidence,
             "insufficient_data": result.insufficient_data,
+            "model": result.model,
         }
         if result.findings is not None:
             entry["findings"] = result.findings

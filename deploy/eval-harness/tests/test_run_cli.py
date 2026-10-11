@@ -16,7 +16,7 @@ import run as run_cli
 from candidate_sync import trigger as trigger_module
 from candidate_sync.loader import AgentDeclaration, CandidateDeclaration
 
-from conftest import git_init_and_commit, make_fake_client
+from conftest import FakeContentBlock, FakeMixedMessage, FakeStopDetails, git_init_and_commit, make_fake_client
 
 
 def _write_json(path: Path, data) -> None:
@@ -188,7 +188,7 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     # fixture content actually reaching the system prompt (end-to-end plumbing of
     # run.py's _load_sources_md()), and the web_search/web_fetch tools attached.
     judge_call = fake_judge_client.messages.calls[0]
-    assert judge_call["model"] == "claude-opus-4-8"
+    assert judge_call["model"] == "claude-opus-5-5"
     assert "Fake Outlet: https://fake-outlet.example.test/news" in judge_call["system"]
     tool_types = {t["type"] for t in judge_call["tools"]}
     assert tool_types == {"web_search_20250305", "web_fetch_20250910"}
@@ -206,13 +206,13 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     # judge methodology v2 amends the shape for per-judge model config + search
     # cost) -- a SIBLING file to cost.json, never folded into pipeline cost.
     judge_cost = json.loads((rep_dir / "judge-cost.json").read_text())
-    assert judge_cost["models"] == ["claude-opus-4-8"]
+    assert judge_cost["models"] == ["claude-opus-5-5"]
     assert judge_cost["total_cost_usd"] > 0
     assert judge_cost["total_search_count"] == 0  # the fake response reports no server_tool_use
     assert judge_cost["total_search_cost_usd"] == 0
     assert judge_cost["grand_total_cost_usd"] == judge_cost["total_cost_usd"]
     assert set(judge_cost["per_criterion"]) == {"factual_accuracy"}
-    assert judge_cost["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
+    assert judge_cost["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-5-5"
     assert judge_cost["total_cost_usd"] != cost_data["total_cost_usd"]  # never confused with pipeline cost
 
     summary = json.loads((run_dir / "summary.json").read_text())
@@ -557,6 +557,84 @@ def test_dedup_criterion_skips_the_priors_fetch_when_no_brief_date_is_parseable(
     assert "DEDUP_PRIORS_SKIPPED" in capsys.readouterr().err
 
 
+# --- Opus 5.5 judge stop_reason errors flow into the existing containment -------------
+
+
+def test_a_refused_judge_call_fails_the_repetition_through_the_existing_containment(tmp_path, monkeypatch, capsys):
+    """A judge call refused by a safety classifier (`stop_reason: "refusal"`)
+    raises `JudgeRefusedError` -- which must land in run.py's EXISTING
+    per-repetition containment exactly like any other judging-phase exception:
+    final_status="judging_failed" with the error recorded, run state failed, paid
+    artifacts/events still on disk, no traceback, no silent degrade, and NO retry
+    on a different judge model."""
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    refusal = FakeMixedMessage([], stop_reason="refusal", stop_details=FakeStopDetails(category="cyber"))
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(refusal))
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    assert "EVAL_REPETITION_JUDGING_FAILED" in capsys.readouterr().err
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "JudgeRefusedError" in rep_meta["error"]
+    assert "cyber" in rep_meta["error"]
+    assert (run_dir / "repetitions" / "01" / "events.json").exists()
+    assert not (run_dir / "repetitions" / "01" / "scores.json").exists()
+
+
+def test_a_truncated_judge_call_fails_the_repetition_through_the_existing_containment(tmp_path, monkeypatch):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    truncated = FakeMixedMessage(
+        [FakeContentBlock("text", text=_score_response(4))], stop_reason="max_tokens"
+    )
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(truncated))
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code != 0
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert rep_meta["final_status"] == "judging_failed"
+    assert "JudgeTruncatedError" in rep_meta["error"]
+
+
+def test_scores_json_records_the_opus_5_5_judge_model_end_to_end(tmp_path, monkeypatch):
+    """The written scores.json must name the model that actually judged -- old
+    records (Opus 4.8) and new ones (Opus 5.5) have to be distinguishable from the
+    scores file itself, not just from the sibling judge-cost.json."""
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    runs_root = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+
+    run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    scores = json.loads((run_dir / "repetitions" / "01" / "scores.json").read_text())
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+    judge_cost = json.loads((run_dir / "repetitions" / "01" / "judge-cost.json").read_text())
+    assert judge_cost["per_criterion"]["length_format"]["model"] == "claude-opus-5-5"
+
+
 # --- Per-request rate-carded pricing wiring (2026-10-11) ------------------------------
 
 
@@ -680,7 +758,7 @@ def test_price_judge_results_prices_every_criterion_against_its_own_recorded_mod
 
     judge_results = {
         "factual_accuracy": JudgeResult(
-            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-4-8",
+            criterion="factual_accuracy", score=4, rationale="r", evidence="e", model="claude-opus-5-5",
             usage={"input_tokens": 1000, "output_tokens": 500, "cache_read_input_tokens": 0, "cache_creation_5m_input_tokens": 0, "cache_creation_1h_input_tokens": 0},
         ),
         "content_selection": JudgeResult(
@@ -691,15 +769,15 @@ def test_price_judge_results_prices_every_criterion_against_its_own_recorded_mod
 
     result = run_cli._price_judge_results(judge_results, pricing_table=pricing_table, on_date=date(2026, 7, 7))
 
-    assert result["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-4-8"
+    assert result["per_criterion"]["factual_accuracy"]["model"] == "claude-opus-5-5"
     assert result["per_criterion"]["factual_accuracy"]["cost_usd"] > 0
     assert result["per_criterion"]["content_selection"]["cost_usd"] == 0
     assert result["total_cost_usd"] == result["per_criterion"]["factual_accuracy"]["cost_usd"]
     assert result["total_usage"]["input_tokens"] == 1000
     # Both judges' models are reported (content_selection defaults to the base
-    # JUDGE_MODEL fallback, claude-opus-4-8, even though it never actually called
+    # JUDGE_MODEL fallback, claude-opus-5-5, even though it never actually called
     # the API -- see JudgeResult's own default).
-    assert result["models"] == ["claude-opus-4-8"]
+    assert result["models"] == ["claude-opus-5-5"]
 
 
 def test_price_judge_results_prices_different_criteria_against_different_models():
@@ -808,7 +886,29 @@ def test_scores_to_dict_omits_findings_when_the_judge_result_has_none():
 
     scores = run_cli._scores_to_dict(judge_results)
 
-    assert set(scores["length_format"]) == {"score", "rationale", "evidence", "insufficient_data"}
+    # `model` (2026-10-11) is always present -- which judge model produced a score
+    # must be readable from scores.json itself; findings/selection_disagreements
+    # stay omitted unless the judge actually returned one.
+    assert set(scores["length_format"]) == {"score", "rationale", "evidence", "insufficient_data", "model"}
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+
+
+def test_scores_to_dict_records_the_actual_judge_model_per_criterion():
+    """Old records were judged by Opus 4.8 and new ones by Opus 5.5 -- a mixed
+    dict must report each criterion's OWN model, never one global constant."""
+    from eval_core.judges.base import JudgeResult
+
+    judge_results = {
+        "length_format": JudgeResult(
+            criterion="length_format", score=5, rationale="r", evidence="e", model="claude-opus-5-5"
+        ),
+        "dedup": JudgeResult(criterion="dedup", score=4, rationale="r", evidence="e", model="claude-opus-4-8"),
+    }
+
+    scores = run_cli._scores_to_dict(judge_results)
+
+    assert scores["length_format"]["model"] == "claude-opus-5-5"
+    assert scores["dedup"]["model"] == "claude-opus-4-8"
 
 
 def test_scores_to_dict_includes_findings_when_present():
