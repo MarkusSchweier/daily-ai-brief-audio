@@ -933,3 +933,121 @@ def test_fetch_threads_calls_the_confirmed_endpoint_and_returns_the_data_list():
 
     assert [t["id"] for t in threads] == ["sthr_1", "sthr_2"]
     assert client.calls == ["/v1/sessions/sesn_abc/threads"]
+
+
+# --- REVIEWER-ADDED (2026-10-11 review): rate-card edge cases + path equivalence ------
+
+
+def test_the_threshold_counts_cache_WRITE_tokens_too_at_the_boundary():
+    """The existing boundary test straddles 100,000 using cache READS only. The
+    page's wording covers writes as well ("including cache reads and cache
+    writes"), and the two are different fields on the event -- so pin the boundary
+    for a write-only prompt and for a mixed one. Billing a 100,001-token prompt on
+    the cheap card would under-price that request ~5x."""
+    tier = _haiku_5_5_tier()
+    assert tier.card_for(cost.RequestUsage(cache_creation_input_tokens=100_000)) == cost.CARD_STANDARD
+    assert tier.card_for(cost.RequestUsage(cache_creation_input_tokens=100_001)) == cost.CARD_LONG_PROMPT
+    # Mixed: 40,000 input + 55,000 read + 5,000 write = exactly 100,000 -> cheap card;
+    # one more token of ANY of the three crosses over.
+    assert (
+        tier.card_for(
+            cost.RequestUsage(input_tokens=40_000, cache_read_input_tokens=55_000, cache_creation_input_tokens=5_000)
+        )
+        == cost.CARD_STANDARD
+    )
+    assert (
+        tier.card_for(
+            cost.RequestUsage(input_tokens=40_001, cache_read_input_tokens=55_000, cache_creation_input_tokens=5_000)
+        )
+        == cost.CARD_LONG_PROMPT
+    )
+
+
+def test_output_tokens_never_push_a_request_onto_the_long_prompt_card():
+    """`prompt_tokens` is input-side only. A request with a small prompt and a huge
+    completion must stay on the cheap card -- counting output would over-price it
+    5x (and, since output is the one bucket a cheap model spends most of its money
+    on, badly distort a Haiku 5.5 total)."""
+    tier = _haiku_5_5_tier()
+    request = cost.RequestUsage(input_tokens=100_000, output_tokens=1_000_000)
+    assert request.prompt_tokens == 100_000
+    assert tier.card_for(request) == cost.CARD_STANDARD
+    # 100,000 x $0.10/MTok + 1,000,000 x $0.50/MTok
+    assert tier.cost_usd_for_request(request) == pytest.approx(0.01 + 0.50)
+
+
+def test_per_request_and_aggregate_pricing_agree_for_a_single_card_model():
+    """`price_requests()` is documented as safe for a tier WITHOUT a long-prompt
+    card. Prove the two code paths are arithmetically identical there -- including
+    for a family with a per-model cache-read OVERRIDE (Sonnet 5.5's 0.05x), which
+    is the case where a second implementation of the same arithmetic could quietly
+    disagree."""
+    tier = cost.resolve_price_tier(_pricing_table(), "claude-sonnet-5-5", on_date=date(2026, 10, 11))
+    requests = [
+        cost.RequestUsage(input_tokens=10, output_tokens=500, cache_read_input_tokens=50_000, cache_creation_input_tokens=1_000),
+        cost.RequestUsage(input_tokens=5, output_tokens=1_000, cache_read_input_tokens=250_000),
+        cost.RequestUsage(input_tokens=0, output_tokens=0),
+    ]
+    aggregate = cost.ThreadUsage(
+        input_tokens=sum(r.input_tokens for r in requests),
+        output_tokens=sum(r.output_tokens for r in requests),
+        cache_read_input_tokens=sum(r.cache_read_input_tokens for r in requests),
+        cache_creation_5m_input_tokens=sum(r.cache_creation_input_tokens for r in requests),
+    )
+
+    per_request, counts = cost.price_requests(requests, price_tier=tier)
+
+    assert counts == {cost.CARD_STANDARD: 3, cost.CARD_LONG_PROMPT: 0}
+    assert per_request == pytest.approx(tier.cost_usd(aggregate))
+
+
+def test_every_pricing_json_family_reproduces_the_pages_printed_per_mtok_rates():
+    """ONE table-driven pin of every number on the 2026-10-11 pricing page, so a
+    future edit to any single family's base rate or cache override has to update
+    this table too. Rates are per MTok: (input, 5m write, 1h write, cache read,
+    output)."""
+    expected = {
+        "claude-opus-5-5": (4.0, 5.0, 8.0, 0.20, 20.0),
+        "claude-sonnet-5-5": (2.0, 2.50, 4.0, 0.10, 10.0),
+        "claude-sonnet-5": (2.0, 2.50, 4.0, 0.20, 10.0),
+        "claude-opus-4-8": (5.0, 6.25, 10.0, 0.50, 25.0),
+        "claude-haiku-4-5": (1.0, 1.25, 2.0, 0.10, 5.0),
+        "claude-haiku-5-5": (0.10, 0.125, 0.20, 0.01, 0.50),
+    }
+    table = _pricing_table()
+    assert set(expected) == set(table["models"]), "a family was added/removed without updating this pin"
+
+    for model, (base_in, write_5m, write_1h, read, base_out) in expected.items():
+        tier = cost.resolve_price_tier(table, model, on_date=date(2026, 10, 11))
+        assert tier.input_per_million_usd == pytest.approx(base_in), model
+        assert tier.output_per_million_usd == pytest.approx(base_out), model
+        assert tier.input_per_million_usd * tier.cache_write_5m_multiplier == pytest.approx(write_5m), model
+        assert tier.input_per_million_usd * tier.cache_write_1h_multiplier == pytest.approx(write_1h), model
+        assert tier.input_per_million_usd * tier.cache_read_multiplier == pytest.approx(read), model
+
+    # Haiku 5.5's SECOND card, likewise ($0.50 / $0.625 / $1.00 / $0.05 / $2.50).
+    haiku = cost.resolve_price_tier(table, "claude-haiku-5-5", on_date=date(2026, 10, 11))
+    assert haiku.long_prompt_input_per_million_usd == pytest.approx(0.50)
+    assert haiku.long_prompt_output_per_million_usd == pytest.approx(2.50)
+    assert haiku.long_prompt_input_per_million_usd * haiku.cache_write_5m_multiplier == pytest.approx(0.625)
+    assert haiku.long_prompt_input_per_million_usd * haiku.cache_write_1h_multiplier == pytest.approx(1.00)
+    assert haiku.long_prompt_input_per_million_usd * haiku.cache_read_multiplier == pytest.approx(0.05)
+    assert haiku.long_prompt_threshold_tokens == 100_000
+
+
+def test_a_rate_carded_model_is_never_priced_off_aggregate_usage_by_any_entry_point():
+    """The one invariant that protects the batch's dollar figures from being
+    silently 2.5x too low: NO public entry point may cost a rate-carded tier from
+    aggregate usage. Asserted per entry point so a future convenience wrapper
+    can't quietly become a fourth, unguarded one."""
+    table = _pricing_table()
+    usage = cost.ThreadUsage(input_tokens=15, output_tokens=1_600, cache_read_input_tokens=300_000)
+
+    with pytest.raises(cost.PerRequestPricingError):
+        _haiku_5_5_tier().cost_usd(usage)
+    with pytest.raises(cost.PerRequestPricingError):
+        cost.price_usage(usage.to_dict(), model="claude-haiku-5-5", pricing_table=table, on_date=date(2026, 10, 11))
+    with pytest.raises(cost.PerRequestPricingError):
+        cost.mine_session_cost(
+            "sesn_1", [_haiku_5_5_thread()], pricing_table=table, on_date=date(2026, 10, 11), events=None
+        )

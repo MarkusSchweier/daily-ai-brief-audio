@@ -149,3 +149,84 @@ def test_candidates_declaring_no_effort_still_send_a_bare_string_model():
     # (8 candidates, 21 agent bodies including sub-agents, at the time of writing),
     # not silently passed over an empty list.
     assert checked >= 21
+
+
+# --- REVIEWER-ADDED (2026-10-11 review) --------------------------------------------
+
+
+def test_every_candidate_has_its_own_distinct_agent_id():
+    """`agent_id` is what `sync.py` updates IN PLACE and what `run.py`/`trigger.py`
+    actually trigger -- the slug is only a label. So a copy-pasted or duplicated
+    `agent_id` would make two "different candidates" the SAME live agent resource:
+    syncing one would silently overwrite the other's model/effort, and an eval run
+    recorded under slug X would in fact have run configuration Y. For a batch whose
+    entire purpose is attributing cost/quality differences to a model, that is a
+    silent wrong-answer bug, and nothing else in the suite would catch it.
+    """
+    seen: dict[str, str] = {}
+    duplicates = []
+    for candidate_dir in _real_candidate_dirs():
+        raw = json.loads((candidate_dir / "candidate.json").read_text())
+        agent_id = raw.get("agent_id")
+        if not agent_id:  # explicit null = not synced yet; nothing to collide
+            continue
+        if agent_id in seen:
+            duplicates.append(f"{candidate_dir.name} reuses {seen[agent_id]}'s agent_id {agent_id}")
+        seen[agent_id] = candidate_dir.name
+
+    assert not duplicates, "; ".join(duplicates)
+    assert len(seen) >= 4, "expected at least the four batch candidates to carry real agent ids"
+
+
+def test_sub_agent_ids_are_distinct_from_every_other_agent_id():
+    """Same hazard one level down: a roster entry sharing an id with its own
+    coordinator (or with another candidate's agent) would collapse two agents into
+    one on the next sync."""
+    all_ids: list[tuple[str, str]] = []
+    for candidate_dir in _real_candidate_dirs():
+        candidate = load_candidate(candidate_dir)
+        for position, agent in enumerate([candidate.agent, *candidate.sub_agents]):
+            if agent.agent_id:
+                all_ids.append((agent.agent_id, f"{candidate_dir.name}[{position}]"))
+
+    by_id: dict[str, list[str]] = {}
+    for agent_id, where in all_ids:
+        by_id.setdefault(agent_id, []).append(where)
+
+    collisions = {k: v for k, v in by_id.items() if len(v) > 1}
+    assert not collisions, f"agent ids used by more than one declared agent: {collisions}"
+
+
+def test_the_batch_compares_four_distinct_models_against_one_shared_configuration():
+    """The batch is only a MODEL comparison if the four members differ in model:
+    three distinct 5.5 ids plus the baseline's Haiku 4.5. Guards against a
+    copy-paste that leaves two candidates on the same `model.txt` (which would
+    produce two runs that look like a comparison and aren't)."""
+    models = {
+        slug: load_candidate(CANDIDATES_DIR / slug).agent.model
+        for slug in [BASELINE_SLUG, *MODEL_GENERATION_CANDIDATES]
+    }
+
+    assert len(set(models.values())) == 4, models
+    assert models[BASELINE_SLUG].startswith("claude-haiku-4-5")
+
+
+def test_the_baseline_declares_no_effort_so_the_batch_documents_its_own_asymmetry():
+    """Honest-comparison guard, deliberately asserting the CURRENT, intentional
+    state rather than an ideal one: the Haiku 4.5 baseline carries no effort knob
+    at all, and Opus runs at `medium` while Haiku/Sonnet run at `high`. So the
+    batch is matched on prompt/skill/tools but NOT effort-matched across all four
+    members -- which is a real caveat when reading the resulting numbers, and must
+    be a deliberate, visible choice rather than a copy-paste slip. If the owner
+    ever decides to effort-match the batch, THIS is the test that should change.
+    """
+    baseline = load_candidate(CANDIDATES_DIR / BASELINE_SLUG)
+    assert baseline.agent.parameters == {}
+    assert baseline.agent.effort is None
+
+    efforts = {slug: effort for slug, (_model, effort) in MODEL_GENERATION_CANDIDATES.items()}
+    assert efforts == {
+        "haiku-5-5-hardened": "high",
+        "sonnet-5-5-hardened": "high",
+        "opus-5-5-hardened": "medium",
+    }

@@ -847,3 +847,83 @@ def test_run_judge_leaves_the_web_tool_versions_and_caps_untouched():
         {"type": "web_search_20250305", "name": "web_search", "max_uses": 5},
         {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 5},
     ]
+
+
+# --- REVIEWER-ADDED (2026-10-11 review): stop_reason x continuation interactions ------
+
+
+def test_run_judge_raises_when_a_resumed_continuation_is_truncated():
+    """The two new behaviors (pause-turn resume, stop_reason handling) INTERACT:
+    the accuracy judge's 8+8 tool loop is both the most likely to pause AND the
+    most likely to truncate, and its continuation re-sends a context that has
+    grown by every tool result so far. A truncated CONTINUATION must raise just
+    like a truncated first call -- never fall through to the parser and be
+    recorded as a score."""
+    paused = FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+    truncated = FakeMixedMessage(
+        [FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason="max_tokens"  # parseable text on purpose
+    )
+    client = make_fake_client(paused, truncated)
+
+    with pytest.raises(JudgeTruncatedError):
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u", max_tokens=16000)
+
+    assert len(client.messages.calls) == 2
+
+
+def test_run_judge_raises_when_a_resumed_continuation_is_refused():
+    paused = FakeMixedMessage([FakeContentBlock("server_tool_use")], stop_reason="pause_turn")
+    refused = FakeMixedMessage([], stop_reason="refusal", stop_details=FakeStopDetails(category="bio"))
+    client = make_fake_client(paused, refused)
+
+    with pytest.raises(JudgeRefusedError) as excinfo:
+        run_judge(client, criterion="factual_accuracy", system_prompt="s", user_prompt="u")
+
+    assert excinfo.value.category == "bio"
+    assert len(client.messages.calls) == 2
+
+
+def test_run_judge_treats_an_unrecognized_stop_reason_as_a_finished_turn():
+    """Only three stop reasons are special-cased. Anything else (`end_turn`,
+    `stop_sequence`, `tool_use`, or a stop reason this SDK version has never seen)
+    must behave exactly as before: read the last text block and parse it. A future
+    stop reason must not silently become an unhandled crash in the judging
+    phase -- which would fail the whole repetition."""
+    for stop_reason in ("end_turn", "stop_sequence", "tool_use", "some_future_reason"):
+        client = make_fake_client(
+            FakeMixedMessage([FakeContentBlock("text", text=_OK_RESPONSE)], stop_reason=stop_reason)
+        )
+
+        result = run_judge(client, criterion="test", system_prompt="s", user_prompt="u")
+
+        assert result.score == 4, stop_reason
+        assert len(client.messages.calls) == 1, stop_reason
+
+
+def test_a_truncated_response_never_degrades_into_a_score_or_insufficient_data():
+    """The specific failure this guards: a truncated verdict usually still looks
+    like JSON (`{"score": 3, "rationale": "the brief claims...`), so without
+    stop_reason handling it would have been recorded either as a REAL score or as
+    a bland `insufficient_data` -- both of which silently corrupt a comparison the
+    owner is about to pick a production model from."""
+    half_written = '{"score": 3, "rationale": "The brief claims that the new model'
+    client = make_fake_client(
+        FakeMixedMessage([FakeContentBlock("text", text=half_written)], stop_reason="max_tokens")
+    )
+
+    with pytest.raises(JudgeTruncatedError):
+        run_judge(client, criterion="dedup", system_prompt="s", user_prompt="u", max_tokens=2048)
+
+
+def test_judge_models_are_recorded_on_every_result_including_the_degrade_path():
+    """`scores.json`'s new `model` key is only meaningful if it is populated on
+    EVERY path -- including the malformed-response degrade, which is exactly the
+    path whose records a reader is most likely to want to attribute to a specific
+    judge model."""
+    client = make_fake_client("this is not JSON at all")
+
+    result = run_judge(client, criterion="test", system_prompt="s", user_prompt="u", model="claude-opus-5-5")
+
+    assert result.insufficient_data is True
+    assert result.score is None
+    assert result.model == "claude-opus-5-5"
