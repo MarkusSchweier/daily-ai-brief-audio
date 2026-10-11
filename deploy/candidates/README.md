@@ -1137,6 +1137,20 @@ triggered to validate this specific instruction; that validation happens
 naturally whenever `production-baseline` (or any candidate referencing this
 skill) is next synced to the new version and triggered for a real run.
 
+**Partially re-pinned, 2026-10-11 (the model-generation comparison batch).**
+`haiku-swap-hardened` and the three 5.5 candidates (`haiku-5-5-hardened`,
+`sonnet-5-5-hardened`, `opus-5-5-hardened`) now pin `1783347998026490` — the
+version live production's own agent resolves to — so that batch's four
+`skills.json` files are byte-identical to each other and the comparison measures
+models against the skill content production actually runs. Every OTHER candidate
+(`production-baseline`, `haiku-swap`, `haiku-swap-verified`,
+`multiagent-aggressive-haiku`, `session-restructure`, `haiku-digest-sonnet-select`)
+deliberately still pins `1783340601977967`, for the reason above: their committed
+run records were produced against that content. Note this cuts the same way for
+`haiku-swap-hardened` itself — **its July 2026 run record ($0.52; 3/4/4/2) was
+produced on the OLD pin**, so that record is not strictly comparable against a
+fresh run on the new pin.
+
 Two reviewer-found follow-ups on the ORIGINAL three Phase 5 bugs (the
 `model`-shape scope-check and the single-quoted-`cat`-path parsing gap) are
 documented above, in "Real bugs found."
