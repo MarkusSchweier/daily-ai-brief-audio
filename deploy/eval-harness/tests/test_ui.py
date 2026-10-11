@@ -111,11 +111,13 @@ def test_conduct_page_lists_candidates(client, monkeypatch, tmp_path):
 
 
 def test_candidate_options_mark_the_slug_production_actually_runs(monkeypatch, tmp_path):
-    """Reviewer M4: production has run `haiku-swap-hardened` since 2026-07-13, so
-    that -- not `production-baseline` -- is what the Conduct dropdown marks. Both
-    this module and run.py resolve it from `harness.production_config`."""
+    """Reviewer M4: production has run `haiku-5-5-hardened` (Haiku 5.5, effort high)
+    since 2026-10-11, so that -- not the superseded `haiku-swap-hardened` or
+    `production-baseline` -- is what the Conduct dropdown's "right now" label marks.
+    Both this module and run.py resolve it from `harness.production_config`."""
     candidates_dir = tmp_path / "candidates"
     candidates_dir.mkdir()
+    _build_candidate_dir(candidates_dir, "haiku-5-5-hardened")
     _build_candidate_dir(candidates_dir, "haiku-swap-hardened")
     _build_candidate_dir(candidates_dir, "production-baseline")
     _build_candidate_dir(candidates_dir, "opus-5-5-hardened")
@@ -123,7 +125,8 @@ def test_candidate_options_mark_the_slug_production_actually_runs(monkeypatch, t
     options = {o["slug"]: o["is_production_config"] for o in ui_app.list_candidate_options(candidates_dir=candidates_dir)}
 
     assert options == {
-        "haiku-swap-hardened": True,
+        "haiku-5-5-hardened": True,
+        "haiku-swap-hardened": False,
         "production-baseline": False,
         "opus-5-5-hardened": False,
     }

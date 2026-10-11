@@ -139,10 +139,12 @@ def list_candidate_options(*, candidates_dir: Path | None = None) -> list[dict[s
                 # The CURRENT production configuration, from the one shared source
                 # `run.py` also reads (review-fix, reviewer M4 -- this used to
                 # hardcode "production-baseline" independently of run.py's own
-                # copy, and both went stale on the 2026-07-13 production move to
-                # `haiku-swap-hardened`). Note this is a "right now" label for the
-                # Conduct dropdown; the Assess table instead renders each run's
-                # STORED flag, which is historical (see production_config.py).
+                # copy, and both went stale on the 2026-07-13 production move off
+                # Sonnet 5; production moved again on 2026-10-11, to
+                # `haiku-5-5-hardened`, and this label followed for free). Note
+                # this is a "right now" label for the Conduct dropdown; the Assess
+                # table instead renders each run's STORED flag, which is historical
+                # (see production_config.py).
                 "is_production_config": production_config.is_production_config(
                     candidate.slug, candidate.candidate_json
                 ),
@@ -257,8 +259,9 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         # The STORED flag, never recomputed: it means "was the production
         # configuration at the time of THIS run" (review-fix, reviewer M4 -- see
         # harness/production_config.py). That is why `production-baseline`'s July
-        # records still show "yes" even though production has run
-        # `haiku-swap-hardened` since 2026-07-13.
+        # records, and the `haiku-swap-hardened` run taken hours before the
+        # 2026-10-11 switch, still show "yes" even though production has run
+        # `haiku-5-5-hardened` (Haiku 5.5, effort high) since 2026-10-11.
         "is_production_config": meta.is_production_config,
         "criteria": meta.criteria,
         "criterion_scores": criterion_scores,

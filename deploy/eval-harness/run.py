@@ -105,8 +105,9 @@ _BRIEF_FILENAME_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 # -- `harness/production_config.py` -- so the recorded flag and the Conduct page's
 # label can never disagree (review-fix, reviewer M4: this used to be
 # "production-baseline" hardcoded here AND, separately, in ui.py, both of them
-# stale since the owner moved production onto `haiku-swap-hardened` on
-# 2026-07-13). Re-exported under its original private name so this module's own
+# stale since the owner moved production off Sonnet 5 on 2026-07-13; production
+# moved again on 2026-10-11, to `haiku-5-5-hardened`, and that single edit was all
+# it took). Re-exported under its original private name so this module's own
 # references (and tests) keep reading naturally.
 _PRODUCTION_CANDIDATE_SLUG = production_config.PRODUCTION_CANDIDATE_SLUG
 
@@ -136,7 +137,8 @@ def _is_production_config(candidate: CandidateDeclaration) -> bool:
 
     Resolved exactly once, here, when the run record is written -- the value
     stored in `eval-run.json` is HISTORICAL and is never recomputed or rewritten
-    afterwards (`production-baseline`'s July records keep `true`; see
+    afterwards (`production-baseline`'s July records keep `true`, and so does the
+    `haiku-swap-hardened` run taken hours before the 2026-10-11 switch; see
     `harness/production_config.py` for the full semantics)."""
     return production_config.is_production_config(candidate.slug, candidate.candidate_json)
 

@@ -2,17 +2,27 @@
 -- the ONE place `run.py` (recording a new run) and `ui.py` (labelling the Conduct
 dropdown) both read, so the two can never drift apart (review-fix, reviewer M4).
 
-## Today's answer: `haiku-swap-hardened`
+## Today's answer: `haiku-5-5-hardened`
 
-Production ran `production-baseline`'s configuration (Claude Sonnet 5, end-to-end
-single agent) until **2026-07-13**, when the owner moved production onto
-**candidate #6 `haiku-swap-hardened`** (Claude Haiku 4.5 + the checklist-hardened
-task prompt) ahead of the cost-optimization epic's step C -- live agent v2,
-scheduled deployment `depl_016LWhcSEghrvGknVWhZvgdr`, first Haiku production send
-Tue 2026-07-14 06:07 Europe/Berlin. See `docs/prd/cost-optimization-candidates.md`
-§6's first DECIDED entry. `production-baseline` is still a perfectly valid
-candidate -- it is how the step-C comparison keeps measuring the OLD Sonnet
-configuration -- it is just no longer what production runs.
+Production's configuration has had three eras, each mirrored by one candidate:
+
+  1. **until 2026-07-13** -- `production-baseline` (Claude Sonnet 5, end-to-end
+     single agent).
+  2. **2026-07-13 -> 2026-10-11** -- `haiku-swap-hardened` (Claude Haiku 4.5 + the
+     checklist-hardened task prompt), the owner's move onto candidate #6 ahead of
+     the cost-optimization epic's step C: live agent v2, scheduled deployment
+     `depl_016LWhcSEghrvGknVWhZvgdr`, first Haiku production send Tue 2026-07-14
+     06:07 Europe/Berlin. See `docs/prd/cost-optimization-candidates.md` §6's first
+     DECIDED entry.
+  3. **since 2026-10-11** -- `haiku-5-5-hardened` (Claude **Haiku 5.5 at effort
+     high**, the hardened task prompt UNCHANGED from era 2), i.e. a pure
+     model-generation move: the scheduled production deployment now runs exactly
+     this candidate's configuration.
+
+The superseded candidates stay perfectly valid declarations -- they are how the
+step-C comparison keeps measuring the older configurations (Sonnet 5 via
+`production-baseline`, Haiku 4.5 via `haiku-swap-hardened`) -- they are just no
+longer what production runs.
 
 ## The recorded flag is HISTORICAL, and is never rewritten
 
@@ -24,8 +34,12 @@ belongs to that record forever:
   - `production-baseline`'s July run records legitimately keep `true` -- when they
     were taken, that genuinely was production's configuration. Rewriting them to
     `false` would falsify the comparison table's own history.
-  - A `haiku-swap-hardened` run recorded BEFORE 2026-07-13 legitimately carries
-    `false` for the same reason.
+  - `haiku-swap-hardened`'s `2026-10-11-104933-dce776-matched-5-5-2026-10-11` record
+    legitimately keeps `true`: it ran a few hours BEFORE that day's switch, while
+    Haiku 4.5 was still production. Its July record (taken before 2026-07-13)
+    legitimately keeps `false` for the same reason.
+  - Today's `haiku-5-5-hardened` records legitimately keep `false` -- they were
+    taken while it was still only a candidate.
   - The Assess table renders the STORED flag (`EvalRunMeta.is_production_config`)
     and never recomputes it, which is what makes the above hold.
 
@@ -40,10 +54,12 @@ from __future__ import annotations
 from typing import Any
 
 # The candidate slug this repo treats as "the configuration production runs today"
-# (ADR-0016 D4's production-config marker). Moved from `production-baseline` to
-# `haiku-swap-hardened` on 2026-10-11 to match the owner's 2026-07-13 production
-# cut-over -- see the module docstring.
-PRODUCTION_CANDIDATE_SLUG = "haiku-swap-hardened"
+# (ADR-0016 D4's production-config marker). History: `production-baseline` until
+# 2026-07-13, `haiku-swap-hardened` from then until 2026-10-11, and
+# `haiku-5-5-hardened` since the owner's 2026-10-11 move to Haiku 5.5 at effort
+# high -- see the module docstring. Changing this NEVER rewrites an existing run
+# record; only records written from here on resolve to the new answer.
+PRODUCTION_CANDIDATE_SLUG = "haiku-5-5-hardened"
 
 
 def is_production_config(slug: str, candidate_json: dict[str, Any] | None = None) -> bool:
