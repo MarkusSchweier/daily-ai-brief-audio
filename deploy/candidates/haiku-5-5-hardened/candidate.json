@@ -3,5 +3,5 @@
   "description": "2026-10-11 model-generation comparison: identical to haiku-swap-hardened (= the production configuration) except model claude-haiku-5-5 at effort high. Content generation only; holds no AWS/delivery role; never fans out, never synthesizes audio. SEPARATE agent resource.",
   "composition": "single-agent",
   "schedule_intent": "none -- cost-optimization eval candidate only; never scheduled and never promoted to production without a separate, explicitly-approved cut-over decision",
-  "agent_id": null
+  "agent_id": "agent_011NVS18rxsu6WHUfYPVt11N"
 }
