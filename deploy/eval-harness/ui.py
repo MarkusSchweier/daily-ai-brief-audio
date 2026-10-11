@@ -394,6 +394,36 @@ def assess():
     return render_template("assess.html", rows=rows, criteria=list(V1_CRITERIA))
 
 
+def _read_declaration_for_display(git_ref: str, slug: str) -> dict[str, Any]:
+    """`git_show.read_candidate_declaration_at_ref()`, guaranteed never to break
+    the run detail page (review-fix, reviewer H2).
+
+    `git_show` already fails soft on every git problem it anticipates (no working
+    git, an unknown ref, a file that no longer parses -- all reported via the
+    returned dict's `read_error`). This wrapper is the belt-and-braces outer
+    guard: ANY unexpected exception from that call is turned into the same
+    empty-declaration-plus-`read_error` shape, so one unreadable configuration
+    panel can never cost the operator the scores, costs and brief render on the
+    rest of the page. That is exactly how this route used to return HTTP 500 for
+    EVERY run: a `subprocess`-level git failure (launchd's PATH resolving to the
+    Xcode-license-blocked /usr/bin/git) escaped straight out of here."""
+    try:
+        return git_show.read_candidate_declaration_at_ref(git_ref, slug)
+    except Exception as e:  # noqa: BLE001 -- display-only panel; never 500 the page over it
+        return {
+            "slug": slug,
+            "ref": git_ref,
+            "name": "",
+            "description": "",
+            "model": "",
+            "system_prompt": "",
+            "task_prompt": "",
+            "sub_agents": [],
+            "is_multi_agent": False,
+            "read_error": f"the candidate declaration could not be read at this ref: {e!r}",
+        }
+
+
 @app.route("/runs/<slug>/<eval_run_id>")
 def run_detail(slug: str, eval_run_id: str):
     # Explicit containment check (review-fix, security L2, defense-in-depth):
@@ -412,7 +442,7 @@ def run_detail(slug: str, eval_run_id: str):
         return render_template("not_found.html", slug=slug, eval_run_id=eval_run_id), 404
 
     meta = run_store.read_eval_run_meta(run_dir)
-    declaration = git_show.read_candidate_declaration_at_ref(meta.git_ref, meta.slug)
+    declaration = _read_declaration_for_display(meta.git_ref, meta.slug)
 
     repetitions = []
     for index in range(1, meta.repetitions + 1):

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import ui as ui_app
-from harness import run_store
+from harness import git_show, run_store
 
 from conftest import git_init_and_commit
 
@@ -18,6 +18,17 @@ from conftest import git_init_and_commit
 def client():
     ui_app.app.config["TESTING"] = True
     return ui_app.app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def _reset_git_probe_cache():
+    """`harness.git_show` caches its git-executable probe (success AND failure)
+    for the whole process -- reset it around every test here so the
+    "no working git" test below cannot poison the tests that render a real
+    declaration out of real git history (or vice versa)."""
+    git_show.reset_git_cache()
+    yield
+    git_show.reset_git_cache()
 
 
 def _write_json(path: Path, data) -> None:
@@ -572,3 +583,80 @@ def test_run_detail_renders_v2_findings_and_selection_disagreements_xss_safely(c
     assert "&lt;img src=x onerror=alert" in body  # present, but only as inert escaped text
     assert "<b>A story</b>" not in body
     assert "&lt;b&gt;A story&lt;/b&gt;" in body
+
+
+# --- The run detail page never 500s over git (review-fix, reviewer H2) --------------
+
+
+def _write_minimal_completed_run(runs_root: Path, *, slug: str = "test-candidate") -> Path:
+    run_dir = run_store.eval_run_dir(slug, "2026-10-11-999999-nogit", runs_root=runs_root)
+    meta = run_store.EvalRunMeta(
+        name="a run whose declaration cannot be read",
+        slug=slug,
+        agent_id="agent_x",
+        git_ref="b" * 40,
+        composition="single-agent",
+        models=["claude-haiku-5-5"],
+        parameters={"agent": {"effort": "high"}, "sub_agents": []},
+        repetitions=1,
+        criteria=["factual_accuracy"],
+        state=run_store.STATE_COMPLETED,
+        email_sent=False,
+        is_production_config=False,
+        created_at=1000,
+    )
+    run_store.write_eval_run_meta(run_dir, meta)
+    run_store.write_scores(
+        run_dir,
+        1,
+        {"factual_accuracy": {"score": 5, "rationale": "solid", "evidence": "n/a", "insufficient_data": False}},
+    )
+    run_store.write_run_meta(run_dir, 1, {"deployment_id": "depl_x", "session_id": "sesn_x", "final_status": "idle"})
+    run_store.write_artifacts(run_dir, 1, {"/workspace/AI Brief - 2026-10-11.md": "# Daily AI Brief\n\nBody."})
+    return run_dir
+
+
+def test_run_detail_still_renders_when_no_working_git_exists(client, monkeypatch, tmp_path):
+    """The reviewer-reported H2: the UI runs as a launchd service whose PATH
+    resolves `git` to the Xcode-license-blocked /usr/bin/git, and the resulting
+    error escaped `run_detail()` -- HTTP 500 for EVERY run. Now the page renders
+    with a visible note in the candidate-configuration section instead."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_minimal_completed_run(runs_root)
+
+    def _no_git_anywhere(argv, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+    monkeypatch.setattr(git_show.subprocess, "run", _no_git_anywhere)
+    monkeypatch.setattr(git_show.shutil, "which", lambda name: None)
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "could not be read at the recorded git ref" in body
+    # Everything that does NOT depend on git still renders.
+    assert "a run whose declaration cannot be read" in body
+    assert "solid" in body  # the judge rationale
+    assert "<h1>Daily AI Brief</h1>" in body  # the brief render
+
+
+def test_run_detail_still_renders_when_git_show_raises_unexpectedly(client, monkeypatch, tmp_path):
+    """Belt-and-braces: even an exception `git_show` itself does not anticipate
+    (anything at all out of `read_candidate_declaration_at_ref`) degrades to the
+    same note rather than a 500."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_minimal_completed_run(runs_root)
+
+    def _boom(ref, slug):
+        raise RuntimeError("something nobody predicted")
+
+    monkeypatch.setattr(ui_app.git_show, "read_candidate_declaration_at_ref", _boom)
+
+    response = client.get(f"/runs/test-candidate/{run_dir.name}")
+
+    assert response.status_code == 200
+    assert b"could not be read at the recorded git ref" in response.data
+    assert b"something nobody predicted" in response.data

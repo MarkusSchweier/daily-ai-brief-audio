@@ -28,6 +28,16 @@
   {% endif %}
 
   <h3>Candidate configuration (as of the recorded git ref)</h3>
+  {% if declaration.read_error %}
+    {# Review-fix (reviewer H2): the configuration panel degrades to this visible
+       note -- it NEVER 500s the page. Reached when no working `git` was found
+       (the launchd-PATH/Xcode-license case), when the recorded ref is unknown to
+       this clone, or when a file at that ref no longer parses. #}
+    <p class="error">
+      &#9888; The candidate declaration could not be read at the recorded git ref
+      (<code>{{ declaration.ref }}</code>): {{ declaration.read_error }}
+    </p>
+  {% endif %}
   <details open>
     <summary>{{ declaration.name }} — {{ declaration.model }}</summary>
     <p>{{ declaration.description }}</p>

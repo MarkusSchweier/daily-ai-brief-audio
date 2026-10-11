@@ -351,6 +351,22 @@ it so template/code changes take effect.
   configuration (main + every sub-agent's prompts) read via `git show <git_ref>:<path>`
   at the EXACT commit the run was triggered against — no repo checkout/rollback.
 
+#### `git` resolution for the Deep Dive page (review-fix, 2026-10-11)
+
+`harness/git_show.py` does **not** trust the process's `PATH` to hold a working
+`git`, because under launchd it does not: launchd's default `PATH` resolves `git`
+to `/usr/bin/git`, Apple's command-line-tools shim, which on a Mac whose Xcode
+license has not been accepted prints *"You have not agreed to the Xcode license
+agreements"* instead of doing anything — which made **every** Deep Dive page
+return HTTP 500 while `/opt/homebrew/bin/git` worked fine. The module now probes
+for a git that actually works (PATH's `git` first, then `/opt/homebrew/bin/git`,
+`/usr/local/bin/git`, `/usr/bin/git`), accepting a candidate only if `git
+--version` both exits 0 **and** prints a real `git version ...` line **and** a
+`git rev-parse --show-toplevel` call succeeds; the result is cached per process.
+If nothing works — or a `git show` fails, or the recorded ref is unknown to this
+clone — the page still renders everything else and shows a visible note in the
+candidate-configuration section. Fixing this needed no change to the plist.
+
 ## Run records (ADR-0016 D4)
 
 Every eval run writes a git-tracked directory:
