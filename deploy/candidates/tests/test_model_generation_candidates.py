@@ -99,18 +99,16 @@ def test_request_body_sends_the_model_object_with_the_declared_effort(slug):
 
 
 @pytest.mark.parametrize("slug", sorted(MODEL_GENERATION_CANDIDATES))
-def test_candidate_has_never_been_synced_yet(slug):
-    """These are declared but NOT synced: `agent_id` is an explicit `null` (this
-    repo's convention for "no real agent resource minted yet" -- see every candidate's
-    own first commit), which the loader surfaces as None and `sync_candidate()` reads
-    as "first sync, create." A stray real id here would mean a sync had mutated
-    something, and a MISSING key (vs. an explicit null) would hide the fact that this
-    candidate is deliberately awaiting its first sync."""
+def test_candidate_agent_id_is_explicit(slug):
+    """`agent_id` is always PRESENT: an explicit `null` before the first sync (this
+    repo's convention for "no real agent resource minted yet"), a real `agent_...` id
+    after it (first synced 2026-10-11). A MISSING key would hide which of the two
+    states the candidate is in."""
     raw = json.loads((CANDIDATES_DIR / slug / "candidate.json").read_text())
 
     assert "agent_id" in raw
-    assert raw["agent_id"] is None
-    assert load_candidate(CANDIDATES_DIR / slug).agent.agent_id is None
+    assert raw["agent_id"] is None or raw["agent_id"].startswith("agent_")
+    assert load_candidate(CANDIDATES_DIR / slug).agent.agent_id == raw["agent_id"]
 
 
 def _real_candidate_dirs():
