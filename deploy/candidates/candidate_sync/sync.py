@@ -352,10 +352,57 @@ def _create_agent(agents_client: httpx.Client, declaration: AgentDeclaration, *,
     return created["id"]
 
 
-def _normalize_live_field_for_comparison(field_name: str, live_value: Any) -> Any:
+def _normalize_live_effort_level(live_effort: Any) -> str | None:
+    """Reduce a live agent's echoed `model.effort` to a plain level string.
+
+    The API accepts an effort as EITHER a bare level string (`"high"`) or an object
+    (`{"type": "high"}`), and -- per its own documentation -- echoes `model` back in
+    object form with omitted fields filled in with defaults. Which of the two effort
+    forms comes back is therefore not something this script should depend on: both are
+    normalized to the bare level string `to_agent_body()` sends. Anything else
+    (including `None`, i.e. no `effort` key echoed at all) reduces to None."""
+    if isinstance(live_effort, dict):
+        level = live_effort.get("type")
+        return level if isinstance(level, str) else None
+    if isinstance(live_effort, str):
+        return live_effort
+    return None
+
+
+def _normalize_live_field_for_comparison(field_name: str, live_value: Any, *, declared_effort: str | None = None) -> Any:
     """Normalize ONE field of a live `GET /v1/agents/{id}` response into the same
     shape `AgentDeclaration.to_agent_body()` sends on write, so `_live_declaration_
     differs()` compares like with like.
+
+    EFFORT (2026-10-11, the model-generation comparison epic): `model` is now sent as
+    EITHER a bare id string (no effort declared) or `{"id": ..., "effort": <level>}`
+    (effort declared), so the normalization needed depends on the LOCAL declaration --
+    hence `declared_effort`:
+
+      - **No effort declared locally** -> compare MODEL IDS ONLY, exactly as before.
+        Every other key the live echo carries (`speed`, `inference_geo`, and now a
+        filled-in default `effort`) is ignored. This keeps the FR-12/AC-12 no-op
+        guarantee for all eight pre-existing candidates: the API documents that it
+        fills in omitted model fields with defaults, so a live GET may well echo
+        `"effort": {"type": "high"}` for an agent whose declaration says nothing about
+        effort at all -- treating that as a diff would issue a spurious update on every
+        sync of every one of them, the exact Phase 5 bug, re-introduced.
+      - **Effort declared locally** -> compare `{"id", "effort"}`, with the live effort
+        run through `_normalize_live_effort_level()` so either echo form matches, and
+        with every other live model key dropped. A genuinely CHANGED level (e.g.
+        `high` -> `medium` in `parameters.json`) therefore registers as a real diff and
+        drives a real update call.
+
+    One deliberate exception inside that second branch: if the live model object
+    carries NO `effort` key at all, only the ids are compared. A model WITHOUT effort
+    support echoes exactly that -- e.g. the live Haiku 4.5 agent returns
+    `{"id": "claude-haiku-4-5-20251001", "speed": "standard"}` -- and the platform
+    simply has no effort to store for it, so a declared level could never be satisfied;
+    registering a diff would mean an unnecessary update call on every single sync,
+    forever, with nothing ever converging. Ids-only is the quiet, no-op-preserving
+    reading. (The declaration itself is NOT silently "wrong" -- it is faithfully sent;
+    the platform is what drops it. If that combination ever needs to be LOUD, the right
+    place is a sync-time warning, not a permanent spurious-update loop.)
 
     CORRECTED (agent-system-redesign epic, Phase 5, found on the FIRST real
     production-baseline sync -- not assumed, not caught by the mocked test suite):
@@ -406,9 +453,18 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any) -> An
     for the regression test pinning this confirmed-identical shape, using the
     REAL live-observed `tools`/`mcp_servers` values captured during this
     check (not synthetic placeholders)."""
-    if field_name == "model" and isinstance(live_value, dict):
-        return live_value.get("id", live_value)
-    return live_value
+    if field_name != "model" or not isinstance(live_value, dict):
+        return live_value
+    live_model_id = live_value.get("id", live_value)
+    if declared_effort is None:
+        return live_model_id
+    if "effort" not in live_value:
+        # No effort echoed AT ALL -> this model has no effort support, so there is
+        # nothing to compare and nothing an update could ever fix. Carry the declared
+        # level through unchanged so the comparison reduces to the model IDS only
+        # (see this function's docstring for why a diff here would loop forever).
+        return {"id": live_model_id, "effort": declared_effort}
+    return {"id": live_model_id, "effort": _normalize_live_effort_level(live_value.get("effort"))}
 
 
 def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDeclaration) -> bool:
@@ -422,10 +478,18 @@ def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDecl
 
     Each live field is normalized via `_normalize_live_field_for_comparison()`
     before comparing -- see that function's docstring for the real, live-confirmed
-    `model` shape mismatch this closes (Phase 5's production-baseline sync)."""
+    `model` shape mismatch this closes (Phase 5's production-baseline sync), and for
+    how a DECLARED effort level changes what the `model` comparison covers.
+
+    Note the loop is over the LOCAL body's keys only: a field the live agent carries
+    but the local declaration does not send (a filled-in default, or the stale
+    top-level `parameters` echo an older agent may still have on it) can never make an
+    unchanged declaration look changed."""
     local_body = declaration.to_agent_body()
     for field_name, local_value in local_body.items():
-        live_value = _normalize_live_field_for_comparison(field_name, live_agent.get(field_name))
+        live_value = _normalize_live_field_for_comparison(
+            field_name, live_agent.get(field_name), declared_effort=declaration.effort
+        )
         if live_value != local_value:
             return True
     return False

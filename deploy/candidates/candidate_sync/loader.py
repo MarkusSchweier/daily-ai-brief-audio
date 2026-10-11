@@ -22,6 +22,74 @@ class CandidateLoadError(ValueError):
     KeyError/FileNotFoundError deep in sync logic."""
 
 
+# The ONLY tunable `parameters.json` (or a multi-agent roster entry's inline
+# `parameters`) may declare, and the only levels the Agents API accepts for it.
+#
+# HISTORY -- why this is suddenly real (2026-10-11): when this mechanism was built
+# (July 2026, agent-system-redesign epic Phase 2/3), the Managed Agents Agents API
+# exposed NO effort/thinking knob at all, probed live: a TOP-LEVEL `parameters` field
+# was rejected outright (`unknown field "parameters"`), `model.thinking` was rejected
+# the same way, and `model.effort` was ACCEPTED BUT SILENTLY DISCARDED (proven by a
+# no-op discriminator -- re-sending the same model with `effort: low`, then
+# `effort: high`, returned the SAME agent version both times, i.e. the field was
+# parsed and dropped, never stored). `parameters.json` was therefore
+# "declaration-only": every candidate in this repo carries `{}`, and a NON-empty one
+# would have failed loud at sync (see docs/prd/cost-optimization-candidates.md §3's
+# "#7 BLOCKED BY THE PLATFORM" note -- building effort candidates then would have
+# produced configurations that LOOK low-effort but run at default, i.e. silent
+# experiment corruption).
+#
+# The API now DOCUMENTS effort on the agent's model object: `model` accepts either a
+# bare model-id string OR an object `{"id": ..., "effort": ...}`, where `effort` is a
+# level string (or `{"type": <level>}`). So `parameters.json`'s `effort` key is now a
+# REAL, honored knob -- mapped onto `model.effort` by `to_agent_body()`, never sent as
+# a top-level `parameters` field (which the API still does not accept).
+EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+_SUPPORTED_PARAMETER_KEYS: tuple[str, ...] = ("effort",)
+
+
+def validate_parameters(parameters: Any, *, source: str) -> dict[str, Any]:
+    """Validate a candidate's declared `parameters` mapping, failing LOUD (a
+    `CandidateLoadError`) at LOAD time rather than letting an unsupported key or a
+    bogus effort level reach the Agents API.
+
+    Why fail at load, not at the API: the API's own failure modes for this field are
+    exactly the two that corrupt an experiment silently. An unsupported key either
+    400s with an opaque `unknown field` message (if sent top-level) or -- far worse --
+    is accepted and silently DISCARDED (the live-proven behavior of
+    `model.effort` before effort support shipped, and of any model-object key the API
+    doesn't recognize), producing a candidate that READS as tuned but RUNS at default.
+    A cost/quality comparison built on that is invalid and looks fine. So the loader
+    allows exactly one key (`effort`) with exactly the documented levels, and anything
+    else stops the sync before a single HTTP call is made.
+
+    `{}` (or no `parameters.json` at all) is valid and means "no effort declared" --
+    the state every candidate in this repo was in before 2026-10-11, and the state
+    `to_agent_body()` must keep rendering as a byte-identical bare-string `model`."""
+    if not isinstance(parameters, dict):
+        raise CandidateLoadError(
+            f"{source} must be a JSON object (e.g. {{}} or {{\"effort\": \"high\"}}), "
+            f"got {type(parameters).__name__}"
+        )
+
+    unsupported = sorted(key for key in parameters if key not in _SUPPORTED_PARAMETER_KEYS)
+    if unsupported:
+        raise CandidateLoadError(
+            f"{source} declares unsupported parameter key(s): {', '.join(repr(k) for k in unsupported)}. "
+            f"The only supported key is 'effort' (one of: {', '.join(EFFORT_LEVELS)}). "
+            "Anything else is either rejected outright by the Agents API or -- worse -- accepted and "
+            "silently discarded, which would make this candidate look tuned while running at default."
+        )
+
+    if "effort" in parameters and parameters["effort"] not in EFFORT_LEVELS:
+        raise CandidateLoadError(
+            f"{source} declares effort {parameters['effort']!r}, which is not a supported level. "
+            f"Must be exactly one of: {', '.join(EFFORT_LEVELS)}."
+        )
+
+    return parameters
+
+
 @dataclass(frozen=True)
 class AgentDeclaration:
     """One agent's full declaration -- used for both a single-agent candidate's sole
@@ -31,7 +99,7 @@ class AgentDeclaration:
 
     name: str
     description: str
-    model: str
+    model: str  # ALWAYS the plain model-id string from model.txt -- never the API's model OBJECT shape
     system_prompt: str
     task_prompt: str  # the deployment initial_prompt / run task; "" for a sub-agent that has none of its own
     tools: list[dict[str, Any]]
@@ -40,15 +108,51 @@ class AgentDeclaration:
     parameters: dict[str, Any]
     agent_id: str | None  # None until this agent's first sync
 
+    @property
+    def effort(self) -> str | None:
+        """The declared effort level (`parameters.json`'s one supported key), or None
+        when none is declared. Validated at LOAD (see `validate_parameters()`), so by
+        the time this is read the value is either absent or one of `EFFORT_LEVELS`.
+
+        Kept as a derived property rather than its own dataclass field deliberately:
+        `parameters` stays the single, raw, git-tracked source of truth (the eval
+        harness reads `AgentDeclaration.parameters` wholesale for its run records),
+        and `model` stays the plain model-id STRING (the harness's per-thread cost
+        attribution matches transcript model ids against it) -- only the request body
+        rendered by `to_agent_body()` merges the two into the API's model object."""
+        return self.parameters.get("effort")
+
     def to_agent_body(self) -> dict[str, Any]:
         """The POST /v1/agents (create) or POST /v1/agents/{id} (update) request body
         for this agent's own declaration -- everything except `multiagent` (a
         coordinator's body additionally sets `multiagent`, added by the caller) and
-        except `version` (added by the caller only for an update)."""
+        except `version` (added by the caller only for an update).
+
+        `model` is rendered in ONE of two shapes, and which one matters:
+
+          - **No effort declared** (`parameters.json` == `{}`, i.e. every candidate in
+            this repo before 2026-10-11): the bare model-id STRING, byte-identical to
+            what this method has always produced. This is a hard invariant -- an
+            existing candidate's request body must not change at all just because
+            effort support was added, or its next "unchanged declaration" re-sync would
+            issue a spurious update and bump its live version for no reason (precisely
+            the FR-12/AC-12 no-op bug Phase 5 had to fix for the read side).
+          - **Effort declared**: the API's model OBJECT, `{"id": <model>, "effort":
+            <level>}`. The level is sent as a plain string; the API also accepts
+            `{"type": <level>}` and echoes it back in either form, which is why the
+            read-side comparison in `sync.py` normalizes both.
+
+        A top-level `parameters` field is NEVER sent, in either shape. It is not part
+        of the agent definition the Agents API accepts (`unknown field "parameters"`,
+        live-probed) -- `parameters.json` is this repo's own declaration file, and
+        `effort` is its only key, mapped onto `model.effort` here. (An earlier revision
+        of this method DID forward `parameters` verbatim as a top-level field; that was
+        dead code in practice, since every candidate carried `{}` and a non-empty one
+        would simply have 400'd.)"""
         body: dict[str, Any] = {
             "name": self.name,
             "description": self.description,
-            "model": self.model,
+            "model": {"id": self.model, "effort": self.effort} if self.effort else self.model,
             "system": self.system_prompt,
             "tools": self.tools,
             "mcp_servers": self.mcp_servers,
@@ -64,8 +168,6 @@ class AgentDeclaration:
             # `_live_declaration_differs()` see a spurious diff on EVERY sync
             # (the live agent, echoed back via GET, never carries content_hash).
             body["skills"] = [{k: v for k, v in entry.items() if k != "content_hash"} for entry in self.skills]
-        if self.parameters:
-            body["parameters"] = self.parameters
         return body
 
     def declaration_fingerprint(self) -> dict[str, Any]:
@@ -152,6 +254,7 @@ def _load_top_level_agent(directory: Path, *, agent_id: str | None) -> AgentDecl
     parameters_json = (
         _read_json(directory / "parameters.json") if (directory / "parameters.json").exists() else {}
     )
+    validate_parameters(parameters_json, source=str(directory / "parameters.json"))
 
     if not model:
         raise CandidateLoadError(f"{directory / 'model.txt'} is empty -- the model id is required")
@@ -170,11 +273,20 @@ def _load_top_level_agent(directory: Path, *, agent_id: str | None) -> AgentDecl
     )
 
 
-def _load_sub_agent(entry: dict[str, Any]) -> AgentDeclaration:
+def _load_sub_agent(entry: dict[str, Any], *, source: str) -> AgentDeclaration:
     """Load ONE sub-agent's declaration directly from its `multiagent.json` roster
     entry (inline fields), rather than a separate directory -- a sub-agent's
     model/prompt/skills/parameters are declared inline in the roster per Decision 2c's
-    "each entry carrying its own model/system-prompt/skills/parameters"."""
+    "each entry carrying its own model/system-prompt/skills/parameters".
+
+    A roster entry's inline `parameters` is validated by the SAME
+    `validate_parameters()` rules a top-level `parameters.json` gets -- a sub-agent is
+    declared exactly as richly as the coordinator, so an unsupported key or a bogus
+    effort level buried in the roster must fail just as loudly (a per-sub-agent effort
+    level is a genuinely useful lever for the decomposition candidates: e.g. a cheap
+    model at high effort for research, the same model at low effort for the mechanical
+    listening-script rewrite)."""
+    validate_parameters(entry.get("parameters", {}), source=source)
     return AgentDeclaration(
         name=entry.get("name", ""),
         description=entry.get("description", ""),
@@ -209,7 +321,16 @@ def load_candidate(directory: Path) -> CandidateDeclaration:
         roster = multiagent_json.get("agents", [])
         if not roster:
             raise CandidateLoadError(f"{multiagent_json_path} has a 'multiagent' declaration but no agents in its roster")
-        sub_agents = [_load_sub_agent(entry) for entry in roster]
+        sub_agents = [
+            _load_sub_agent(
+                entry,
+                source=(
+                    f"{multiagent_json_path}'s roster entry [{index}] "
+                    f"({entry.get('name') or '(unnamed)'})'s inline 'parameters'"
+                ),
+            )
+            for index, entry in enumerate(roster)
+        ]
 
     skill_source_dir = directory / "skill"
     if not skill_source_dir.is_dir():
