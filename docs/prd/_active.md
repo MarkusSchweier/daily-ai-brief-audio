@@ -21,7 +21,9 @@ re-scored factual=5), content-selection sharpens disagreements via search, dedup
 prior-days one-per-day feed + labelled/justified findings, prompt caching on every judge call
 (measured −45%). **C (run & decide) has started:** the first matched, replicated comparison ran on 2026-10-11 (the
 production configuration against three current-generation models, judges on Opus 5.5; results in
-`cost-optimization-candidates.md` §6). **The production decision is pending the owner.** Full plan, final candidate set (incl. the
+`cost-optimization-candidates.md` §6). **Decided the same day (owner): production moved to Claude Haiku 5.5 at
+effort high** — agent v3, scheduled deployment `depl_01YRoLodhcr3HuhVS3zxVuLx`, first send Mon 2026-10-12 06:07
+Europe/Berlin; rollback = a deployment pinned to agent v2 (Haiku 4.5). Full plan, final candidate set (incl. the
 aggressive-#3 split and the #5/#6 backburner), A UI requirements, and the decisions/flags log live
 in `cost-optimization-candidates.md`, imported above.
 **This branch was reconciled with `main` on 2026-07-07 (merge): it now carries the shipped

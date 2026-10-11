@@ -2,7 +2,8 @@
 
 - Status (2026-10-11): **step C has produced its first matched, replicated comparison** — the production
   configuration and the three current-generation models, three repetitions each, judges on Opus 5.5
-  (§6). **The production decision is pending the owner.**
+  (§6). **Decided the same day: production moved to Claude Haiku 5.5 at effort high** (§6, live from
+  the Mon 2026-10-12 06:07 Europe/Berlin run).
 - Status: **ACTIVE (2026-07-07).** The blocking dependency (Epic 2, `agent-system-redesign.md`)
   **shipped and merged**, so this epic is now being built as **one combined epic** (owner decision
   2026-07-07) with three steps: **A** re-integrate the eval harness with the new candidate
@@ -184,7 +185,28 @@ discipline) — not automatic from a good eval result.
 
 ## 6. Key decisions, flags & open items
 
-- **[RESULTS — 2026-10-11] Model-generation matched batch — decision pending owner.** Four candidates
+- **[DECIDED — owner, 2026-10-11] Production moved to Claude Haiku 5.5 at effort high** (the
+  `haiku-5-5-hardened` configuration: the unchanged hardened prompt, model and effort only), on the
+  results entry below — the accuracy gain over Haiku 4.5 at about the same cost, with Sonnet 5.5's edge
+  inside the noise at ~2.5× the cost and Opus 5.5 showing no gain at ~5.5×. Live: production agent
+  `agent_01EswBTose8dnTAUDbGvzdLq` v3 = `{id: claude-haiku-5-5, effort: high}` (v2 = Haiku 4.5 and v1 =
+  Sonnet 5 preserved); scheduled deployment `depl_01YRoLodhcr3HuhVS3zxVuLx` pins v3 with prompt,
+  environment and schedule byte-identical to its predecessor `depl_016LWhcSEghrvGknVWhZvgdr` (archived).
+  First Haiku 5.5 production send: Mon 2026-10-12 06:07 Europe/Berlin. Validated beforehand on the
+  production self-hosted environment with the delivery step removed (one full run, 4.2 min, all five
+  outputs written, nothing delivered — the delivery Lambda saw only the read-only recent-briefs call).
+  **Rollback:** a deployment identical to the live one but pinned to agent v2, then archive the Haiku 5.5
+  one (`deploy/managed-agent/deployment.json` history has the recipe). The eval harness's
+  production-config marker now points at `haiku-5-5-hardened`.
+- **[CORRECTION — 2026-10-11] Haiku 5.5 cost is understated in the results entry below.** Sessions now
+  report the Platform's own `usage.list_cost`. For Haiku 4.5, Sonnet 5.5 and Opus 5.5 it matches the
+  harness (tokens + $0.01 per billed search) to the cent on all nine batch sessions. For Haiku 5.5 it is
+  $0.04–0.08 per run higher (0.71 / 0.87 / 0.86 against the harness's 0.63 / 0.79 / 0.82 all-in), which
+  equals pricing **every** request on the over-100K-token rate card rather than request by request. So
+  Haiku 5.5 is about **$0.81 per run all-in (~$18/month)**, not $0.75; the ranking and the decision are
+  unaffected. Which rule the invoice follows is not yet settled — tracked as a harness follow-up (store
+  the Platform figure in run records, reconcile the Haiku 5.5 rule).
+- **[RESULTS — 2026-10-11] Model-generation matched batch.** Four candidates
   launched in the same second on the same news snapshot (a Sunday): the production configuration
   (`haiku-swap-hardened`) and three 5.5 candidates that change only model and effort. Each ran three
   sequential repetitions in the `cloud` environment, judged on all four criteria by Opus 5.5 at effort
@@ -227,8 +249,8 @@ discipline) — not automatic from a good eval result.
   followed the capture step.
 
   Total spend for the exercise was about $44 (pipelines $20.73, pipeline web search $1.46, judges $18.68,
-  a $2.32 smoke run, and one superseded $1.01 judge call). This batch made no production change. Whether
-  production moves to a more capable model, and which, is pending the owner. Run records:
+  a $2.32 smoke run, and one superseded $1.01 judge call). The batch itself made no production change; the
+  owner's decision taken on it is the entry above. Run records:
   `deploy/eval-harness/runs/<slug>/2026-10-11-104933-*-matched-5-5-2026-10-11/`.
 
 - **[DECIDED — owner, 2026-07-13] Production moved to candidate #6 (`haiku-swap-hardened`) ahead of
