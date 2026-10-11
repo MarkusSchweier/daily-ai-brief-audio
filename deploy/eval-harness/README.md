@@ -433,14 +433,20 @@ ignore).
 The flag means **“this candidate *was* the production configuration at the time of
 this run”** — resolved once by `run.py` when the record is written, from the single
 shared source `harness/production_config.py`, and then never recomputed or
-rewritten (the Assess table renders the stored value). Production ran
-`production-baseline`’s Sonnet 5 configuration until **2026-07-13**, when the owner
-moved production onto **`haiku-swap-hardened`** (Haiku 4.5 + hardened prompt — see
-`docs/prd/cost-optimization-candidates.md` §6), so:
+rewritten (the Assess table renders the stored value). Production's configuration
+has had three eras: `production-baseline`’s Sonnet 5 until **2026-07-13**,
+**`haiku-swap-hardened`** (Haiku 4.5 + hardened prompt — see
+`docs/prd/cost-optimization-candidates.md` §6) from then until **2026-10-11**, and
+**`haiku-5-5-hardened`** (Haiku 5.5 at effort high, same unchanged hardened prompt)
+since 2026-10-11. So:
 
-- `production-baseline`’s July records legitimately keep `true`;
-- new `production-baseline` runs record `false`, and new `haiku-swap-hardened`
-  runs record `true`;
+- `production-baseline`’s July records legitimately keep `true`, and so does the
+  `haiku-swap-hardened` run of 2026-10-11 that was taken a few hours *before* that
+  day's switch;
+- today's `haiku-5-5-hardened` records legitimately keep `false` (taken while it was
+  still only a candidate);
+- new `haiku-5-5-hardened` runs record `true`, and new `production-baseline` /
+  `haiku-swap-hardened` runs record `false`;
 - a candidate can also claim the marker itself via `candidate.json`’s optional
   `is_production_config` field, which wins over the slug — so the next production
   promotion is a declaration edit, not a code change.
