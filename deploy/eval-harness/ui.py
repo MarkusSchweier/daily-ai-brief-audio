@@ -91,7 +91,7 @@ from candidate_sync.loader import CandidateLoadError, load_candidate  # noqa: E4
 from eval_core.record import V1_CRITERIA  # noqa: E402
 from flask import Flask, redirect, render_template, request, url_for  # noqa: E402
 
-from harness import git_show, run_store  # noqa: E402
+from harness import git_show, production_config, run_store  # noqa: E402
 
 app = Flask(__name__)
 
@@ -136,8 +136,16 @@ def list_candidate_options(*, candidates_dir: Path | None = None) -> list[dict[s
             {
                 "slug": candidate.slug,
                 "composition": "multi-agent" if candidate.is_multi_agent else "single-agent",
-                "is_production_config": candidate.slug == "production-baseline"
-                or bool(candidate.candidate_json.get("is_production_config", False)),
+                # The CURRENT production configuration, from the one shared source
+                # `run.py` also reads (review-fix, reviewer M4 -- this used to
+                # hardcode "production-baseline" independently of run.py's own
+                # copy, and both went stale on the 2026-07-13 production move to
+                # `haiku-swap-hardened`). Note this is a "right now" label for the
+                # Conduct dropdown; the Assess table instead renders each run's
+                # STORED flag, which is historical (see production_config.py).
+                "is_production_config": production_config.is_production_config(
+                    candidate.slug, candidate.candidate_json
+                ),
                 "has_agent_id": candidate.agent.agent_id is not None,
             }
         )
@@ -201,6 +209,11 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         "parameters_display": _format_parameters(meta.parameters),
         "composition": meta.composition,
         "repetitions": meta.repetitions,
+        # The STORED flag, never recomputed: it means "was the production
+        # configuration at the time of THIS run" (review-fix, reviewer M4 -- see
+        # harness/production_config.py). That is why `production-baseline`'s July
+        # records still show "yes" even though production has run
+        # `haiku-swap-hardened` since 2026-07-13.
         "is_production_config": meta.is_production_config,
         "criteria": meta.criteria,
         "criterion_scores": criterion_scores,

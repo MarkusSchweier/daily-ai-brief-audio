@@ -110,6 +110,41 @@ def test_conduct_page_lists_candidates(client, monkeypatch, tmp_path):
     assert b"test-candidate" in response.data
 
 
+def test_candidate_options_mark_the_slug_production_actually_runs(monkeypatch, tmp_path):
+    """Reviewer M4: production has run `haiku-swap-hardened` since 2026-07-13, so
+    that -- not `production-baseline` -- is what the Conduct dropdown marks. Both
+    this module and run.py resolve it from `harness.production_config`."""
+    candidates_dir = tmp_path / "candidates"
+    candidates_dir.mkdir()
+    _build_candidate_dir(candidates_dir, "haiku-swap-hardened")
+    _build_candidate_dir(candidates_dir, "production-baseline")
+    _build_candidate_dir(candidates_dir, "opus-5-5-hardened")
+
+    options = {o["slug"]: o["is_production_config"] for o in ui_app.list_candidate_options(candidates_dir=candidates_dir)}
+
+    assert options == {
+        "haiku-swap-hardened": True,
+        "production-baseline": False,
+        "opus-5-5-hardened": False,
+    }
+
+
+def test_candidate_options_let_a_declaration_claim_the_production_marker(monkeypatch, tmp_path):
+    """An explicit `is_production_config` in candidate.json wins over the slug, so
+    a future production promotion needs no code change."""
+    candidates_dir = tmp_path / "candidates"
+    candidates_dir.mkdir()
+    _build_candidate_dir(candidates_dir, "opus-5-5-hardened")
+    candidate_json_path = candidates_dir / "opus-5-5-hardened" / "candidate.json"
+    data = json.loads(candidate_json_path.read_text(encoding="utf-8"))
+    data["is_production_config"] = True
+    _write_json(candidate_json_path, data)
+
+    options = {o["slug"]: o["is_production_config"] for o in ui_app.list_candidate_options(candidates_dir=candidates_dir)}
+
+    assert options == {"opus-5-5-hardened": True}
+
+
 def test_assess_page_renders_with_no_runs(client, monkeypatch, tmp_path):
     monkeypatch.setattr(run_store, "RUNS_ROOT", tmp_path / "runs")
 

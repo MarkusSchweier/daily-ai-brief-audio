@@ -224,7 +224,28 @@ def test_run_completes_a_single_repetition_and_writes_the_full_directory(tmp_pat
     assert (run_dir / "human-eval.md").is_file()
 
 
-def test_run_marks_the_production_baseline_slug_as_the_production_config(tmp_path, monkeypatch):
+def test_run_marks_the_production_slug_as_the_production_config(tmp_path, monkeypatch):
+    """`haiku-swap-hardened` is what production runs (since 2026-07-13), so a NEW
+    run of it records `is_production_config: true` (reviewer M4)."""
+    _setup_env(monkeypatch, tmp_path, slug="haiku-swap-hardened")
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(
+        trigger_module, "run_candidate", lambda client, **kwargs: _fake_run_result("# Brief", "Script.")
+    )
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(5)))
+
+    run_cli.main(["haiku-swap-hardened", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    run_dir = next((runs_root / "haiku-swap-hardened").iterdir())
+    meta = json.loads((run_dir / "eval-run.json").read_text())
+    assert meta["is_production_config"] is True
+
+
+def test_run_no_longer_marks_production_baseline_as_the_production_config(tmp_path, monkeypatch):
+    """The other half of reviewer M4: a NEW `production-baseline` run records
+    `false` now (production moved off Sonnet 5 on 2026-07-13). The July records
+    already on disk are NOT touched -- nothing recomputes a stored flag."""
     _setup_env(monkeypatch, tmp_path, slug="production-baseline")
     runs_root = tmp_path / "runs"
     monkeypatch.setattr(
@@ -237,7 +258,7 @@ def test_run_marks_the_production_baseline_slug_as_the_production_config(tmp_pat
 
     run_dir = next((runs_root / "production-baseline").iterdir())
     meta = json.loads((run_dir / "eval-run.json").read_text())
-    assert meta["is_production_config"] is True
+    assert meta["is_production_config"] is False
 
 
 def test_a_failed_repetition_marks_the_run_failed_and_records_the_error(tmp_path, monkeypatch):
@@ -394,16 +415,40 @@ def _agent(name="", description="", model="claude-sonnet-5", agent_id=None, para
     )
 
 
-def test_is_production_config_true_for_the_production_baseline_slug():
+def test_is_production_config_true_for_the_slug_production_actually_runs():
+    """Production has run `haiku-swap-hardened` (Haiku 4.5 + hardened prompt) since
+    2026-07-13 -- see docs/prd/cost-optimization-candidates.md §6 (reviewer M4)."""
+    candidate = CandidateDeclaration(
+        slug="haiku-swap-hardened", directory=Path("."), candidate_json={}, agent=_agent()
+    )
+    assert run_cli._is_production_config(candidate) is True
+
+
+def test_is_production_config_false_for_the_old_sonnet_production_baseline():
+    """`production-baseline` is no longer production's configuration -- it is how
+    step C keeps measuring the OLD Sonnet config. Its ALREADY-RECORDED July runs
+    keep `is_production_config: true` (the stored flag is historical and is never
+    rewritten); only NEW records resolve to false."""
     candidate = CandidateDeclaration(
         slug="production-baseline", directory=Path("."), candidate_json={}, agent=_agent()
     )
-    assert run_cli._is_production_config(candidate) is True
+    assert run_cli._is_production_config(candidate) is False
 
 
 def test_is_production_config_false_for_any_other_slug():
     candidate = CandidateDeclaration(slug="haiku-swap", directory=Path("."), candidate_json={}, agent=_agent())
     assert run_cli._is_production_config(candidate) is False
+
+
+def test_run_py_and_ui_py_read_the_same_production_config_source():
+    """Reviewer M4: the slug must live in ONE place both files use -- not two
+    hardcoded copies that silently drift (which is exactly how both went stale on
+    the 2026-07-13 production move)."""
+    import ui as ui_app
+    from harness import production_config
+
+    assert run_cli._PRODUCTION_CANDIDATE_SLUG is production_config.PRODUCTION_CANDIDATE_SLUG
+    assert ui_app.production_config is production_config
 
 
 def test_is_production_config_explicit_flag_overrides_the_slug_heuristic():

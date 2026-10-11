@@ -396,6 +396,23 @@ Everything above is committed EXCEPT the large raw `events.json` per repetition 
 see `.gitignore`'s targeted `runs/**/events.json` pattern (not a blanket `runs/`
 ignore).
 
+### `is_production_config` is HISTORICAL (review-fix, 2026-10-11)
+
+The flag means **“this candidate *was* the production configuration at the time of
+this run”** — resolved once by `run.py` when the record is written, from the single
+shared source `harness/production_config.py`, and then never recomputed or
+rewritten (the Assess table renders the stored value). Production ran
+`production-baseline`’s Sonnet 5 configuration until **2026-07-13**, when the owner
+moved production onto **`haiku-swap-hardened`** (Haiku 4.5 + hardened prompt — see
+`docs/prd/cost-optimization-candidates.md` §6), so:
+
+- `production-baseline`’s July records legitimately keep `true`;
+- new `production-baseline` runs record `false`, and new `haiku-swap-hardened`
+  runs record `true`;
+- a candidate can also claim the marker itself via `candidate.json`’s optional
+  `is_production_config` field, which wins over the slug — so the next production
+  promotion is a declaration edit, not a code change.
+
 ## Calibration (parked, not wired in)
 
 `eval_core/calibration.py` (reader-feedback correlation) is ported but

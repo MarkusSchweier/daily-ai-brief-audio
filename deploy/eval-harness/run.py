@@ -79,7 +79,7 @@ from eval_core.record import (  # noqa: E402
     aggregate_replicates,
 )
 
-from harness import cost, dedup_priors, local_config, run_store  # noqa: E402
+from harness import cost, dedup_priors, local_config, production_config, run_store  # noqa: E402
 
 _ENVIRONMENT_JSON_PATH = CANDIDATES_DIR / "environment.json"
 
@@ -100,13 +100,15 @@ _SOURCES_MD_PATH = HARNESS_DIR.parent / "managed-agent" / "skills" / "daily-ai-b
 # wall-clock "today" (see that module's docstring).
 _BRIEF_FILENAME_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
-# The candidate slug this repo treats as "the current production configuration"
-# (D4: "production-config marker for production-baseline"). A candidate's own
-# candidate.json MAY set an explicit "is_production_config" flag (checked first,
-# so this is overridable without editing this script); the slug is the fallback
-# so today's one real production-parity candidate is marked with no extra field
-# needed.
-_PRODUCTION_CANDIDATE_SLUG = "production-baseline"
+# The candidate slug this repo treats as "the configuration production runs today"
+# (D4's production-config marker) lives in ONE place both this CLI and ui.py read
+# -- `harness/production_config.py` -- so the recorded flag and the Conduct page's
+# label can never disagree (review-fix, reviewer M4: this used to be
+# "production-baseline" hardcoded here AND, separately, in ui.py, both of them
+# stale since the owner moved production onto `haiku-swap-hardened` on
+# 2026-07-13). Re-exported under its original private name so this module's own
+# references (and tests) keep reading naturally.
+_PRODUCTION_CANDIDATE_SLUG = production_config.PRODUCTION_CANDIDATE_SLUG
 
 
 def _load_shared_environment_id() -> str:
@@ -130,9 +132,13 @@ def _load_shared_environment_id() -> str:
 
 
 def _is_production_config(candidate: CandidateDeclaration) -> bool:
-    if "is_production_config" in candidate.candidate_json:
-        return bool(candidate.candidate_json["is_production_config"])
-    return candidate.slug == _PRODUCTION_CANDIDATE_SLUG
+    """Was `candidate` the production configuration AT THE TIME OF THIS RUN?
+
+    Resolved exactly once, here, when the run record is written -- the value
+    stored in `eval-run.json` is HISTORICAL and is never recomputed or rewritten
+    afterwards (`production-baseline`'s July records keep `true`; see
+    `harness/production_config.py` for the full semantics)."""
+    return production_config.is_production_config(candidate.slug, candidate.candidate_json)
 
 
 def _declared_models(candidate: CandidateDeclaration) -> list[str]:
