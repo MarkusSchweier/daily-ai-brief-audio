@@ -1,0 +1,45 @@
+{
+  "candidate_config_id": "opus-5-5-hardened",
+  "replicate_count": 3,
+  "criterion_aggregates": {
+    "content_selection": {
+      "criterion": "content_selection",
+      "n": 3,
+      "mean": 3.6666666666666665,
+      "stdev": 0.5773502691896257,
+      "min": 3,
+      "max": 4
+    },
+    "dedup": {
+      "criterion": "dedup",
+      "n": 3,
+      "mean": 5,
+      "stdev": 0.0,
+      "min": 5,
+      "max": 5
+    },
+    "factual_accuracy": {
+      "criterion": "factual_accuracy",
+      "n": 3,
+      "mean": 4,
+      "stdev": 0.0,
+      "min": 4,
+      "max": 4
+    },
+    "length_format": {
+      "criterion": "length_format",
+      "n": 3,
+      "mean": 3,
+      "stdev": 0.0,
+      "min": 3,
+      "max": 3
+    }
+  },
+  "mean_cost_usd": 3.9948,
+  "cost_stdev_usd": 0.22552374597811214,
+  "judge_cost": {
+    "n": 3,
+    "mean_cost_usd": 1.5727,
+    "stdev_cost_usd": 0.06720022321391493
+  }
+}

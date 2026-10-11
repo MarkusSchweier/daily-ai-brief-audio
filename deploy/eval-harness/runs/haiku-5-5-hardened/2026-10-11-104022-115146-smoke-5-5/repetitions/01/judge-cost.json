@@ -1,0 +1,70 @@
+{
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "total_cost_usd": 1.4785,
+  "total_search_count": 11,
+  "total_search_cost_usd": 0.11,
+  "grand_total_cost_usd": 1.5885,
+  "total_usage": {
+    "input_tokens": 34,
+    "output_tokens": 9676,
+    "cache_read_input_tokens": 619645,
+    "cache_creation_5m_input_tokens": 232184,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "per_criterion": {
+    "content_selection": {
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 1708,
+        "cache_read_input_tokens": 38843,
+        "cache_creation_5m_input_tokens": 33573,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.2098,
+      "search_count": 3,
+      "search_cost_usd": 0.03
+    },
+    "factual_accuracy": {
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 18,
+        "output_tokens": 5766,
+        "cache_read_input_tokens": 580802,
+        "cache_creation_5m_input_tokens": 163428,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 1.0487,
+      "search_count": 8,
+      "search_cost_usd": 0.08
+    },
+    "length_format": {
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 4,
+        "output_tokens": 876,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 6725,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.0512,
+      "search_count": 0,
+      "search_cost_usd": 0.0
+    },
+    "dedup": {
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 4,
+        "output_tokens": 1326,
+        "cache_read_input_tokens": 0,
+        "cache_creation_5m_input_tokens": 28458,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.1688,
+      "search_count": 0,
+      "search_cost_usd": 0.0
+    }
+  }
+}

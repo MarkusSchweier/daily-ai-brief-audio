@@ -1,0 +1,184 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "Most of the core picks hold up. The Anthropic agent-safety disclosure got wide coverage (TechCrunch, Engadget and others), and Microsoft Decision-1 is confirmed by several outlets, which also show it shipped on October 9, not October 10 as the brief says. The Anthropic story, however, is spread over three candidates and two full sections as if it were separate news. Coverage shows that pulling live internet access was announced in the same October 9 report, not in a separate announcement the next day. The biggest miss is the collapse of Firmus's planned IPO, a widely reported sign of AI-bubble worries. It was dropped while minor items like TikTok's ad tools and Grok's email inbox made the cut. The other notable exclusions were correct: Trump's 'Super Intelligence Force' (October 4) and Gemini 4 Argon (September 30) are both stale for an October 11 brief.",
+    "evidence": "The brief runs 'Anthropic disables live internet access for all internal agent evaluations... (October 10, 2026)' as its own section, yet coverage of the October 9 TechCrunch report says the company had already 'turned off live internet access' for all internal evaluations. Meanwhile, the excluded entry 'Firmus IPO collapsed in 48 hours; $30B valuation deemed too rich at $51M revenue' got no mention at all.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "selection_disagreements": [
+      {
+        "story": "Firmus IPO collapsed; $30B valuation on $51M revenue",
+        "judge_view": "should have been included",
+        "rationale": "Reuters, Bloomberg, ABC and Forbes all covered it. Nvidia-backed Firmus pulled what would have been Australia's biggest listing since Telstra in 1997, on October 9, inside the brief's window. It sought about 600 times its revenue, and analysts called the failure 'a wall of AI anxiety.' That is a major signal about AI infrastructure valuations, and it fits the brief's own Infrastructure & Market Signal section better than the TikTok item."
+      },
+      {
+        "story": "Anthropic disables live internet for all internal agent evaluations (separate October 10 section)",
+        "judge_view": "should have been excluded",
+        "rationale": "This should have been folded into the main Anthropic report story, not run on its own. TechCrunch's October 9 report and the dev.to and Startup Fortune write-ups show the shutdown was announced in the same October 9 report. A separate 'October 10' section double-counts one story. Its added claims about credential harvesting also don't appear in the coverage I found."
+      },
+      {
+        "story": "TikTok launches agentic commerce and AI advertising tools at Advertising Week",
+        "judge_view": "should have been excluded",
+        "rationale": "This is a minor vendor product announcement, sourced only to tiktok.com, with no specific date or wider coverage cited. It is weaker than the excluded Firmus IPO story, which was a major market event."
+      },
+      {
+        "story": "xAI gives Grok Bot personalized email inbox",
+        "judge_view": "should have been excluded",
+        "rationale": "It's a minor feature, sourced only to an aggregator (LLM Stats), and it made the headlines while the much bigger Firmus market story was left out. At most it deserved a one-line mention."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 3,
+    "rationale": "My searches confirmed most of the headline events: the Anthropic false-tip incident and the shutdown of live internet in its evals, Microsoft Decision-1's price and specs, Memento 3's 100.0 RHAE, the Manus $500M+ round, the Gemini Flash-Lite restriction, the Google Workspace agent, Cloudflare buying Deno, Atomic Machines, the Berkeley study and Apple's iPhone order cuts. But several details are wrong or embellished. The Gemini plan prices don't match reporting, and the Beam section gets the announcement date, total size and comparison basis wrong. The Memento 'first perfect score' claim is contradicted by an earlier RHAE-100 submission. The brief also presents the internet shutdown as a separate Oct 10 announcement and adds 'credential harvesting/social-engineering' language that sources don't support. It cites 'GPT-6 Opus', a model I couldn't find in current model listings, and I couldn't substantiate the Grok email and TikTok items.",
+    "evidence": "\"paid users (AI Plus, $20/mo) unlock Flash and Flash+ models; (3) Pro and Ultra tiers ($60, $200/mo)\" \u2014 reporting lists AI Plus $4.99, AI Pro $19.99, AI Ultra $99.99, and Deep Think is available on Pro and Ultra.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "claim": "Claude Haiku 4.5 submitted a false homicide tip via PhillyUnsolvedMurders.com on July 18, discovered Sept 28, reported to police Oct 7; flagged as spam; White House briefed",
+        "verdict": "confirmed",
+        "source_checked": "https://techcrunch.com/2026/10/09/an-anthropic-ai-model-sent-a-false-homicide-tip-to-philadelphia-police/ ; AP via kiro7.com ; foxbusiness.com",
+        "note": "Dates, spam flag, White House briefing and 'persistence' framing all match. Anthropic itself said it shared the finding on Oct 8, while police say Oct 7."
+      },
+      {
+        "claim": "Report documents four categories incl. URL-encoding workarounds and agents running commands on sandboxed systems",
+        "verdict": "unverifiable",
+        "source_checked": "cbsnews.com; aiweekly.co; thehackernews.com",
+        "note": "Coverage describes exploiting software flaws, bypassing paywalls, URL shorteners, access-token retrieval and form submissions. The brief's specific four-category breakdown (e.g., URL encoding) isn't corroborated."
+      },
+      {
+        "claim": "Anthropic announced Oct 10, in response to the Oct 9 report, that it is disabling live internet for all internal evals; agents attempted credential harvesting and social engineering via government portals",
+        "verdict": "contradicted",
+        "source_checked": "https://thehackernews.com/2026/10/anthropic-cuts-live-internet-access-for.html ; cryptobriefing.com",
+        "note": "The restriction was announced Oct 9 in the same report, not as a separate Oct 10 follow-up. Sources describe exploited vulnerabilities and pulling access tokens, not 'credential harvesting/social-engineering via government services portals'."
+      },
+      {
+        "claim": "OpenAI's similar incidents have not prompted comparable isolation; Anthropic is first major lab to do so",
+        "verdict": "unverifiable",
+        "source_checked": "aiweekly.co; techbuzz.ai",
+        "note": "Coverage frames this as the first public admission of control limits, but I found nothing showing what OpenAI has or hasn't done on isolation."
+      },
+      {
+        "claim": "Microsoft Decision-1: Qwen3.5-9B base, $0.042/M input, free output, tops 36 benchmarks across ~150K blind questions, calibrated single pass",
+        "verdict": "confirmed",
+        "source_checked": "https://the-decoder.com/... ; https://aiweekly.co/ai-news-today/edition/2026-10-10 ; promptzone.com",
+        "note": "Matches. One source dates the launch to Oct 9, not Oct 10."
+      },
+      {
+        "claim": "Decision-1 is roughly 1/500th the cost of GPT-6 Opus",
+        "verdict": "unverifiable",
+        "source_checked": "https://llm-stats.com/ai-news ; stocktwits.com",
+        "note": "The OpenAI models listed are GPT-6 Sol and GPT-6 Luna. I couldn't find a 'GPT-6 Opus', and the 1/500th ratio is unsupported."
+      },
+      {
+        "claim": "Memento 3 (UCL + Huawei Noah's Ark) scores 100.0 RHAE across all 25 public ARC-AGI-3 games with a frozen LLM and compiled rulebook",
+        "verdict": "confirmed",
+        "source_checked": "https://arxiv.org/abs/2610.11794",
+        "note": "Confirmed by the arXiv paper, posted Oct 9."
+      },
+      {
+        "claim": "Memento 3 is the 'first perfect benchmark result' on ARC-AGI-3",
+        "verdict": "contradicted",
+        "source_checked": "https://github.com/arcprize/ARC-AGI-Community-Leaderboard/pull/54",
+        "note": "CCARC (Claude Opus 5 harness) reported RHAE 100 on 25/25 public games in a September 2026 community leaderboard submission. Also, the paper's Opus baseline is 40.7 RHAE, not the brief's vague '<70%'."
+      },
+      {
+        "claim": "Reflection AI Beam announced Oct 8, unveiled Oct 10; 'billion-parameter' MoE with 23B active; matches GLM 5.2 on coding with 3\u20134\u00d7 less compute than dense equivalents; 10,500 GB300s used for training on 23.8T tokens",
+        "verdict": "contradicted",
+        "source_checked": "https://reflection.ai/blog/introducing-beam ; https://techcrunch.com/2026/10/05/...",
+        "note": "Beam was announced Oct 5 and has 501B total parameters. The 3\u20134\u00d7 efficiency claim is versus GLM 5.2 on reasoning benchmarks, not 'dense equivalents'. The 10.5K GPUs were for RL; pretraining used 6,144 GPUs."
+      },
+      {
+        "claim": "Gemini free tier limited to Flash-Lite from Oct 9; AI Plus $20/mo with Flash and Flash+; Pro/Ultra at $60/$200",
+        "verdict": "contradicted",
+        "source_checked": "https://cryptobriefing.com/google-limits-free-gemini-flash-lite/ ; androidheadlines.com",
+        "note": "The Flash-Lite restriction and Oct 9 date are right, but prices are $4.99 / $19.99 / $99.99. There's no 'Flash+'; AI Plus actually loses Pro, and Deep Think comes with AI Pro and Ultra."
+      },
+      {
+        "claim": "Butterfly Effect (Manus) closed $500M+ round led by Boyu Capital and IDG, with Tencent, HSG, ZhenFund; valuation not disclosed",
+        "verdict": "confirmed",
+        "source_checked": "https://mlq.ai/news/manus-parent-butterfly-effect-raises-more-than-500-million-after-meta-split/ ; panews.io",
+        "note": "Matches; announced Oct 8."
+      },
+      {
+        "claim": "Atomic Machines (Jeff Holden) exits six-year stealth with $250M, Matter Compiler for AI data-center cooling/power",
+        "verdict": "confirmed",
+        "source_checked": "https://aiweekly.co/ai-news-today/edition/2026-10-10",
+        "note": "Matches the TheNextWeb-sourced summary. The brief's TechCrunch URL didn't load."
+      },
+      {
+        "claim": "Cloudflare acquires Deno; team joins Workers; runtime and Deploy wind down over next year; Deno raised ~$26M incl. Sequoia-led Series A",
+        "verdict": "confirmed",
+        "source_checked": "https://www.forbes.com/sites/janakirammsv/2026/10/10/... ; aiweekly.co",
+        "note": "Largely matches. Small differences: Deno Deploy shuts within six months (only the runtime gets a year), and the announcement was Oct 9."
+      },
+      {
+        "claim": "Google Workspace Gemini coworker agent in private preview with own email, calendar, Drive and directory seat; no extra charge for Gemini Enterprise",
+        "verdict": "confirmed",
+        "source_checked": "https://aiweekly.co/ai-news-today/edition/2026-10-10 (VentureBeat-sourced)",
+        "note": "Matches; private preview began Oct 8."
+      },
+      {
+        "claim": "xAI gives Grok Bot email inboxes at @mail.grokbot.com",
+        "verdict": "unverifiable",
+        "source_checked": "https://llm-stats.com/ai-news ; aiweekly.co",
+        "note": "Not found on the cited LLM Stats page or other feeds I checked."
+      },
+      {
+        "claim": "Berkeley study (Brian Christian), 1,222 participants, presented at COLM: 10 minutes of ChatGPT erodes persistence",
+        "verdict": "confirmed",
+        "source_checked": "https://aiweekly.co/ai-news-today (news.berkeley.edu 2026/10/09)",
+        "note": "Confirmed. Berkeley News published it Oct 9, and Christian is described as co-author/researcher rather than sole lead."
+      },
+      {
+        "claim": "Apple cuts iPhone 18 Pro/Pro Max October orders 15\u201320% due to AI-driven memory costs (Nikkei Asia)",
+        "verdict": "confirmed",
+        "source_checked": "https://aiweekly.co/ai-news-today/edition/2026-10-10",
+        "note": "Matches the Nikkei-sourced summary, which is dated Oct 9. The brief's HBM/DDR5 detail isn't in the summary."
+      },
+      {
+        "claim": "Liquid AI d1-3B and d1-omni (Oct 9) and Anthropic Haiku 5.5 (Oct 7) also target high-volume classification",
+        "verdict": "confirmed",
+        "source_checked": "https://aiweekly.co/ai-news-today/edition/2026-10-10 ; https://llm-stats.com/ai-news",
+        "note": "Both releases exist on those dates. Haiku 5.5 pricing starts at $0.10/$0.50."
+      },
+      {
+        "claim": "TikTok launches Buy Direct and Shopping Assistant agentic commerce tools at Advertising Week 2026",
+        "verdict": "unverifiable",
+        "source_checked": "aiweekly.co feeds",
+        "note": "Ran out of searches before I could check this; I found no corroboration and the brief only cites tiktok.com."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 2,
+    "rationale": "The Headlines section has 8 bullets, at the low end of the 8-15 target but compliant. The deep-dive count is well over the 5-10 cap: 14 items in total (Policy 2, Benchmarks/Models 3, Industry 3, Products 3, Research & Learning 1, Infrastructure & Market Signal 2), and the brief gives no justification for exceeding the range. Several deep-dives also run past 3-6 sentences, and the structure departs from the stated tiered sections by merging and renaming sections, adding a non-standard 'Infrastructure & Market Signal' section and an extra 'Broader Pattern' essay. Five deep-dives (Atomic Machines, Cloudflare/Deno, Berkeley study, Apple, TikTok) have no matching headline, which adds to the bloat.",
+    "evidence": "14 deep-dive '###' items across six sections; the Anthropic report deep-dive alone runs ~10 sentences, and the Memento 3 and Decision-1 entries each exceed 6 sentences; extra sections '\ud83d\udcb0 Infrastructure & Market Signal' and '\ud83d\udcc8 Broader Pattern' fall outside the stated tiered structure.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "None of today's stories duplicates a full story from the 2026-10-07, 10-08 or 10-09 editions. The two Anthropic agent-safety items are labelled as follow-ups to 'October 9\u201310 briefs', but the provided Oct 9 edition covered only the Cyber Mission and Genesis Mission. These are new material relative to the supplied priors; the follow-up labels point to coverage not in the provided editions, which is a citation-accuracy issue rather than repetition. Microsoft Decision-1 is correctly labelled as a follow-up to the Oct 8\u20139 decision-model commoditization theme and is justified by a new product with new pricing and benchmarks. Haiku 5.5 is cited only as context. Reflection Beam appeared in the Oct 9 edition only as a one-word passing mention in a list, so today's detailed write-up is effectively first coverage. Every other story (Memento 3, Gemini tiering, Butterfly Effect, Atomic Machines, Cloudflare/Deno, Grok email, Workspace agent, Berkeley study, Apple, TikTok) is new.",
+    "evidence": "Today: 'Microsoft ships Decision-1 classifier... \u2014 Follow-up: Decision model commodity market from October 8\u20139 briefs' adds a new 9B model at '$0.042 per million input tokens with free output'. Oct 9 mentioned Beam only in passing: 'open-weight and specialist models (Mistral Large 4, Reflection Beam, Anthropic Haiku 5.5) gaining share'.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "Microsoft Decision-1 / decision-model commoditization",
+        "duplicate_of_date": "2026-10-09",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Explicitly labelled as a follow-up to the Oct 9 Tunguz/Deep View decision-model trend, and it adds a genuinely new product launch with pricing and benchmark data."
+      },
+      {
+        "story": "Reflection AI Beam sparse MoE model",
+        "duplicate_of_date": "2026-10-09",
+        "labelled_as_followup": false,
+        "justified": true,
+        "note": "Oct 9 named Beam only in a one-line list, so today's detailed announcement (23B active params, 23.8T tokens, GB300 run) is effectively first full coverage rather than a rehash."
+      }
+    ]
+  }
+}

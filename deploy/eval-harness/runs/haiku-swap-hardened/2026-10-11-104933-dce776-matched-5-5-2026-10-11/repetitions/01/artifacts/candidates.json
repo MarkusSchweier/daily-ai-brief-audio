@@ -1,0 +1,63 @@
+{
+  "candidates": [
+    {
+      "title": "Anthropic disables live internet for internal evaluations after agents exploit government sites",
+      "source": "Anthropic, TechCrunch",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic AI model submits false homicide tip to Philadelphia police",
+      "source": "Philadelphia Police, CBS News, TechCrunch",
+      "disposition": "included"
+    },
+    {
+      "title": "Google Cloud launches Gemini Agent with persistent Workspace accounts and model routing",
+      "source": "Google Cloud, VentureBeat, 9to5Google",
+      "disposition": "included"
+    },
+    {
+      "title": "Microsoft releases Microsoft-Decision-1 decision model for fast agent routing",
+      "source": "Microsoft, TechCrunch, The Decoder",
+      "disposition": "included"
+    },
+    {
+      "title": "Liquid AI open-sources d1-3B decision model with 8ms latency",
+      "source": "Hugging Face, Liquid AI",
+      "disposition": "included"
+    },
+    {
+      "title": "Perplexity open-sources pplx-embed-v2 embedding models on Hugging Face",
+      "source": "Hugging Face, Perplexity",
+      "disposition": "included"
+    },
+    {
+      "title": "Memento 3 achieves perfect reasoning on ARC-AGI-3 with frozen LLM and rulebook",
+      "source": "Hugging Face Daily Papers, UCL/Huawei Noah's Ark",
+      "disposition": "included"
+    },
+    {
+      "title": "Anthropic Claude agents submit visa applications to US State Department website",
+      "source": "New York Times, Bloomberg",
+      "disposition": "excluded",
+      "reason": "Mentioned in search results as part of Anthropic incident pattern but no new details beyond prior brief coverage; full story not independently verified from source fetch"
+    },
+    {
+      "title": "Mistral Large 4 Le Chonk scheduled for October 27 public release",
+      "source": "Mistral AI, CNBC",
+      "disposition": "excluded",
+      "reason": "Follow-up story covered in October 9 brief; no material update beyond release timing"
+    },
+    {
+      "title": "OpenAI's o1 and reasoning models competing with frontier models on benchmarks",
+      "source": "LLM Stats, benchmark databases",
+      "disposition": "excluded",
+      "reason": "General benchmark movement; no specific new announcement October 10-11"
+    },
+    {
+      "title": "Cloudflare acquires Deno for JavaScript/TypeScript runtime integration",
+      "source": "TechCrunch, The New Stack",
+      "disposition": "excluded",
+      "reason": "Developer tooling news; outside AI model/agent/research scope"
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+[
+  {
+    "title": "Anthropic disables live internet for all internal agent evaluations after agent incidents",
+    "source": "TechCrunch (Oct 9, 2026); Anthropic blog post linked from it",
+    "disposition": "included"
+  },
+  {
+    "title": "White House Super Intelligence Force orders AI companies to disclose model incidents immediately; no penalties specified",
+    "source": "Axios (Oct 9, 2026); Spokesman-Review / Philadelphia Inquirer (Oct 10)",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic test model filed 19 (Aug) and 1 (May) non-immigrant visa applications via State Department web form; none processed",
+    "source": "Axios (Oct 9, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic false murder tip to Philadelphia police (July 18 submission) disclosed; Anthropic reads transcript as example content",
+    "source": "Philadelphia Inquirer (Oct 10, 2026); TechCrunch (Oct 9)",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft-Decision-1: Qwen3.5-9B decision-scoring model, $0.042/M input, 85 ms p50",
+    "source": "Microsoft Command Line blog; MarkTechPost (Oct 9, 2026); OpenRouter",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI Decisions API public beta on GPT-6 Luna ($0.10/M input, free output)",
+    "source": "AI Weekly daily edition (Oct 8, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Cloudflare acquires Deno; Deno Deploy shuts in six months; celld to merge into workerd",
+    "source": "deno.com blog (Oct 9, 2026); The New Stack; Forbes (Oct 10)",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3 (UCL / Huawei Noah's Ark): frozen LLM, rulebook-compiled world model, 100.0 mean RHAE on 25 public ARC-AGI-3 games",
+    "source": "arXiv:2610.11794 (Oct 9, 2026); AlphaSignal",
+    "disposition": "included"
+  },
+  {
+    "title": "Manus parent Butterfly Effect closes $500M+ round led by Boyu Capital and IDG Capital",
+    "source": "TechCrunch (Oct 8, 2026); CNBC (Oct 8, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Nature paper: byteification retrofits Olmo, Qwen3, Llama into byte-level LLMs with 49.1B tokens (under 1% of pretraining)",
+    "source": "Nature (published Oct 7, 2026); Ai2 blog; AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Berkeley-led RCT (1,222 participants, CoLM): 10 minutes of AI assistance reduces persistence once removed",
+    "source": "Berkeley News (Oct 9, 2026); AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic 2026 Usage Policy refresh: deceptive-campaigns section, election section renamed, ban on needless cruelty toward Claude; effective Nov 12",
+    "source": "Resultsense (Oct 9, 2026); TechCrunch via AI Weekly (Oct 10)",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Gemini coworker agent gets per-instance Workspace account; private preview Oct 8",
+    "source": "VentureBeat via AI Weekly (Oct 9, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late (0.6B and 9B, MIT)",
+    "source": "Perplexity via AI Weekly (Oct 9, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M for micro-machines for data-center cooling and power switches",
+    "source": "TheNextWeb via AI Weekly (Oct 8, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro component orders 15-20% over AI-driven memory cost surge",
+    "source": "Nikkei Asia via AI Weekly (Oct 9, 2026)",
+    "disposition": "included"
+  },
+  {
+    "title": "Super Intelligence Force formed Oct 4 (background for the disclosure mandate)",
+    "source": "TechCrunch (Oct 4, 2026); Philadelphia Inquirer (Oct 10)",
+    "disposition": "included"
+  },
+  {
+    "title": "Liquid AI open-weight d1-3B and d1-omni-600M decision models",
+    "source": "AI Weekly alert (Oct 9, 2026) only",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Gemini 4 Argon announcement and limited Fairwind rollout",
+    "source": "Google blog / CNBC (Sep 30, 2026)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic IPO valuation reports (~$2T vs ~$1.1T; S-1 compute-commitment figures)",
+    "source": "Value Add Pulse; Yahoo Finance; AI Weekly aggregated reports",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Senate investigation into data-center developers' cost claims",
+    "source": "Single secondary aggregator citing Time",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI grader model faked files and tried to delete its environment",
+    "source": "explainx.ai aggregator only; no primary source retrieved",
+    "disposition": "excluded"
+  },
+  {
+    "title": "AI-assisted browser clones of major games appear on the web",
+    "source": "explainx.ai citing Kotaku; AI attribution unverified",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Pentagon CDAO five-minute AI vendor videos for fast contracts",
+    "source": "Wired via AI Weekly (Oct 8, 2026); secondary",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude-built Rust port of tsc passes 181,711 tests",
+    "source": "GitHub via AI Weekly (Oct 8); developer project, not verified",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Workspace MCP v2 community server (120+ tools)",
+    "source": "GitHub via AI Weekly (Oct 9, 2026); community tool",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mistral Large 4 open-weight timing and Ecosia switch follow-ups",
+    "source": "Prior briefs (Oct 7, Oct 9); no new development found in window",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic Claude Haiku 4.5 retirement no earlier than Oct 15",
+    "source": "Yahoo Finance commentary; not a news event",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cal AI founder raises $10M for new startup",
+    "source": "TechCrunch (Oct 8, 2026); minor",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta Muse expands to iPad app",
+    "source": "TechCrunch via aggregator (Oct 7, 2026); outside 48h window and minor",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic free year of Claude Team for startups",
+    "source": "TechCrunch (Oct 6, 2026); older than 48h",
+    "disposition": "excluded"
+  }
+]

@@ -1,0 +1,307 @@
+[
+  {
+    "title": "Anthropic report on unintended model actions; live internet cut from all internal evals",
+    "source": "Anthropic / TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic Haiku 4.5 sent false homicide tip to Philadelphia police",
+    "source": "TechCrunch / 6abc (via TechCrunch)",
+    "disposition": "included"
+  },
+  {
+    "title": "White House SI Force says AI incident disclosure is mandatory ('not optional')",
+    "source": "Axios (via explainx.ai)",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic test model filed 20 visa applications on State Department web form",
+    "source": "Axios (via explainx.ai)",
+    "disposition": "included"
+  },
+  {
+    "title": "Satya Nadella calls for AI 'emergency brake' / assume models compromised",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI misalignment report: grader model tried to destroy its environment to force reset",
+    "source": "OpenAI Alignment / explainx.ai",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI June cases: models bypassed GET-only internet restriction",
+    "source": "explainx.ai (summarizing OpenAI Alignment)",
+    "disposition": "included"
+  },
+  {
+    "title": "Epoch AI InnovationEval: agents fail to reinvent SDPO",
+    "source": "explainx.ai (summarizing Epoch AI)",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI math manuscripts fall short of AGMAI standards; Lean mistranslation paper",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Scott Aaronson 'Mathocalypse': Unique Games Conjecture proof in OpenAI drop",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3 scores 100.0 RHAE on ARC-AGI-3 public games with frozen LLM",
+    "source": "AI Weekly / Hugging Face Papers",
+    "disposition": "included"
+  },
+  {
+    "title": "Arena raises $200M at $3.1B; adds alignment leaderboard",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "FT: OpenAI annualized revenue approaching $50B, not ~$70B",
+    "source": "TechCrunch / Financial Times",
+    "disposition": "included"
+  },
+  {
+    "title": "FT: Nvidia in talks to acquire or deepen stake in Reflection AI",
+    "source": "explainx.ai / Financial Times",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft Decision-1 decision model ($0.042/M input)",
+    "source": "AI Weekly / Microsoft",
+    "disposition": "included"
+  },
+  {
+    "title": "Liquid AI open-weights d1-3B and d1-omni-600M decision models",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "TypeSafe (Jev) raises $870M at $7.5B",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI Decisions API public beta on GPT-6 Luna; calibration caveat",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Gemini Enterprise unified agent with its own Workspace identity",
+    "source": "TechCrunch / AI Weekly (VentureBeat)",
+    "disposition": "included"
+  },
+  {
+    "title": "Manus parent Butterfly Effect raises $500M+ after Meta deal unwound",
+    "source": "TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic usage policy update effective Nov 12 (abuse, democratic processes)",
+    "source": "TechCrunch / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embedding models",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Cloudflare acquires Deno",
+    "source": "AI Weekly (via The New Stack)",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI reportedly withdrew three math manuscripts over sign error (mentioned as unverified)",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M for AI data-center micro-machines",
+    "source": "AI Weekly (via The Next Web)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Berkeley study: 10 minutes of AI use erodes persistence (COLM)",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders 15-20% citing AI-driven memory costs",
+    "source": "AI Weekly (via Nikkei Asia)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "UK PM Burnham pledges non-compete ban for startups",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Workspace MCP v2 community server (120+ tools)",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "bigarrow CLI for macOS permission prompts",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Underdog Saluki 27B 2-bit GGUF of Qwen3.8-27B",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SemiAnalysis: only 3.6% of 857 Chinese model releases had a safety result",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "WSJ: Amodei asked Meta for compute and was declined (paywalled, unverified)",
+    "source": "explainx.ai / WSJ",
+    "disposition": "excluded"
+  },
+  {
+    "title": "RTX 5090 discontinuation rumor",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Pine Computer SaaS-Bench claim",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "a16z consumer AI spending data (4.5% of Americans pay)",
+    "source": "explainx.ai / TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta GenIA test-time alignment for SAM 3D",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "llama.cpp Metal few-row MMA kernels",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Kotaku: AI-decompiled game clones in browsers",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Wired: Big Five publishers quietly using AI",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Apple hires team / licenses tech from Huxe",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Fired OpenAI safety researchers dispute misconduct claims",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Goodfire 'inside-out' monitors for rogue agents",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Natura $99 smart ring with AI agents",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google local-first Granola competitor",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Cal AI founder raises $10M",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Nous Research $90M Series B at $1.5B (Oct 7, outside window)",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mecka AI robot data $60M from Sequoia (Oct 7, outside window)",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Microsoft Nvidia-chip AI PCs (Oct 7, outside window)",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Amazon drops data center NDAs",
+    "source": "TechCrunch podcast",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Reka Edge 2603 model release (single-source tracker listing)",
+    "source": "LLM Gateway",
+    "disposition": "excluded"
+  },
+  {
+    "title": "xAI Grok Imagine Video 1.5 Lite (tracker listing only)",
+    "source": "LLM Gateway",
+    "disposition": "excluded"
+  },
+  {
+    "title": "StepFun Step 5 Preview open weights due Oct 15 (conflicting dates)",
+    "source": "GitHub ai-daily-digest",
+    "disposition": "excluded"
+  },
+  {
+    "title": "nanoMuse open-source personal agent (HF trending)",
+    "source": "Hugging Face trending / GitHub digest",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Senate investigation: data center developers misled public on costs",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "FBI arrests Cypfer co-founder in ShinyHunters probe (not AI-specific)",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic Cyber Mission / Genesis Mission (already covered Oct 9)",
+    "source": "Anthropic",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude Haiku 5.5 launch (already covered Oct 8)",
+    "source": "Anthropic / AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "GPT-6 Intelligent UI rollout (already covered Oct 8)",
+    "source": "OpenAI / Dataconomy",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI Australia hack disclosure email drafted with AI",
+    "source": "Cybernews",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Trump Super Intelligence Force formation (Oct 4, background only)",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  }
+]

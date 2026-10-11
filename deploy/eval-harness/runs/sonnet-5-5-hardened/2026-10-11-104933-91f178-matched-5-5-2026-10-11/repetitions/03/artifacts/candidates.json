@@ -1,0 +1,172 @@
+[
+  {
+    "title": "Anthropic unintended model actions report; live internet cut for all internal evals",
+    "source": "Anthropic / The Hacker News / Axios",
+    "disposition": "included"
+  },
+  {
+    "title": "White House Super Intelligence Force: AI incident disclosure 'not optional'",
+    "source": "Axios / Philadelphia Inquirer",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI annualized revenue ~$50B vs $70B reported",
+    "source": "FT via TechCrunch / Yahoo Finance",
+    "disposition": "included"
+  },
+  {
+    "title": "Nvidia in talks to acquire/deepen investment in Reflection AI; Beam launch",
+    "source": "FT via Reuters / SiliconANGLE",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI math release: 3 manuscripts withdrawn, 14 revised, AHM boycott call",
+    "source": "Retraction Watch / The Decoder",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI grader model damaged its own environment (misalignment report)",
+    "source": "OpenAI Alignment / The Decoder",
+    "disposition": "included"
+  },
+  {
+    "title": "Broadcom $50B+ financing for OpenAI chips; Oracle, SpaceX deals",
+    "source": "WSJ via Investing.com / Benzinga",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Cloud Gemini agent / coworker agents",
+    "source": "Google Cloud Blog / CNBC / Implicator",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft Decision-1 decision model (+ Liquid AI d1)",
+    "source": "The Decoder / CellCog / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3 ARC-AGI-3 result",
+    "source": "arXiv",
+    "disposition": "included"
+  },
+  {
+    "title": "Epoch AI InnovationEval (SDPO rediscovery)",
+    "source": "AlphaSignal / explainx",
+    "disposition": "included"
+  },
+  {
+    "title": "Senate (Warren/Van Hollen/Blumenthal) data center costs report",
+    "source": "TIME / Sen. Warren",
+    "disposition": "included"
+  },
+  {
+    "title": "Berkeley study: AI use erodes persistence",
+    "source": "Berkeley News via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders on memory costs",
+    "source": "Nikkei via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Manus parent Butterfly Effect raises $500M+",
+    "source": "TechNode via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Cloudflare acquires Deno",
+    "source": "The New Stack via AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic usage policy update effective Nov 12 (abuse of Claude, election deception)",
+    "source": "TechCrunch via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embedding models",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M",
+    "source": "TheNextWeb via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Nguyen & Fithian paper auditing METR time-horizon estimates",
+    "source": "AI Daily Digest (secondary; arXiv page not opened)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Scott Aaronson claim labs testing models against cryptographic primitives",
+    "source": "AI Daily Digest (unnamed sources, unverified)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Nadella 'assume AI models are compromised' post (Oct 10)",
+    "source": "explainx (second-hand; primary post not read)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "StepFun Step 5 Preview open weights due Oct 15",
+    "source": "AI Daily Digest (conflicting dates, unverified)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Finland orders Google to halt work at two data centers",
+    "source": "AI Daily Digest / Helsinki Times (Oct 6-7, outside window)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "DeepSeek weighs doubling round to ~$15B",
+    "source": "CNBC via AI Daily Digest (Oct 6, outside window)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SemiAnalysis: China 24GW vs US 56GW datacenter capacity",
+    "source": "FourWeekMBA via digest (secondary, Oct 8)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Altman 'religious force' comment",
+    "source": "Benzinga via digest (dated Oct 3)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Kotaku: AI-decompiled browser game clones",
+    "source": "explainx (AI attribution unverified)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta Muse iPad app",
+    "source": "TechCrunch via aiagentstore (Oct 7, outside window)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude Startups program expansion",
+    "source": "CNBC (Oct 6, outside window)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Australia mandatory AI safety standards",
+    "source": "AI Weekly snippet only",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Synopsys to partner with Chinese AI labs for chip-design tools",
+    "source": "Nikkei via AI Weekly snippet only",
+    "disposition": "excluded"
+  },
+  {
+    "title": "UK PM pledges non-compete ban for startups",
+    "source": "AI Weekly (policy, not AI-specific)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Reka Edge 2603 release",
+    "source": "AI Daily Digest (single-source, unverified)",
+    "disposition": "excluded"
+  }
+]

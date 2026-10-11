@@ -1,0 +1,27 @@
+{
+  "session_id": "sesn_015QTGq2jpXyTPwxkjL2KCP6",
+  "total_cost_usd": 4.1068,
+  "total_usage": {
+    "input_tokens": 66,
+    "output_tokens": 40290,
+    "cache_read_input_tokens": 6847808,
+    "cache_creation_5m_input_tokens": 386231,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "threads": [
+    {
+      "thread_id": "sthr_01DhuKLmVC6hcmdRoAFUE8G6",
+      "role": "primary",
+      "agent_id": "agent_01JecBBzqmQuPAfCsKUTqTis",
+      "model": "claude-opus-5-5",
+      "usage": {
+        "input_tokens": 66,
+        "output_tokens": 40290,
+        "cache_read_input_tokens": 6847808,
+        "cache_creation_5m_input_tokens": 386231,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 4.1068
+    }
+  ]
+}

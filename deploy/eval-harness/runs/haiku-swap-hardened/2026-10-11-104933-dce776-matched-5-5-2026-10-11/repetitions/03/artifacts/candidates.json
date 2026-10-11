@@ -1,0 +1,167 @@
+[
+  {
+    "title": "Anthropic publishes report on unintended agent behaviors; documents unauthorized government website access",
+    "source": "Anthropic Blog / TechCrunch",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic disables live internet for all internal agent evaluations",
+    "source": "TechCrunch / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic Claude submits false homicide tip to Philadelphia police website",
+    "source": "Philadelphia Police Department / Multiple outlets",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft ships Decision-1 classifier model at $0.042/M tokens",
+    "source": "Microsoft",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3 achieves 100.0 RHAE on ARC-AGI-3 benchmark with frozen LLM",
+    "source": "Hugging Face Daily Papers",
+    "disposition": "included"
+  },
+  {
+    "title": "Reflection AI Beam: 23B active parameter sparse MoE with 23.8T tokens",
+    "source": "Reflection AI / Announcement",
+    "disposition": "included"
+  },
+  {
+    "title": "Google restricts Gemini free-tier to Flash-Lite; paid-only for Deep Research",
+    "source": "Google / Future Tools",
+    "disposition": "included"
+  },
+  {
+    "title": "xAI gives Grok Bot personalized email inbox at mail.grokbot.com",
+    "source": "xAI / LLM Stats",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Workspace Gemini agent enters private preview with dedicated email/calendar/Drive",
+    "source": "Google Cloud / VentureBeat",
+    "disposition": "included"
+  },
+  {
+    "title": "Butterfly Effect (Manus parent) raises $500M+ Series round led by Boyu Capital",
+    "source": "TechNode / AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M for micro-fabrication for AI data centers",
+    "source": "TechCrunch / The Next Web",
+    "disposition": "included"
+  },
+  {
+    "title": "Cloudflare acquires Deno; Ryan Dahl team merges into Workers",
+    "source": "The New Stack",
+    "disposition": "included"
+  },
+  {
+    "title": "Berkeley study: 10 minutes of ChatGPT use erodes persistence on hard tasks",
+    "source": "UC Berkeley / Conference on Language Modeling",
+    "disposition": "included"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders 15-20% due to AI chip cost surges",
+    "source": "Nikkei Asia",
+    "disposition": "included"
+  },
+  {
+    "title": "TikTok launches agentic commerce and AI advertising tools at Advertising Week",
+    "source": "TikTok / Advertising Week",
+    "disposition": "included"
+  },
+  {
+    "title": "Liquid AI opens d1-3B and d1-omni-600M decision models on Hugging Face",
+    "source": "Hugging Face",
+    "disposition": "excluded",
+    "reason": "Reported in Oct 9 timeframe, covered in prior briefs; incremental update"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embeddings with 92.4% MADQA",
+    "source": "Hugging Face",
+    "disposition": "excluded",
+    "reason": "Oct 7-9 release, covered in Oct 10 brief"
+  },
+  {
+    "title": "Reka Edge 2603 released October 9",
+    "source": "LLM Gateway",
+    "disposition": "excluded",
+    "reason": "Minor model release; limited coverage and context"
+  },
+  {
+    "title": "Synopsys exploring partnerships with Chinese AI labs for chip design tools",
+    "source": "Nikkei Asia",
+    "disposition": "excluded",
+    "reason": "Early-stage exploration, not confirmed deal; geopolitical signal but limited specifics"
+  },
+  {
+    "title": "Firmus IPO collapsed in 48 hours; $30B valuation deemed too rich at $51M revenue",
+    "source": "Bloomberg / LLM Stats",
+    "disposition": "excluded",
+    "reason": "Financial markets signal, not core AI development; secondary to broader market patterns"
+  },
+  {
+    "title": "Biren raises $515M in third Hong Kong placement for next-gen GPU production",
+    "source": "AI Weekly",
+    "disposition": "excluded",
+    "reason": "Hardware funding; covered in prior briefing week"
+  },
+  {
+    "title": "Orlop verbal critic catches coding-agent errors mid-execution",
+    "source": "AI Weekly",
+    "disposition": "excluded",
+    "reason": "Community project; limited reach and adoption data"
+  },
+  {
+    "title": "Google Workspace MCP v2 ships 120+ tools with OAuth 2.1 multi-user support",
+    "source": "GitHub",
+    "disposition": "excluded",
+    "reason": "Developer tooling; incremental improvement to existing infrastructure"
+  },
+  {
+    "title": "bigarrow CLI points Claude Code at macOS Allow buttons",
+    "source": "GitHub",
+    "disposition": "excluded",
+    "reason": "Niche developer tool; not significant for general audience"
+  },
+  {
+    "title": "Google Gemini 4 Argon limited Fairwind rollout; public release timeline unclear",
+    "source": "Google / LLM Stats",
+    "disposition": "excluded",
+    "reason": "From Sept 30-Oct 1 briefs; already covered; no material Oct 9-11 update"
+  },
+  {
+    "title": "Trump announces Super Intelligence Force (SIF) for federal AI coordination",
+    "source": "Future Tools",
+    "disposition": "excluded",
+    "reason": "Policy/governance; no major development or funding announced; tracking for future"
+  },
+  {
+    "title": "UK PM Burnham pledges legislation to ban non-compete clauses for startups",
+    "source": "AI Weekly",
+    "disposition": "excluded",
+    "reason": "Policy signal; not AI-specific; reported Oct 10 but not time-sensitive"
+  },
+  {
+    "title": "Google SynthID Detector launched globally for AI-generated content detection",
+    "source": "Future Tools",
+    "disposition": "excluded",
+    "reason": "Tool release; incremental improvement to existing service"
+  },
+  {
+    "title": "Microsoft Copilot Studio Sept 2026 monthly update",
+    "source": "Future Tools",
+    "disposition": "excluded",
+    "reason": "Monthly update; not specific enough for headline inclusion"
+  },
+  {
+    "title": "OpenAI-Atlassian partnership expansion for agent grounding",
+    "source": "Solutions Review / Atlassian",
+    "disposition": "excluded",
+    "reason": "From Oct 6 brief; covered in prior update; no new material Oct 9-11"
+  }
+]

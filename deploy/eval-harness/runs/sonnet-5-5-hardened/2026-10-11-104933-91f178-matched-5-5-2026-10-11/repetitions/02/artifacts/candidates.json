@@ -1,0 +1,197 @@
+[
+  {
+    "title": "Anthropic: unintended model actions report; live internet cut for all internal evals",
+    "source": "Anthropic research / UPI / Gizmodo",
+    "disposition": "included"
+  },
+  {
+    "title": "White House: AI incident disclosure and remediation 'not optional'",
+    "source": "Axios",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI misalignment report: grader model damaged its environment to force a reset",
+    "source": "OpenAI Alignment",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI withdraws 3 of 722 AI-generated math manuscripts (sign error)",
+    "source": "OpenAI GitHub / MLQ / Implicator",
+    "disposition": "included"
+  },
+  {
+    "title": "Epoch InnovationEval: frontier agents vs SDPO",
+    "source": "Epoch AI",
+    "disposition": "included"
+  },
+  {
+    "title": "Memento 3: frozen-LLM rulebook agent on ARC-AGI-3",
+    "source": "arXiv 2610.11794",
+    "disposition": "included"
+  },
+  {
+    "title": "Microsoft-Decision-1 launch ($0.042/M)",
+    "source": "MarkTechPost / OpenRouter / CellCog",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Gemini agent / coworker agents",
+    "source": "VentureBeat / Decrypt",
+    "disposition": "included"
+  },
+  {
+    "title": "OpenAI annualized revenue ~$50B vs $70B reported; Broadcom $50B+ chip financing",
+    "source": "FT via TechCrunch/Bloomberg/Axios; WSJ via InvestingLive",
+    "disposition": "included"
+  },
+  {
+    "title": "Nvidia in talks to acquire/deepen stake in Reflection AI",
+    "source": "FT via Reuters / Bloomberg",
+    "disposition": "included"
+  },
+  {
+    "title": "Anthropic 2026 Usage Policy update (effective Nov 12) — headline only",
+    "source": "Anthropic",
+    "disposition": "included"
+  },
+  {
+    "title": "Cloudflare acquires Deno; Manus parent raises $500M+ — headline only (AI Weekly summary)",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Liquid AI d1-3B / d1-omni-600M open decision models (folded into Decision-1 item)",
+    "source": "AI Weekly",
+    "disposition": "included"
+  },
+  {
+    "title": "Berkeley/CMU 'AI assistance reduces persistence' study presented at COLM",
+    "source": "Berkeley News",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Perplexity open-sources pplx-embed-v2-late embedding models",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Apple cuts iPhone 18 Pro orders 15-20% on memory costs",
+    "source": "Nikkei via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Atomic Machines exits stealth with $250M",
+    "source": "TheNextWeb via AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "UK PM pledges non-compete ban for startups",
+    "source": "AI Weekly",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Senate investigation: data-center developers misled public on costs",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Nadella: assume every AI model is compromised",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "SemiAnalysis: 3.6% of 857 Chinese AI model releases had a safety result",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "a16z Top 100 consumer AI spending (4.5% pay)",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Underdog Saluki 27B 2-bit GGUF of Qwen3.8-27B",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Pine Computer SaaS-Bench 78.3% (vendor-reported)",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Sierra Personal Agent Protocol (Poppy) draft adds 35 design partners",
+    "source": "AI HOT / Sierra blog",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google Colab perks in Google AI plans",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "AI-decompiled game browser ports (Kotaku)",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "FBI arrest of Cypfer co-founder in ShinyHunters probe",
+    "source": "explainx.ai",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI Russian Politology / Iranian influence-op disruption",
+    "source": "OpenAI (covered in 2026-10-09 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Isomorphic Labs $40-50B funding talks",
+    "source": "Bloomberg (covered in 2026-10-09 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Ecosia drops Mistral for Chinese open models",
+    "source": "Politico (covered in 2026-10-09 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic Cyber Mission / CIDP / OSS Scanner and Genesis Mission $150M",
+    "source": "Anthropic (covered in 2026-10-09 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI GPT-6 Intelligent UI rollout",
+    "source": "OpenAI (covered in 2026-10-08 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Claude Haiku 5.5 launch",
+    "source": "Anthropic (covered in 2026-10-08 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mistral Large 4 (Le Chonk)",
+    "source": "Mistral (covered in 2026-10-07 and 2026-10-09 briefs)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic Claude Startups program expansion",
+    "source": "CNBC (minor program news)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI Atlassian partnership expansion",
+    "source": "OpenAI (covered in 2026-10-07 brief)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta Muse iPad app",
+    "source": "TechCrunch via AI Agent Store (minor)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Synopsys to partner with Chinese AI labs within US export rules",
+    "source": "Nikkei via AI Weekly (not verified further)",
+    "disposition": "excluded"
+  }
+]
