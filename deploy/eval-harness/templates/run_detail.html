@@ -119,12 +119,20 @@
       {% if rep.scores %}
         <h4>Scores</h4>
         <table>
-          <thead><tr><th>Criterion</th><th>Score</th><th>Rationale</th><th>Evidence</th></tr></thead>
+          <thead>
+            {# "Judge model" (review-fix, reviewer L4): scores.json carries a
+               per-criterion `model` since 2026-10-11 (the Opus 4.8 -> Opus 5.5
+               judge move). Accessed via `.get()` so a record written before that
+               date renders a BLANK cell instead of erroring -- what judged it is
+               then only recoverable from its judge-cost.json. #}
+            <tr><th>Criterion</th><th>Score</th><th title="The model that produced this score">Judge model</th><th>Rationale</th><th>Evidence</th></tr>
+          </thead>
           <tbody>
             {% for criterion, score in rep.scores.items() %}
               <tr>
                 <td>{{ criterion }}</td>
                 <td>{% if score.insufficient_data %}insufficient data{% else %}{{ score.score }}{% endif %}</td>
+                <td>{{ score.get("model", "") }}</td>
                 <td>{{ score.rationale }}</td>
                 <td>{{ score.evidence }}</td>
               </tr>

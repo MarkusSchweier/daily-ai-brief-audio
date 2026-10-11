@@ -173,6 +173,51 @@ def _format_parameters(parameters: dict[str, Any]) -> str:
     return " | ".join(parts) if parts else "—"
 
 
+def _judge_models_in_repetition(run_dir: Path, index: int) -> list[str]:
+    """Which judge model(s) produced ONE repetition's scores, read from the record
+    itself (never assumed from today's `JUDGE_MODELS` constant -- the whole point
+    is to tell a July record, judged by Opus 4.8, from an October one judged by
+    Opus 5.5).
+
+    Three shapes are tolerated, oldest last: `judge-cost.json`'s `models` list
+    (judge methodology v2), its pre-v2 single `model` string, and -- as a last
+    resort -- the per-criterion `model` key `scores.json` carries since
+    2026-10-11. Any read error (including a partially-written file from a run
+    still in flight) yields no models rather than breaking the page."""
+    models: set[str] = set()
+    try:
+        judge_cost = run_store.read_judge_cost(run_dir, index) or {}
+    except (OSError, ValueError):
+        judge_cost = {}
+    for model in judge_cost.get("models") or []:
+        models.add(str(model))
+    if not models and judge_cost.get("model"):
+        models.add(str(judge_cost["model"]))
+    if models:
+        return sorted(models)
+
+    try:
+        scores = run_store.read_scores(run_dir, index)
+    except (OSError, ValueError):
+        scores = {}
+    for entry in scores.values():
+        if isinstance(entry, dict) and entry.get("model"):
+            models.add(str(entry["model"]))
+    return sorted(models)
+
+
+def _judge_models_for_run(run_dir: Path, repetitions: int) -> list[str]:
+    """The judge model(s) for the Assess table's own column (review-fix, reviewer
+    L4) -- the first repetition that names any, so a run whose repetition 01
+    failed still reports what judged it. Cheap: at most a couple of small JSON
+    reads per row."""
+    for index in range(1, max(repetitions, 1) + 1):
+        models = _judge_models_in_repetition(run_dir, index)
+        if models:
+            return models
+    return []
+
+
 def _load_run_row(run_dir: Path) -> dict[str, Any]:
     """One `runs/<slug>/<eval-run-id>/` directory's summary row for the Assess
     table -- PRD §4.1: name, model, thinking params, agent vs multi-agent,
@@ -219,6 +264,11 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         "criterion_scores": criterion_scores,
         "mean_cost_usd": mean_cost_usd,
         "mean_judge_cost_usd": mean_judge_cost_usd,
+        # Which model JUDGED this run (review-fix, reviewer L4) -- the judges moved
+        # from Opus 4.8 to Opus 5.5 on 2026-10-11, so two rows' scores are only
+        # comparable once the reader can see they were scored by the same
+        # instrument.
+        "judge_models": _judge_models_for_run(run_dir, meta.repetitions),
         "state": meta.state,
         "human_eval_present": human_eval_present,
         "created_at": meta.created_at,

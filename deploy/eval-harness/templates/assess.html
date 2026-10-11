@@ -20,6 +20,7 @@
             <th>{{ criterion }}</th>
           {% endfor %}
           <th>Cost (mean)</th>
+          <th title="Which model SCORED this run -- the judges moved from Opus 4.8 to Opus 5.5 on 2026-10-11, so scores are only comparable across runs judged by the same model. Blank for a run whose record names no judge model.">Judge model</th>
           <th title="The judge calls' own cost -- SEPARATE from pipeline cost, never folded in">Judge cost (mean)</th>
           <th>Human eval</th>
         </tr>
@@ -50,6 +51,7 @@
                 —
               {% endif %}
             </td>
+            <td>{% if row.judge_models %}{{ row.judge_models | join(", ") }}{% endif %}</td>
             <td class="judge-cost">
               {% if row.mean_judge_cost_usd is not none %}
                 ${{ "%.4f" | format(row.mean_judge_cost_usd) }}

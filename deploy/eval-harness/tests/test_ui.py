@@ -620,6 +620,178 @@ def test_run_detail_renders_v2_findings_and_selection_disagreements_xss_safely(c
     assert "&lt;b&gt;A story&lt;/b&gt;" in body
 
 
+# --- The judge model is visible (review-fix, reviewer L4) ---------------------------
+
+
+def _write_judged_run(
+    runs_root: Path,
+    *,
+    slug: str,
+    eval_run_id: str,
+    name: str,
+    judge_model: str,
+    legacy_shape: bool,
+) -> Path:
+    """One completed, judged run record. `legacy_shape=True` writes the PRE-2026-10-11
+    shape: `judge-cost.json` with a single `model` key and a `scores.json` entry
+    with NO `model` key at all (exactly what the committed July records look
+    like)."""
+    run_dir = run_store.eval_run_dir(slug, eval_run_id, runs_root=runs_root)
+    run_store.write_eval_run_meta(
+        run_dir,
+        run_store.EvalRunMeta(
+            name=name,
+            slug=slug,
+            agent_id="agent_x",
+            git_ref="c" * 40,
+            composition="single-agent",
+            models=["claude-haiku-4-5"],
+            parameters={"agent": {}, "sub_agents": []},
+            repetitions=1,
+            criteria=["factual_accuracy"],
+            state=run_store.STATE_COMPLETED,
+            email_sent=False,
+            is_production_config=False,
+            created_at=1000,
+        ),
+    )
+    score: dict = {"score": 4, "rationale": "fine", "evidence": "n/a", "insufficient_data": False}
+    if not legacy_shape:
+        score["model"] = judge_model
+    run_store.write_scores(run_dir, 1, {"factual_accuracy": score})
+    run_store.write_run_meta(run_dir, 1, {"session_id": "sesn_x", "final_status": "idle"})
+    judge_cost: dict = {"total_cost_usd": 0.01, "total_usage": {}, "per_criterion": {"factual_accuracy": {"cost_usd": 0.01, "usage": {}}}}
+    if legacy_shape:
+        judge_cost["model"] = judge_model
+    else:
+        judge_cost["models"] = [judge_model]
+    run_store.write_judge_cost(run_dir, 1, judge_cost)
+    return run_dir
+
+
+def test_assess_table_distinguishes_a_july_judge_model_from_an_october_one(client, monkeypatch, tmp_path):
+    """Reviewer L4: a July record (judged by Opus 4.8, pre-v2 judge-cost shape)
+    and an October one (Opus 5.5) must be distinguishable in the overview."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    _write_judged_run(
+        runs_root,
+        slug="haiku-swap-hardened",
+        eval_run_id="2026-07-08-111111-july",
+        name="a july run",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+    _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-222222-october",
+        name="an october run",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+
+    response = client.get("/assess")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert "claude-opus-4-8" in body
+    assert "claude-opus-5-5" in body
+
+
+def test_judge_models_for_run_falls_back_to_the_scores_file(monkeypatch, tmp_path):
+    """With no judge-cost.json at all, the per-criterion `model` in scores.json
+    (written since 2026-10-11) is still enough to name the judge."""
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="opus-5-5-hardened",
+        eval_run_id="2026-10-11-333333-scores-only",
+        name="scores only",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").unlink()
+
+    assert ui_app._judge_models_for_run(run_dir, 1) == ["claude-opus-5-5"]
+
+
+def test_judge_models_for_run_is_empty_when_nothing_records_a_model(monkeypatch, tmp_path):
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-swap",
+        eval_run_id="2026-07-08-444444-unknown",
+        name="unknown judge",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").unlink()
+
+    assert ui_app._judge_models_for_run(run_dir, 1) == []
+
+
+def test_judge_models_for_run_tolerates_a_half_written_file(monkeypatch, tmp_path):
+    """A run still in flight can have a partially-written judge-cost.json -- the
+    Assess table must render anyway, not raise."""
+    runs_root = tmp_path / "runs"
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-555555-partial",
+        name="partial",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+    (run_store.repetition_dir(run_dir, 1) / "judge-cost.json").write_text('{"models": ["claude', encoding="utf-8")
+
+    # Degrades to the scores.json fallback rather than raising.
+    assert ui_app._judge_models_for_run(run_dir, 1) == ["claude-opus-5-5"]
+
+
+def test_run_detail_shows_the_per_criterion_judge_model(client, monkeypatch, tmp_path):
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-5-5-hardened",
+        eval_run_id="2026-10-11-666666-detail",
+        name="a judged run",
+        judge_model="claude-opus-5-5",
+        legacy_shape=False,
+    )
+
+    response = client.get(f"/runs/haiku-5-5-hardened/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert body.count("claude-opus-5-5") >= 2  # the scores table AND the judge-cost table
+
+
+def test_run_detail_renders_a_blank_judge_model_for_an_older_record(client, monkeypatch, tmp_path):
+    """A pre-2026-10-11 scores.json has no `model` key -- the cell must render
+    blank, not error."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setattr(run_store, "RUNS_ROOT", runs_root)
+    run_dir = _write_judged_run(
+        runs_root,
+        slug="haiku-swap-hardened",
+        eval_run_id="2026-07-08-777777-detail",
+        name="an older judged run",
+        judge_model="claude-opus-4-8",
+        legacy_shape=True,
+    )
+
+    response = client.get(f"/runs/haiku-swap-hardened/{run_dir.name}")
+
+    assert response.status_code == 200
+    body = response.data.decode("utf-8")
+    assert "Judge model" in body
+    assert "an older judged run" in body
+
+
 # --- The run detail page never 500s over git (review-fix, reviewer H2) --------------
 
 

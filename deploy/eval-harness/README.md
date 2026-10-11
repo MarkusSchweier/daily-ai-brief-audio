@@ -345,7 +345,9 @@ it so template/code changes take effect.
   which auto-refreshes every 5s while `configured`/`running`.
 - **Assess** (`/assess`) — one-page table of every eval run: name, model(s),
   agent-vs-multi-agent, repetitions, production-config marker, all four criteria
-  (blank where untested), mean cost, whether a human eval exists.
+  (blank where untested), mean cost, the **judge model** that scored the run
+  (so a July record judged by Opus 4.8 is distinguishable from an October one
+  judged by Opus 5.5), mean judge cost, whether a human eval exists.
 - **Deep dive** (`/runs/<slug>/<eval-run-id>`) — per-repetition explorer (scores,
   cost by thread, artifacts, the rendered brief), plus the candidate's full
   configuration (main + every sub-agent's prompts) read via `git show <git_ref>:<path>`
