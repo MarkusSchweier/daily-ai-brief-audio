@@ -1051,3 +1051,213 @@ def test_a_rate_carded_model_is_never_priced_off_aggregate_usage_by_any_entry_po
         cost.mine_session_cost(
             "sesn_1", [_haiku_5_5_thread()], pricing_table=table, on_date=date(2026, 10, 11), events=None
         )
+
+
+# --- Malformed pricing tables fail LOUD (review-fix, reviewer M1) ---------------------
+
+
+def _one_family_table(
+    *,
+    cache_multipliers: dict | None = {"write_5m": 1.25, "write_1h": 2.0, "read": 0.1},
+    model_cache_multipliers: dict | None = None,
+    long_prompt: dict | None = None,
+    include_long_prompt_key: bool = False,
+) -> dict:
+    """A minimal one-family table whose cache-multiplier and `long_prompt` shapes
+    the caller controls -- the only way to exercise the malformed paths, since the
+    committed `pricing.json` is (and must stay) well-formed."""
+    tier: dict = {
+        "label": "standard",
+        "effective_from": None,
+        "effective_until": None,
+        "input_per_million_usd": 1.0,
+        "output_per_million_usd": 5.0,
+    }
+    if include_long_prompt_key:
+        tier["long_prompt"] = long_prompt
+    entry: dict = {"aliases": ["claude-fake-1"], "tiers": [tier]}
+    if model_cache_multipliers is not None:
+        entry["cache_multipliers"] = model_cache_multipliers
+    table: dict = {"source_url": "https://example.test", "models": {"claude-fake-1": entry}}
+    if cache_multipliers is not None:
+        table["cache_multipliers"] = cache_multipliers
+    return table
+
+
+def test_the_committed_pricing_table_still_loads_and_resolves_every_family():
+    """The guard rails below must not have made the REAL table unloadable."""
+    table = _pricing_table()
+    for family in table["models"]:
+        assert cost.resolve_price_tier(table, family, on_date=date(2026, 10, 11))
+
+
+@pytest.mark.parametrize("missing_key", ["write_5m", "write_1h", "read"])
+def test_a_missing_global_cache_multiplier_raises_instead_of_pricing_that_bucket_free(missing_key):
+    """Each of the three was previously read with `.get(key, 0.0)`, so a typo'd or
+    forgotten key priced that WHOLE cache bucket at $0 -- and cache tokens dominate
+    every run this harness measures."""
+    multipliers = {"write_5m": 1.25, "write_1h": 2.0, "read": 0.1}
+    del multipliers[missing_key]
+    table = _one_family_table(cache_multipliers=multipliers)
+
+    with pytest.raises(cost.PricingError) as excinfo:
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+    assert isinstance(excinfo.value, cost.MalformedPricingTableError)
+    assert missing_key in str(excinfo.value)
+
+
+def test_a_table_with_no_cache_multipliers_block_at_all_raises():
+    table = _one_family_table(cache_multipliers=None)
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+
+def test_a_per_model_override_cannot_remove_a_required_multiplier_but_may_narrow_it():
+    """A per-model override is MERGED over the defaults, so it may legitimately
+    carry just one key (Opus 5.5 / Sonnet 5.5's `{"read": 0.05}`) -- what must
+    never happen is a required key being absent after that merge."""
+    table = _one_family_table(model_cache_multipliers={"read": 0.05})
+    tier = cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+    assert tier.cache_read_multiplier == pytest.approx(0.05)
+    assert tier.cache_write_5m_multiplier == pytest.approx(1.25)  # inherited
+
+    broken = _one_family_table(cache_multipliers={"write_5m": 1.25, "read": 0.1})
+    with pytest.raises(cost.MalformedPricingTableError) as excinfo:
+        cost.resolve_price_tier(broken, "claude-fake-1", on_date=date(2026, 10, 11))
+    assert "write_1h" in str(excinfo.value)
+
+
+def test_a_non_numeric_cache_multiplier_raises():
+    table = _one_family_table(cache_multipliers={"write_5m": 1.25, "write_1h": "two", "read": 0.1})
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+
+def test_a_negative_cache_multiplier_raises():
+    table = _one_family_table(cache_multipliers={"write_5m": 1.25, "write_1h": -2.0, "read": 0.1})
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+
+@pytest.mark.parametrize("missing_key", list(cost.REQUIRED_LONG_PROMPT_KEYS))
+def test_a_half_declared_long_prompt_card_raises(missing_key):
+    """A tier that mentions `long_prompt` at all must declare the whole card. The
+    threshold case is the expensive one: it used to read as "no second card",
+    aggregate-pricing a rate-carded model on its CHEAP card (4.7x under on a real
+    Haiku 5.5 run); a missing rate priced long-prompt requests at $0."""
+    card = {"threshold_prompt_tokens": 100_000, "input_per_million_usd": 0.5, "output_per_million_usd": 2.5}
+    del card[missing_key]
+    table = _one_family_table(include_long_prompt_key=True, long_prompt=card)
+
+    with pytest.raises(cost.PricingError) as excinfo:
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+    assert isinstance(excinfo.value, cost.MalformedPricingTableError)
+    assert missing_key in str(excinfo.value)
+
+
+@pytest.mark.parametrize("threshold", [0, -1, None])
+def test_a_long_prompt_card_with_a_non_positive_threshold_raises(threshold):
+    """`threshold_prompt_tokens: 0` is the exact silent-aggregate-pricing bug: the
+    old `if long_prompt.get("threshold_prompt_tokens")` treated falsy as absent."""
+    table = _one_family_table(
+        include_long_prompt_key=True,
+        long_prompt={
+            "threshold_prompt_tokens": threshold,
+            "input_per_million_usd": 0.5,
+            "output_per_million_usd": 2.5,
+        },
+    )
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+
+@pytest.mark.parametrize("card", [{}, None, "long"])
+def test_an_empty_or_non_object_long_prompt_card_raises(card):
+    table = _one_family_table(include_long_prompt_key=True, long_prompt=card)
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        cost.resolve_price_tier(table, "claude-fake-1", on_date=date(2026, 10, 11))
+
+
+def test_a_tier_with_no_long_prompt_key_at_all_is_still_perfectly_valid():
+    tier = cost.resolve_price_tier(_one_family_table(), "claude-fake-1", on_date=date(2026, 10, 11))
+    assert tier.has_long_prompt_card is False
+
+
+def test_a_hand_built_tier_with_a_threshold_but_no_rates_refuses_to_price_a_long_request():
+    """`resolve_price_tier()` can no longer produce this, but a hand-built
+    PriceTier can -- and `or 0.0` used to price such a request at exactly $0."""
+    tier = cost.PriceTier(
+        model_family="test",
+        label="t",
+        input_per_million_usd=0.1,
+        output_per_million_usd=0.5,
+        cache_write_5m_multiplier=1.25,
+        cache_write_1h_multiplier=2.0,
+        cache_read_multiplier=0.1,
+        effective_from=None,
+        effective_until=None,
+        source_url="",
+        captured_on="",
+        long_prompt_threshold_tokens=100_000,
+    )
+    long_request = cost.RequestUsage(input_tokens=200_000, output_tokens=10)
+
+    with pytest.raises(cost.MalformedPricingTableError):
+        tier.cost_usd_for_request(long_request)
+
+
+# --- Both event shapes are accepted (review-fix, reviewer L2) -------------------------
+
+
+def test_extract_request_usages_accepts_the_bare_event_list():
+    events = [_model_request_end(input_tokens=10, output_tokens=20), {"type": "agent.tool_use"}]
+
+    usages = cost.extract_request_usages(events)
+
+    assert [u.input_tokens for u in usages] == [10]
+
+
+def test_extract_request_usages_accepts_the_events_json_wrapper():
+    """`run_store.write_events()` writes `{"events": [...]}`, so anything reading
+    that file back hands in the WRAPPER -- iterating which used to yield the string
+    key "events" and silently find zero model requests."""
+    wrapped = {"events": [_model_request_end(input_tokens=10, output_tokens=20)]}
+
+    usages = cost.extract_request_usages(wrapped)
+
+    assert [u.input_tokens for u in usages] == [10]
+
+
+def test_normalize_events_handles_the_empty_and_junk_shapes():
+    assert cost.normalize_events([]) == []
+    assert cost.normalize_events({}) == []
+    assert cost.normalize_events({"events": None}) == []
+    assert cost.normalize_events({"not_events": [1]}) == []
+
+
+def test_mine_session_cost_prices_a_rate_carded_thread_from_the_events_json_wrapper():
+    """End-to-end: the same rate-carded session priced from the bare list and from
+    the on-disk wrapper must produce the IDENTICAL cost."""
+    table = _pricing_table()
+    events = _HAIKU_5_5_EVENTS
+
+    from_list = cost.mine_session_cost(
+        "sesn_1", [_haiku_5_5_thread()], pricing_table=table, on_date=date(2026, 10, 11), events=events
+    )
+    from_wrapper = cost.mine_session_cost(
+        "sesn_1",
+        [_haiku_5_5_thread()],
+        pricing_table=table,
+        on_date=date(2026, 10, 11),
+        events={"events": events},
+    )
+
+    assert from_wrapper.total_cost_usd == from_list.total_cost_usd
+    assert from_wrapper.total_cost_usd > 0

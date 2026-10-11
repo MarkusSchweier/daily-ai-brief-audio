@@ -54,8 +54,12 @@ from its aggregate usage at all -- any single-card guess is simply wrong, by up 
 in either direction.
 
 So for a family whose `pricing.json` tier carries a `long_prompt` card, this module
-prices the thread PER REQUEST, from the session events `run.py` already fetches and
-stores (`events.json`): every `span.model_request_end` event carries
+prices the thread PER REQUEST, from the session event LIST `run.py` already fetches
+for artifact retrieval. (Note the on-disk shape differs: `run_store.write_events()`
+WRAPS that list as `{"events": [...]}` in `events.json`, so a caller reading the
+file back passes either the wrapper or `["events"]` -- `extract_request_usages()`
+accepts both. Review-fix, reviewer L2: this docstring used to claim the parameter
+and the file held the same thing.) Every `span.model_request_end` event carries
 `model_usage: {input_tokens, output_tokens, cache_read_input_tokens,
 cache_creation_input_tokens}` (FLAT cache_creation, no 5m/1h split -- unlike the
 threads endpoint's nested buckets). Guard rails, all fail-loud
@@ -125,6 +129,24 @@ class PricingDriftError(PricingError):
     e.g. today is past every known tier's expiry (ADR-0016 D2's concrete example:
     a tier defined with an `effective_until` and no successor tier; querying a date
     after that expiry would raise this)."""
+
+
+class MalformedPricingTableError(PricingError):
+    """Raised when `pricing.json` itself is structurally wrong in a way that would
+    otherwise price something at (or near) ZERO in silence -- review-fix, reviewer
+    M1 (2026-10-11). Two concrete holes it closes, both previously silent:
+
+      - a missing `cache_multipliers` key (globally or left unmerged by a per-model
+        override) used to `.get(key, 0.0)` into a 0.0 multiplier, pricing that
+        whole cache bucket as FREE. On a real run that is most of the bill;
+      - a `long_prompt` card with a missing/zero `threshold_prompt_tokens` used to
+        read as "no second rate card at all", so a rate-carded model was
+        aggregate-priced on its CHEAP card -- measured 4.7x under on a real Haiku
+        5.5 run -- and missing `long_prompt` rates priced every long-prompt request
+        at $0.
+
+    A pricing table is a small, hand-reviewed file; the only honest response to a
+    malformed one is to refuse to produce a number."""
 
 
 class PerRequestPricingError(PricingError):
@@ -246,14 +268,36 @@ class RequestUsage:
         )
 
 
-def extract_request_usages(events: list[dict[str, Any]]) -> list[RequestUsage]:
+def normalize_events(events: "list[dict[str, Any]] | dict[str, Any]") -> list[dict[str, Any]]:
+    """Accept EITHER shape the session events travel in (review-fix, reviewer L2):
+
+      - the bare list `candidate_sync.trigger`'s `CandidateRunResult.events` carries
+        (what `run.py` passes straight into `mine_session_cost()`), or
+      - the `{"events": [...]}` WRAPPER `harness.run_store.write_events()` writes to
+        `repetitions/<NN>/events.json`, i.e. what anything re-reading that file gets.
+
+    The two were conflated in this module's docstrings, which invited a caller to
+    hand the wrapper dict straight in -- where iterating it would have yielded its
+    KEYS ("events") and silently found zero model requests. Anything else
+    (including None) normalizes to an empty list; callers that must fail loud on
+    "no events" already do so by request count."""
+    if isinstance(events, dict):
+        wrapped = events.get("events")
+        return list(wrapped) if isinstance(wrapped, list) else []
+    return list(events) if events else []
+
+
+def extract_request_usages(events: "list[dict[str, Any]] | dict[str, Any]") -> list[RequestUsage]:
     """Every `span.model_request_end` event's `model_usage`, in event order -- one
     `RequestUsage` per model request the session made. Events of every other type
     are ignored; an event of this type with no `model_usage` at all is ignored too
     (it contributes no tokens, and counting it as a zero-token request would
-    mis-report the per-card request counts)."""
+    mis-report the per-card request counts).
+
+    `events` may be the bare list OR `events.json`'s `{"events": [...]}` wrapper
+    (see `normalize_events()`)."""
     usages: list[RequestUsage] = []
-    for event in events:
+    for event in normalize_events(events):
         if event.get("type") != _MODEL_REQUEST_END_EVENT:
             continue
         model_usage = event.get("model_usage")
@@ -417,8 +461,20 @@ class PriceTier:
         thread's 1h bucket is zero."""
         card = self.card_for(request)
         if card == CARD_LONG_PROMPT:
-            input_per_million = float(self.long_prompt_input_per_million_usd or 0.0)
-            output_per_million = float(self.long_prompt_output_per_million_usd or 0.0)
+            # Unreachable for a tier built by `resolve_price_tier()` (it validates
+            # the card all-or-nothing -- reviewer M1), but a hand-built PriceTier
+            # could still carry a threshold with no rates, and `or 0.0` used to
+            # price those requests at exactly $0. Refuse instead.
+            if self.long_prompt_input_per_million_usd is None or self.long_prompt_output_per_million_usd is None:
+                raise MalformedPricingTableError(
+                    f"model family {self.model_family!r} declares a long-prompt threshold "
+                    f"({self.long_prompt_threshold_tokens} tokens) but not both long-prompt rates "
+                    f"(input={self.long_prompt_input_per_million_usd}, "
+                    f"output={self.long_prompt_output_per_million_usd}) -- refusing to price a "
+                    "long-prompt request at $0."
+                )
+            input_per_million = float(self.long_prompt_input_per_million_usd)
+            output_per_million = float(self.long_prompt_output_per_million_usd)
         else:
             input_per_million = self.input_per_million_usd
             output_per_million = self.output_per_million_usd
@@ -464,15 +520,128 @@ def _date_in_window(on_date: date, effective_from: str | None, effective_until: 
     return True
 
 
-def _resolve_cache_multipliers(pricing_table: dict[str, Any], entry: dict[str, Any]) -> dict[str, float]:
+REQUIRED_CACHE_MULTIPLIER_KEYS: tuple[str, ...] = ("write_5m", "write_1h", "read")
+
+# The three fields a `long_prompt` rate card must carry, all or nothing.
+REQUIRED_LONG_PROMPT_KEYS: tuple[str, ...] = (
+    "threshold_prompt_tokens",
+    "input_per_million_usd",
+    "output_per_million_usd",
+)
+
+
+def _resolve_cache_multipliers(
+    pricing_table: dict[str, Any], entry: dict[str, Any], *, model_family: str
+) -> dict[str, float]:
     """The table's global `cache_multipliers` with the model entry's OWN optional
     `cache_multipliers` merged over it, key by key (`pricing.json`'s schema note,
     layer 2). A partial override (`{"read": 0.05}` -- Opus 5.5 / Sonnet 5.5, whose
     cache READS are 0.05x base input while their writes keep the usual 1.25x/2x)
-    therefore inherits every ratio it doesn't mention."""
+    therefore inherits every ratio it doesn't mention.
+
+    FAIL LOUD on a missing ratio (review-fix, reviewer M1): all three of
+    `REQUIRED_CACHE_MULTIPLIER_KEYS` must be present AFTER the merge. The previous
+    code read them with `.get(key, 0.0)` at the call site, so a typo'd or
+    forgotten key priced that entire cache bucket as FREE -- and cache tokens are
+    the dominant cost on every run this harness measures (a brief's cache-read
+    bucket alone has been >4M tokens), so the resulting number would have been
+    confidently, invisibly wrong. Every value must also be a non-negative
+    number."""
     merged = dict(pricing_table.get("cache_multipliers", {}))
     merged.update(entry.get("cache_multipliers", {}))
-    return {key: float(value) for key, value in merged.items()}
+
+    missing = [key for key in REQUIRED_CACHE_MULTIPLIER_KEYS if key not in merged]
+    if missing:
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for model family {model_family!r}: cache multiplier(s) "
+            f"{', '.join(missing)} missing after merging the per-model override over the global "
+            f"`cache_multipliers` (present: {sorted(merged) or 'none'}). Every one of "
+            f"{', '.join(REQUIRED_CACHE_MULTIPLIER_KEYS)} is required -- defaulting a missing one "
+            "to 0.0 would price that whole cache bucket as FREE."
+        )
+
+    resolved: dict[str, float] = {}
+    for key in REQUIRED_CACHE_MULTIPLIER_KEYS:
+        value = merged[key]
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError) as e:
+            raise MalformedPricingTableError(
+                f"pricing.json is malformed for model family {model_family!r}: cache multiplier "
+                f"{key!r} is {value!r}, which is not a number"
+            ) from e
+        if numeric < 0:
+            raise MalformedPricingTableError(
+                f"pricing.json is malformed for model family {model_family!r}: cache multiplier "
+                f"{key!r} is negative ({numeric})"
+            )
+        resolved[key] = numeric
+    return resolved
+
+
+def _resolve_long_prompt_card(tier: dict[str, Any], *, model_family: str) -> dict[str, Any] | None:
+    """The tier's OPTIONAL `long_prompt` second rate card, validated all-or-nothing
+    (review-fix, reviewer M1), or None when the tier declares no such card at all.
+
+    A tier that carries a `long_prompt` KEY must carry all three of
+    `REQUIRED_LONG_PROMPT_KEYS`, with a threshold strictly greater than zero. The
+    previous code read the threshold as
+    `int(lp["threshold_prompt_tokens"]) if lp.get("threshold_prompt_tokens") else None`,
+    so a missing/zero/null threshold made the whole card VANISH: the model was then
+    aggregate-priced on its cheap card (measured 4.7x under on a real Haiku 5.5
+    run), and a missing rate priced every long-prompt request at $0 via
+    `float(... or 0.0)`. Both now refuse to produce a number instead."""
+    if "long_prompt" not in tier:
+        return None
+
+    card = tier["long_prompt"]
+    label = tier.get("label", "")
+    where = f"model family {model_family!r}, tier {label!r}"
+    if not isinstance(card, dict):
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for {where}: `long_prompt` is {card!r}, which is not an "
+            "object. Either declare the full rate card (threshold + both rates) or remove the key "
+            "entirely -- a half-declared card silently prices the model on the WRONG card."
+        )
+
+    missing = [key for key in REQUIRED_LONG_PROMPT_KEYS if card.get(key) is None]
+    if missing:
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for {where}: `long_prompt` is missing {', '.join(missing)}. "
+            f"A declared long-prompt card requires all of {', '.join(REQUIRED_LONG_PROMPT_KEYS)} -- "
+            "a missing threshold made the card vanish (the model was then aggregate-priced on its "
+            "CHEAP card, 4.7x under on a real run) and a missing rate priced long-prompt requests "
+            "at $0."
+        )
+
+    try:
+        threshold = int(card["threshold_prompt_tokens"])
+        input_rate = float(card["input_per_million_usd"])
+        output_rate = float(card["output_per_million_usd"])
+    except (TypeError, ValueError) as e:
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for {where}: `long_prompt` carries a non-numeric value "
+            f"({card!r})"
+        ) from e
+
+    if threshold <= 0:
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for {where}: `long_prompt.threshold_prompt_tokens` is "
+            f"{threshold}, which must be greater than zero -- a zero/negative threshold cannot "
+            "select a rate card (and previously read as 'no long-prompt card at all', silently "
+            "aggregate-pricing the model on its cheap card)."
+        )
+    if input_rate < 0 or output_rate < 0:
+        raise MalformedPricingTableError(
+            f"pricing.json is malformed for {where}: `long_prompt` rates must be non-negative "
+            f"(got input={input_rate}, output={output_rate})"
+        )
+
+    return {
+        "threshold_prompt_tokens": threshold,
+        "input_per_million_usd": input_rate,
+        "output_per_million_usd": output_rate,
+    }
 
 
 def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date: date) -> PriceTier:
@@ -483,7 +652,13 @@ def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date:
 
     Reads both of `pricing.json`'s optional per-model/per-tier extensions
     (2026-10-11): the model entry's own `cache_multipliers` override (merged over
-    the global defaults) and the tier's own `long_prompt` second rate card."""
+    the global defaults) and the tier's own `long_prompt` second rate card.
+
+    Both extensions are VALIDATED, not merely read (review-fix, reviewer M1): a
+    missing cache multiplier or a half-declared `long_prompt` card raises
+    `MalformedPricingTableError` rather than silently pricing a cache bucket as
+    free or a rate-carded model on the wrong card. See
+    `_resolve_cache_multipliers()` / `_resolve_long_prompt_card()`."""
     family = _resolve_model_family(pricing_table, model_id)
     entry = pricing_table["models"][family]
     tiers = entry.get("tiers", [])
@@ -499,31 +674,23 @@ def resolve_price_tier(pricing_table: dict[str, Any], model_id: str, *, on_date:
     # matches (well-formed data should never have overlapping windows, but this
     # keeps resolution deterministic rather than order-dependent if it ever does).
     tier = max(matched, key=lambda t: t.get("effective_from") or "")
-    cache_multipliers = _resolve_cache_multipliers(pricing_table, entry)
-    long_prompt = tier.get("long_prompt") or {}
+    cache_multipliers = _resolve_cache_multipliers(pricing_table, entry, model_family=family)
+    long_prompt = _resolve_long_prompt_card(tier, model_family=family)
     return PriceTier(
         model_family=family,
         label=tier.get("label", ""),
         input_per_million_usd=float(tier["input_per_million_usd"]),
         output_per_million_usd=float(tier["output_per_million_usd"]),
-        cache_write_5m_multiplier=float(cache_multipliers.get("write_5m", 0.0)),
-        cache_write_1h_multiplier=float(cache_multipliers.get("write_1h", 0.0)),
-        cache_read_multiplier=float(cache_multipliers.get("read", 0.0)),
+        cache_write_5m_multiplier=cache_multipliers["write_5m"],
+        cache_write_1h_multiplier=cache_multipliers["write_1h"],
+        cache_read_multiplier=cache_multipliers["read"],
         effective_from=tier.get("effective_from"),
         effective_until=tier.get("effective_until"),
         source_url=pricing_table.get("source_url", ""),
         captured_on=tier.get("captured_on") or pricing_table.get("captured_on", ""),
-        long_prompt_threshold_tokens=(
-            int(long_prompt["threshold_prompt_tokens"]) if long_prompt.get("threshold_prompt_tokens") else None
-        ),
-        long_prompt_input_per_million_usd=(
-            float(long_prompt["input_per_million_usd"]) if long_prompt.get("input_per_million_usd") is not None else None
-        ),
-        long_prompt_output_per_million_usd=(
-            float(long_prompt["output_per_million_usd"])
-            if long_prompt.get("output_per_million_usd") is not None
-            else None
-        ),
+        long_prompt_threshold_tokens=(long_prompt["threshold_prompt_tokens"] if long_prompt else None),
+        long_prompt_input_per_million_usd=(long_prompt["input_per_million_usd"] if long_prompt else None),
+        long_prompt_output_per_million_usd=(long_prompt["output_per_million_usd"] if long_prompt else None),
     )
 
 
@@ -712,7 +879,7 @@ def _price_thread_per_request(
     price_tier: PriceTier,
     usage: ThreadUsage,
     *,
-    events: list[dict[str, Any]] | None,
+    events: "list[dict[str, Any]] | dict[str, Any] | None",
     model_id: str,
     thread_id: str,
     thread_count: int,
@@ -723,9 +890,10 @@ def _price_thread_per_request(
     if events is None:
         raise PerRequestPricingError(
             f"model {model_id!r} is priced on per-request rate cards, but no session events were "
-            "supplied -- pass `events=` (the same list run.py fetches for artifact retrieval and "
-            "stores as events.json) to mine_session_cost(). Refusing to price it off aggregate "
-            "thread usage, which cannot say which card each request was billed on."
+            "supplied -- pass `events=` to mine_session_cost() (the event list run.py fetches for "
+            "artifact retrieval, or the `{'events': [...]}` wrapper read back out of "
+            "events.json; both are accepted). Refusing to price it off aggregate thread usage, "
+            "which cannot say which card each request was billed on."
         )
 
     if thread_count > 1:
@@ -834,7 +1002,7 @@ def mine_session_cost(
     pricing_table: dict[str, Any],
     on_date: date,
     candidate_declaration: CandidateDeclaration | None = None,
-    events: list[dict[str, Any]] | None = None,
+    events: "list[dict[str, Any]] | dict[str, Any] | None" = None,
 ) -> SessionCostBreakdown:
     """Mine the full per-thread cost breakdown for one session.
 
@@ -844,8 +1012,10 @@ def mine_session_cost(
     today's real date; tests pin a fixed date so results don't drift with the
     calendar, see `resolve_price_tier`'s docstring).
 
-    `events` is the session's own event list (the SAME list `run.py` already
-    fetched for artifact retrieval and stores as `events.json`). It is used ONLY
+    `events` is the session's own event list -- either the bare list `run.py`
+    already fetched for artifact retrieval, or the `{"events": [...]}` wrapper
+    `run_store.write_events()` stores in `events.json` (both accepted; see
+    `normalize_events()`). It is used ONLY
     for a model whose tier carries a `long_prompt` rate card -- Claude Haiku 5.5 --
     which cannot be priced from aggregate usage and is instead priced per request
     from `span.model_request_end.model_usage`, with a fail-loud integrity check
@@ -938,9 +1108,12 @@ __all__ = [
     "PricingError",
     "UnknownModelPriceError",
     "PricingDriftError",
+    "MalformedPricingTableError",
     "PerRequestPricingError",
     "CARD_STANDARD",
     "CARD_LONG_PROMPT",
+    "REQUIRED_CACHE_MULTIPLIER_KEYS",
+    "REQUIRED_LONG_PROMPT_KEYS",
     "ThreadUsage",
     "RequestUsage",
     "PriceTier",
@@ -948,6 +1121,7 @@ __all__ = [
     "SessionCostBreakdown",
     "load_pricing_table",
     "resolve_price_tier",
+    "normalize_events",
     "extract_request_usages",
     "verify_request_usages_match_thread",
     "price_requests",
