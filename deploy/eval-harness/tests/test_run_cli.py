@@ -602,6 +602,209 @@ def test_dedup_criterion_skips_the_priors_fetch_when_no_brief_date_is_parseable(
     assert "DEDUP_PRIORS_SKIPPED" in capsys.readouterr().err
 
 
+# --- Never judge a PRIOR brief as the candidate's output (2026-10-11) -----------------
+
+_PRIOR_OCT_08 = "# Daily AI Brief - 2026-10-08\n\nThursday's real production brief.\n"
+_PRIOR_OCT_09 = "# Daily AI Brief - 2026-10-09\n\nFriday's real production brief.\n"
+_TODAYS_BRIEF = "# Daily AI Brief - 2026-10-11\n\nWhat the candidate actually wrote.\n"
+
+_FAKE_FEED = [
+    {"date": "2026-10-09", "markdown": _PRIOR_OCT_09},
+    {"date": "2026-10-08", "markdown": _PRIOR_OCT_08},
+]
+
+
+def _fake_feed_fetch(**kwargs):
+    return list(_FAKE_FEED)
+
+
+def _run_result_capturing(*catted: tuple[str, str]) -> trigger_module.CandidateRunResult:
+    """A fake run whose captured (`cat`'d) artifacts are exactly `catted`
+    `(path, content)` pairs -- lets a test reproduce the real 2026-10-11 failure,
+    where the candidate's OWN brief was never captured (its final `cat` was piped
+    through `head -100`) and only the priors it had read remained."""
+    events: list[dict] = []
+    for i, (path, content) in enumerate(catted, start=1):
+        events.extend(_cat_events(f"t{i}", path, content))
+    return trigger_module.CandidateRunResult(
+        deployment_id="depl_fake", session_id="sesn_fake", final_status="idle", events=events
+    )
+
+
+def _setup_a_run(monkeypatch, tmp_path, *, result: trigger_module.CandidateRunResult):
+    _setup_env(monkeypatch, tmp_path, slug="test-candidate")
+    monkeypatch.setattr(trigger_module, "run_candidate", lambda client, **kwargs: result)
+    monkeypatch.setattr(run_cli.cost, "fetch_threads", lambda client, session_id: _fake_threads())
+    monkeypatch.setattr(run_cli, "_build_anthropic_client", lambda api_key: make_fake_client(_score_response(4)))
+    return tmp_path / "runs"
+
+
+def test_a_repetition_that_captured_only_feed_priors_fails_loud(tmp_path, monkeypatch, capsys):
+    """The real 2026-10-11 defect: `haiku-swap-hardened` repetition 3 wrote today's
+    brief but ran `cat "..." | head -100` at the capture step, so the only briefs
+    the harness held were the two PRIORS the hardened prompt makes the agent read
+    -- and Friday's REAL PRODUCTION brief was then scored as the candidate's work
+    and recorded as a success."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-08.md", _PRIOR_OCT_08),
+        ("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09),
+        ("/workspace/oct8.txt", "a stray scratch file"),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    run_meta = json.loads((rep_dir / "run-meta.json").read_text())
+    assert run_meta["final_status"] == "judging_failed"
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+    assert "2026-10-09" in run_meta["error"]  # the feed date it matched
+    assert "AI Brief - 2026-10-08.md" in run_meta["error"]  # the artifacts that WERE captured
+    assert not (rep_dir / "scores.json").exists()  # nothing was judged
+    # The paid artifacts, events and cost are still on disk (cost mining happens
+    # BEFORE the guard, deliberately).
+    assert (rep_dir / "cost.json").is_file()
+    assert (rep_dir / "threads-usage.json").is_file()
+    assert (rep_dir / "events.json").is_file()
+    assert (rep_dir / "artifacts" / "AI Brief - 2026-10-09.md").is_file()
+    assert json.loads((run_dir / "eval-run.json").read_text())["state"] == "failed"
+    assert "EVAL_REPETITION_JUDGING_FAILED" in capsys.readouterr().err
+
+
+def test_a_repetition_that_captured_todays_brief_alongside_the_priors_is_unaffected(tmp_path, monkeypatch):
+    """The normal hardened-prompt shape: priors AND today's brief are captured.
+    The greatest-dated brief is the candidate's own output, which the feed does
+    NOT carry -- judging proceeds exactly as before."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-08.md", _PRIOR_OCT_08),
+        ("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09),
+        ("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF),
+        ("/workspace/listening-script.txt", "Script."),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    assert json.loads((rep_dir / "scores.json").read_text())["factual_accuracy"]["score"] == 4
+    assert json.loads((rep_dir / "run-meta.json").read_text())["final_status"] == "idle"
+
+
+def test_a_repetition_that_captured_no_brief_at_all_fails_loud(tmp_path, monkeypatch):
+    """Previously a SILENT degrade: the judges were handed "" and reported
+    insufficient_data, which the comparison table renders as a blank -- visually
+    identical to "this criterion wasn't tested"."""
+    result = _run_result_capturing(("/workspace/listening-script.txt", "Script, but no brief."))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    rep_dir = run_dir / "repetitions" / "01"
+    run_meta = json.loads((rep_dir / "run-meta.json").read_text())
+    assert run_meta["final_status"] == "judging_failed"
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+    assert "no brief artifact was captured at all" in run_meta["error"]
+    assert "listening-script.txt" in run_meta["error"]
+    assert not (rep_dir / "scores.json").exists()
+
+
+def test_an_unreadable_feed_warns_and_does_not_block_the_repetition(tmp_path, monkeypatch, capsys):
+    """No signing key configured -> the check cannot be performed. That must never
+    block an otherwise-paid run: warn loudly and proceed."""
+    result = _run_result_capturing(
+        ("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF),
+        ("/workspace/listening-script.txt", "Script."),
+    )
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.local_config, "resolve_recent_briefs_signing_key", lambda: None)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    assert "BRIEF_PRIOR_CHECK_SKIPPED" in capsys.readouterr().err
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    assert (run_dir / "repetitions" / "01" / "scores.json").is_file()
+
+
+def test_a_feed_transport_failure_also_only_warns(tmp_path, monkeypatch, capsys):
+    result = _run_result_capturing(("/workspace/AI Brief - 2026-10-11.md", _TODAYS_BRIEF))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+
+    def _boom(**kwargs):
+        raise run_cli.dedup_priors.RecentBriefsUnavailableError("GET /recent-briefs failed: connection reset")
+
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _boom)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "factual_accuracy", "--runs-root", str(runs_root)])
+
+    assert exit_code == 0
+    err = capsys.readouterr().err
+    assert "BRIEF_PRIOR_CHECK_SKIPPED" in err
+    assert "connection reset" in err
+
+
+def test_the_prior_check_runs_for_every_criteria_subset(tmp_path, monkeypatch):
+    """The guard is not tied to the dedup criterion (which is the only other thing
+    that reads the feed) -- a run judging ONLY length_format must still refuse a
+    prior brief."""
+    result = _run_result_capturing(("/workspace/AI Brief - 2026-10-09.md", _PRIOR_OCT_09))
+    runs_root = _setup_a_run(monkeypatch, tmp_path, result=result)
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    exit_code = run_cli.main(["test-candidate", "--criteria", "length_format", "--runs-root", str(runs_root)])
+
+    assert exit_code == 1
+    run_dir = next((runs_root / "test-candidate").iterdir())
+    run_meta = json.loads((run_dir / "repetitions" / "01" / "run-meta.json").read_text())
+    assert "CandidateBriefNotCapturedError" in run_meta["error"]
+
+
+def test_the_prior_match_is_whitespace_insensitive(monkeypatch):
+    """The feed's copy of a brief and an artifact's copy differ in trailing
+    newlines/indentation often enough that an exact string compare would miss the
+    match it exists to catch."""
+    monkeypatch.setattr(
+        run_cli.dedup_priors,
+        "fetch_recent_briefs_unfiltered",
+        lambda **kwargs: [{"date": "2026-10-09", "markdown": "# A brief\n\nBody text.\n"}],
+    )
+
+    with pytest.raises(run_cli.CandidateBriefNotCapturedError):
+        run_cli._verify_candidate_brief_was_captured(
+            "#  A   brief\r\n\r\n   Body text.   \n\n",
+            {"/workspace/AI Brief - 2026-10-09.md": "x"},
+            repetition=1,
+        )
+
+
+def test_a_brief_the_feed_does_not_carry_passes_the_check(monkeypatch):
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    # Returns None (no exception) -- the whole contract of the happy path.
+    assert (
+        run_cli._verify_candidate_brief_was_captured(
+            _TODAYS_BRIEF, {"/workspace/AI Brief - 2026-10-11.md": _TODAYS_BRIEF}, repetition=1
+        )
+        is None
+    )
+
+
+def test_a_whitespace_only_brief_counts_as_not_captured(monkeypatch):
+    monkeypatch.setattr(run_cli.dedup_priors, "fetch_recent_briefs_unfiltered", _fake_feed_fetch)
+
+    with pytest.raises(run_cli.CandidateBriefNotCapturedError, match="no brief artifact was captured"):
+        run_cli._verify_candidate_brief_was_captured("   \n\t\n", {}, repetition=2)
+
+
 # --- Opus 5.5 judge stop_reason errors flow into the existing containment -------------
 
 

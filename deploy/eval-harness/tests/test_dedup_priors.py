@@ -5,6 +5,7 @@ being evaluated (brief_date), not the delivery endpoint's own wall-clock "today"
 
 from __future__ import annotations
 
+import pytest
 from harness import dedup_priors
 
 
@@ -279,3 +280,102 @@ def test_each_returned_entry_carries_its_own_date_for_the_judge_prompt():
 
     assert result[0]["date"] == "2026-07-06"
     assert result[0]["markdown"] == "# X"
+
+
+# --- The UNFILTERED read (2026-10-11): raises instead of degrading -------------------
+
+
+def test_unfiltered_returns_the_raw_feed_without_any_date_filter():
+    """No `brief_date` filter and no one-per-day dedupe -- the captured-brief guard
+    needs every entry the feed holds, including a SAME-DAY production brief (which
+    `fetch_recent_prior_briefs()` deliberately drops)."""
+    response = _FakeResponse(
+        json_body={
+            "briefs": [
+                {"date": "2026-10-11", "markdown": "# Today's production brief"},
+                {"date": "2026-10-09", "markdown": "# Friday"},
+                {"date": "2026-10-09", "markdown": "# Friday, a second entry"},
+            ]
+        }
+    )
+    client = _FakeClient(response=response)
+
+    result = dedup_priors.fetch_recent_briefs_unfiltered(
+        signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+    )
+
+    assert result == [
+        {"date": "2026-10-11", "markdown": "# Today's production brief"},
+        {"date": "2026-10-09", "markdown": "# Friday"},
+        {"date": "2026-10-09", "markdown": "# Friday, a second entry"},
+    ]
+
+
+def test_unfiltered_requests_the_default_count_without_an_over_fetch_margin():
+    client = _FakeClient(response=_FakeResponse(json_body={"briefs": []}))
+
+    dedup_priors.fetch_recent_briefs_unfiltered(
+        signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+    )
+
+    url, _headers = client.calls[0]
+    assert url == f"https://delivery.example.test/recent-briefs?count={dedup_priors.DEFAULT_UNFILTERED_COUNT}"
+
+
+def test_unfiltered_raises_when_the_signing_key_is_unset():
+    """Unlike `fetch_recent_prior_briefs()`'s soft `[]`, the caller MUST be able to
+    tell "not configured" apart from "the feed carries no such brief"."""
+    with pytest.raises(dedup_priors.RecentBriefsUnavailableError):
+        dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key="", delivery_base_url="https://delivery.example.test", client=_FakeClient()
+        )
+
+
+def test_unfiltered_raises_when_the_base_url_is_unset():
+    with pytest.raises(dedup_priors.RecentBriefsUnavailableError):
+        dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key="a-secret", delivery_base_url="", client=_FakeClient()
+        )
+
+
+def test_unfiltered_raises_on_a_transport_failure():
+    client = _FakeClient(raise_exc=RuntimeError("connection reset"))
+
+    with pytest.raises(dedup_priors.RecentBriefsUnavailableError, match="connection reset"):
+        dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+        )
+
+
+def test_unfiltered_raises_on_an_http_error_status():
+    client = _FakeClient(response=_FakeResponse(status_code=500))
+
+    with pytest.raises(dedup_priors.RecentBriefsUnavailableError):
+        dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+        )
+
+
+def test_unfiltered_reads_env_vars_when_not_passed_explicitly(monkeypatch):
+    monkeypatch.setenv(dedup_priors.RECENT_BRIEFS_SIGNING_KEY_ENV_VAR, "env-secret")
+    monkeypatch.setenv(dedup_priors.DELIVERY_BASE_URL_ENV_VAR, "https://from-env.example.test")
+    client = _FakeClient(response=_FakeResponse(json_body={"briefs": [{"date": "2026-10-09", "markdown": "# X"}]}))
+
+    result = dedup_priors.fetch_recent_briefs_unfiltered(client=client)
+
+    assert result == [{"date": "2026-10-09", "markdown": "# X"}]
+
+
+def test_the_soft_degrading_prior_fetch_still_degrades_after_the_refactor(capsys):
+    """Regression guard: the two public fetches now share one core, and the OLD
+    one must keep its soft-degrade-plus-diagnostic contract."""
+    client = _FakeClient(raise_exc=RuntimeError("connection reset"))
+
+    result = dedup_priors.fetch_recent_prior_briefs(
+        brief_date="2026-10-11", signing_key="a-secret", delivery_base_url="https://delivery.example.test", client=client
+    )
+
+    assert result == []
+    err = capsys.readouterr().err
+    assert "DEDUP_PRIORS_FETCH_FAILED" in err
+    assert "connection reset" in err

@@ -53,12 +53,47 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 HARNESS_DIR = Path(__file__).resolve().parent.parent
 CANDIDATES_DIR = HARNESS_DIR.parent / "candidates"
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 sys.path.insert(0, str(HARNESS_DIR))
 sys.path.insert(0, str(CANDIDATES_DIR))
+
+
+class _NoNetworkHttpClient:
+    """Stands in for the real `httpx.Client` `harness.dedup_priors` would build
+    when no client is injected -- every request method raises, so no test can
+    reach the LIVE delivery endpoint (see the autouse fixture below)."""
+
+    def get(self, *args, **kwargs):
+        raise RuntimeError("the test suite makes no live HTTP calls (harness.dedup_priors)")
+
+    def close(self) -> None:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_live_recent_briefs_fetch(monkeypatch):
+    """HERMETICITY GUARD (2026-10-11). `run.py`'s captured-brief guard
+    (`_verify_candidate_brief_was_captured()`) reads `GET /recent-briefs` for
+    EVERY repetition, and `harness.local_config` resolves a REAL signing key +
+    the committed real delivery base URL from the operator's machine -- so a test
+    that drives `run.main()` would otherwise make a genuine, live API call to
+    production's delivery boundary (observed: the suite's runtime jumped from 2s
+    to 19s).
+
+    Patching `dedup_priors._build_http_client` (the one factory the module uses
+    when NO client is injected) keeps every such path offline: the fetch raises,
+    `RecentBriefsUnavailableError` is reported, and the guard degrades with its
+    documented `BRIEF_PRIOR_CHECK_SKIPPED` warning. Tests that want a feed inject
+    their own fake `client=` (unaffected by this fixture) or monkeypatch
+    `fetch_recent_briefs_unfiltered` directly."""
+    from harness import dedup_priors
+
+    monkeypatch.setattr(dedup_priors, "_build_http_client", lambda: _NoNetworkHttpClient())
 
 
 class FakeTextBlock:

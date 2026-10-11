@@ -238,6 +238,101 @@ def _extract_brief_date(artifacts: dict[str, str]) -> str | None:
     return max(dates) if dates else None
 
 
+class CandidateBriefNotCapturedError(RuntimeError):
+    """The repetition did NOT capture the candidate's own brief -- either no brief
+    artifact at all, or the only brief(s) recovered are PRIOR briefs already in the
+    delivery feed (2026-10-11, found in a real paid batch).
+
+    What happened: `haiku-swap-hardened` repetition 3 wrote today's brief with the
+    `write` tool, then ran `cat "/workspace/AI Brief - 2026-10-11.md" | head -100`
+    at the capture step -- a piped `cat` that
+    `candidate_sync.trigger.fetch_catted_file_contents()` does not recognize -- so
+    the brief was never captured. The only briefs in the artifact map were the two
+    PRIORS the hardened prompt makes the agent read (2026-10-08, 2026-10-09), and
+    `_extract_named_artifacts()` dutifully picked the greatest-dated one: Friday's
+    REAL PRODUCTION brief. Three judges then scored that as the candidate's work
+    and the repetition was recorded as a normal success -- a silently invalid data
+    point in a paid comparison.
+
+    Raised INSIDE the per-repetition containment, so the repetition is recorded
+    `final_status="judging_failed"` with this error, no `scores.json` is written,
+    and the paid artifacts/events/cost (mined BEFORE this check) stay on disk."""
+
+
+def _normalize_markdown_for_comparison(text: str | None) -> str:
+    """Collapse every run of whitespace to a single space (and strip) so an
+    artifact's copy of a brief and the delivery feed's copy of the SAME brief
+    compare equal despite trailing-newline / CRLF / re-indentation differences --
+    the only normalization the captured-brief guard applies (it must not normalize
+    so hard that two genuinely different briefs could collide)."""
+    return " ".join((text or "").split())
+
+
+def _verify_candidate_brief_was_captured(
+    brief_markdown: str | None,
+    artifacts: dict[str, str],
+    *,
+    repetition: int,
+    feed_client: Any = None,
+) -> None:
+    """Fail loud (`CandidateBriefNotCapturedError`) unless `brief_markdown` really
+    is the candidate's OWN output -- run for EVERY repetition, before any judging,
+    regardless of which criteria were selected.
+
+    Two refusals:
+
+      1. **No brief at all.** Previously a silent degrade: the judges were handed
+         `""` and reported `insufficient_data`, which the comparison table renders
+         as a blank -- indistinguishable from "this criterion wasn't tested."
+      2. **The selected brief IS a brief the delivery feed already carries**
+         (whitespace-normalized exact content match). CONTENT, not dates: a date
+         rule cannot work, because on a weekday the feed legitimately carries a
+         brief dated the same day as the eval brief, and the mangled-capture case
+         leaves behind priors whose dates look perfectly plausible.
+
+    If the feed cannot be read at all (no signing key, no base URL, transport
+    failure) the check is SKIPPED with a `BRIEF_PRIOR_CHECK_SKIPPED` warning on
+    stderr -- an unreachable read endpoint must not block an otherwise-paid run.
+    `feed_client` is an injection seam for tests only."""
+    captured = sorted({PurePosixPath(name).name for name in artifacts})
+    captured_display = ", ".join(captured) if captured else "(none)"
+
+    if not (brief_markdown or "").strip():
+        raise CandidateBriefNotCapturedError(
+            f"repetition {repetition}: no brief artifact was captured at all -- the candidate's "
+            f"own brief never reached the harness. Captured artifacts: {captured_display}. "
+            "Refusing to judge an empty brief as a result (check the task prompt's final `cat` "
+            "step: a piped/truncated cat, e.g. `cat \"...\" | head -100`, is not recognized as a "
+            "file capture)."
+        )
+
+    try:
+        feed = dedup_priors.fetch_recent_briefs_unfiltered(
+            signing_key=local_config.resolve_recent_briefs_signing_key() or "",
+            delivery_base_url=local_config.resolve_delivery_base_url(),
+            client=feed_client,
+        )
+    except dedup_priors.RecentBriefsUnavailableError as e:
+        print(
+            f"BRIEF_PRIOR_CHECK_SKIPPED: repetition {repetition}: could not read the recent-briefs "
+            f"feed ({e}) -- proceeding WITHOUT verifying that the captured brief is the "
+            "candidate's own output",
+            file=sys.stderr,
+        )
+        return
+
+    normalized_brief = _normalize_markdown_for_comparison(brief_markdown)
+    for entry in feed:
+        if _normalize_markdown_for_comparison(entry.get("markdown")) == normalized_brief:
+            raise CandidateBriefNotCapturedError(
+                f"repetition {repetition}: the brief selected for judging is IDENTICAL to the "
+                f"delivery feed's brief dated {entry.get('date')!r} -- i.e. a PRIOR brief the "
+                "candidate merely read, not output it wrote. Captured artifacts: "
+                f"{captured_display}. Refusing to judge a prior brief as this candidate's work "
+                "(check the task prompt's final `cat` step)."
+            )
+
+
 def _parse_candidates_json(candidates_json_raw: str | None, *, repetition: int) -> list | None:
     """Parse a candidate run's `candidates.json` artifact TOLERANTLY -- an
     artifact-quality problem must degrade the affected judge, never crash the
@@ -700,6 +795,15 @@ def main(argv: list[str] | None = None) -> int:
             run_store.write_cost(run_dir, index, breakdown)
 
             brief_markdown, listening_script, candidates_json_raw, _source_usage_raw = _extract_named_artifacts(artifacts)
+
+            # GUARD (2026-10-11): never judge a PRIOR brief as this candidate's
+            # output, and never judge "no brief" as a bland insufficient_data.
+            # Deliberately placed AFTER cost mining above so a repetition rejected
+            # here still has its real spend recorded, and INSIDE the containment
+            # below so it fails the one repetition, not the run. Runs for every
+            # repetition regardless of the selected criteria.
+            _verify_candidate_brief_was_captured(brief_markdown, artifacts, repetition=index)
+
             candidates_json = _parse_candidates_json(candidates_json_raw, repetition=index)
 
             prior_briefs: list[dict[str, str]] = []

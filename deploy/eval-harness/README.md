@@ -308,6 +308,36 @@ The `--email` flag is a **deferred stub** (ADR-0016 D3): passing it exits
 immediately with an error pointing at the ADR, rather than sending anything. An
 eval run never emails anyone and never touches AWS delivery, by construction.
 
+### The captured-brief guard (2026-10-11)
+
+Before any judging, **every** repetition (whatever criteria subset was selected)
+must prove it actually captured the candidate's *own* brief —
+`run._verify_candidate_brief_was_captured()` raises
+`CandidateBriefNotCapturedError` when:
+
+- **no brief artifact was captured at all** (previously a silent degrade: the
+  judges got `""` and reported `insufficient_data`, which the Assess table renders
+  as a blank — indistinguishable from "untested"), or
+- **the selected brief is one the delivery feed already carries**, compared by
+  whitespace-normalized *content* against an unfiltered
+  `GET /recent-briefs` read (`dedup_priors.fetch_recent_briefs_unfiltered()`).
+
+Why content and not dates: in a real paid batch, a `haiku-swap-hardened`
+repetition wrote today's brief and then ran `cat "…" | head -100` at the capture
+step — a piped `cat` the retrieval layer does not recognize — so the only briefs
+on hand were the two **priors** the hardened prompt makes the agent read, and
+Friday's real production brief got scored as the candidate's work and recorded as
+a success. A date rule cannot catch that (on a weekday the feed legitimately holds
+a same-dated brief).
+
+The error flows into the existing per-repetition containment:
+`final_status="judging_failed"` with the error and the captured filenames named,
+no `scores.json`, and the paid `artifacts/`, `events.json`, `cost.json` and
+`threads-usage.json` all still written (cost is mined **before** the guard, on
+purpose, so the spend is always recorded). If the feed cannot be read at all
+(no signing key, transport failure) the check prints
+`BRIEF_PRIOR_CHECK_SKIPPED` on stderr and the repetition proceeds.
+
 ## The UI (`ui.py`, D5)
 
 ```bash
