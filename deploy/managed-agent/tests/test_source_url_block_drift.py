@@ -174,6 +174,11 @@ def test_the_block_is_appended_at_the_end_of_both_required_carriers():
     ):
         tail = text[text.index(sub.BLOCK_END_MARKER) + len(sub.BLOCK_END_MARKER) :]
         assert tail.strip() == "", f"{where}: content follows the block's end marker: {tail[:80]!r}"
+        head = text[: text.index(sub.BLOCK_BEGIN_MARKER)]
+        assert head.endswith("\n\n"), (
+            f"{where}: the begin marker must follow a blank line, not be glued to the prompt's "
+            f"last sentence: {head[-60:]!r}"
+        )
 
 
 # --- rule 2: no stale copies anywhere else -------------------------------------------

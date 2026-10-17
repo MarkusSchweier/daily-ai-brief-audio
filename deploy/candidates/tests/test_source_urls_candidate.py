@@ -134,10 +134,10 @@ def test_the_candidate_loads_with_the_production_model_and_effort():
     assert candidate.agent.skills == baseline.agent.skills  # same pinned skill version
 
 
-def test_the_candidate_is_declared_but_not_yet_synced():
-    """`agent_id` is an explicit null until the first `sync.py` mints a real one (the
-    repo convention a MISSING key would hide). The orchestrator syncs this candidate; the
-    build step must not."""
+def test_the_candidate_agent_id_is_explicit():
+    """`agent_id` is always present: an explicit null before the first `sync.py`, a real
+    `agent_...` id after it (synced 2026-10-17). A MISSING key would hide which state the
+    candidate is in."""
     raw = json.loads((CANDIDATE_DIR / "candidate.json").read_text(encoding="utf-8"))
 
     assert "agent_id" in raw

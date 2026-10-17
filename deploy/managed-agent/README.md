@@ -284,10 +284,14 @@ no block**, because it hands the agent dead URLs with an instruction to fetch th
    # (drop the outer quotes and append to the existing prompt string)
    python3 deploy/managed-agent/tools/source_url_block.py --json-string
    ```
-   Carriers: `deploy/managed-agent/deployment.json`'s `agent.initial_prompt` and
-   `deploy/candidates/haiku-5-5-source-urls/task-prompt.md`. Replace everything from the
-   `=== BEGIN GENERATED SOURCE URL LIST …` line through the `=== END GENERATED SOURCE URL LIST ===`
-   line; leave every other byte of both prompts alone (the block is **appended**, which is what
+   Carriers: `deploy/managed-agent/deployment.json`'s `agent.initial_prompt` and the task
+   prompts of every candidate that carries the block (today `haiku-5-5-source-urls` and
+   `haiku-5-5-source-urls-capped`). Replace everything from the
+   `=== BEGIN GENERATED SOURCE URL LIST …` marker through the `=== END GENERATED SOURCE URL LIST ===`
+   marker, keeping exactly one blank line before the begin marker. In `deployment.json` the whole
+   prompt is a single JSON string with escaped newlines, so there are no lines to select there:
+   cut the string from `=== BEGIN` to the end and append the `--json-string` output without its
+   outer quotes, preceded by `\n\n`. Leave every other byte of the prompts alone (the block is **appended**, which is what
    keeps the eval single-variable). The generator never writes a prompt file — enforcement is
    check-only by design, so `deployment.json` stays the literal, reviewable payload that was POSTed
    and a rollback stays a copy-paste out of git history.

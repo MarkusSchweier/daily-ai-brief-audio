@@ -53,7 +53,7 @@ into a prompt comparison — so it is enforced mechanically by
 
 | Slug | Differs from `haiku-5-5-hardened` by | `agent_id` |
 |---|---|---|
-| `haiku-5-5-source-urls` | `task-prompt.md` only: the generated curated-source-URL block, appended | *(declared, not yet synced)* |
+| `haiku-5-5-source-urls` | `task-prompt.md` only: the generated curated-source-URL block, appended | `agent_01QLQstpyqhT7gUdR5SHh9r2` (synced 2026-10-17) |
 
 Built per `docs/prd/web-fetch-source-urls.md` and **ADR-0018** (D6). Since 2026-10-08 the
 platform's `web_fetch` only retrieves URLs that already appeared in the conversation, and
@@ -86,7 +86,7 @@ see `deploy/managed-agent/README.md` step 3b for the full four-step obligation.
 
 | Slug | Differs from `haiku-5-5-source-urls` by | `agent_id` |
 |---|---|---|
-| `haiku-5-5-source-urls-capped` | `agent.json` only: the toolset's `configs` sets `{"name": "web_fetch", "max_content_tokens": 8000}` | *(declared, not yet synced)* |
+| `haiku-5-5-source-urls-capped` | `agent.json` only: the toolset's `configs` sets `{"name": "web_fetch", "max_content_tokens": 8000}` | `agent_01MsdMGTNSYu3SsWYrhoqjkZ` (synced 2026-10-17) |
 
 Built per **ADR-0018 D8**. The source-URL block works — the first eval repetition made 27
 successful fetches, 19 of them of curated sources, with 0 rejections — and nearly doubled
