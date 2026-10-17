@@ -1002,6 +1002,26 @@ check, not a guess:**
   `tools`/`mcp_servers`/`skills` values (not the fixture's own placeholder
   values, which happened to already match either way and so could never have
   caught a real mismatch).
+
+  **Toolset `configs` — amended 2026-10-17 (ADR-0018 D8).** That check was made
+  against declarations whose toolset `configs` is `[]`, which is all it was ever
+  claimed for, and it still holds for them. `haiku-5-5-source-urls-capped` is the
+  first declaration to SET a per-tool config
+  (`{"name": "web_fetch", "max_content_tokens": 8000}`), and there the read shape
+  genuinely does differ: the API infers the entry's `type` from its `name` and
+  documents that it fills in omitted fields with defaults, so the echo is expected
+  to carry extra keys (`type`, `enabled`, `permission_policy`). Compared raw that
+  is the `model`-shape bug again — a pointless update and a live version bump on
+  every re-sync — so `_normalize_live_field_for_comparison()` now projects each
+  live config entry onto exactly the keys the DECLARATION sets for it, paired by
+  `name` (an echo it cannot align that way is compared verbatim, i.e. reads as a
+  difference, rather than guessed at). Deliberately narrow:
+  `configs: []` still compares `tools` verbatim, and a declared setting the echo
+  **changed or dropped**, or an extra/missing config **entry**, is still a real
+  difference — a silently-discarded `max_content_tokens` means the cap is not in
+  force, and `updated` on every sync is the operator's only signal. Pinned by
+  `tests/test_sync_toolset_configs.py` (12 tests, including the
+  `configs: []`-unchanged cases).
 - **The quoted-`cat`-path fix only handled double quotes — single quotes
   reproduce the identical silent-drop bug.** `_parse_plain_cat_command()`'s
   double-quote branch checked `remainder.startswith('"')` specifically;
