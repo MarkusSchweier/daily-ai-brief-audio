@@ -1,0 +1,7 @@
+{
+  "slug": "haiku-5-5-source-urls",
+  "description": "2026-10-17 web_fetch restoration eval arm (docs/prd/web-fetch-source-urls.md, docs/adr/0018-source-urls-in-initial-prompt.md D6). A copy of haiku-5-5-hardened (= the production configuration) whose ONLY difference is the generated curated-source-URL block appended to task-prompt.md -- the same block, byte for byte, that deploy/managed-agent/deployment.json's initial_prompt now carries. Everything else (model claude-haiku-5-5, effort high, system prompt, skill pin, tools/mcp_servers) is identical, so a matched batch against the untouched haiku-5-5-hardened control arm isolates this one change. The block's currency vs. the skill's sources.md is enforced by deploy/managed-agent/tests/test_source_url_block_drift.py; this candidate's equality-except-task-prompt relationship to haiku-5-5-hardened is enforced by tests/test_source_urls_candidate.py. Content generation only; holds no AWS/delivery role; never fans out, never synthesizes audio.",
+  "composition": "single-agent",
+  "schedule_intent": "none -- eval candidate only; never scheduled. The production cut-over is a separate, owner-gated new scheduled deployment on deploy/managed-agent/deployment.json's initial_prompt, not a promotion of this agent resource.",
+  "agent_id": null
+}
