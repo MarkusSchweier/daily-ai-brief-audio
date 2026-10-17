@@ -82,6 +82,34 @@ Two tests enforce this, and they are deliberately in different suites:
 So **editing the skill's `sources.md` requires regenerating this candidate's prompt too**;
 see `deploy/managed-agent/README.md` step 3b for the full four-step obligation.
 
+### `haiku-5-5-source-urls-capped` — the 2026-10-17 cost mitigation arm
+
+| Slug | Differs from `haiku-5-5-source-urls` by | `agent_id` |
+|---|---|---|
+| `haiku-5-5-source-urls-capped` | `agent.json` only: the toolset's `configs` sets `{"name": "web_fetch", "max_content_tokens": 8000}` | *(declared, not yet synced)* |
+
+Built per **ADR-0018 D8**. The source-URL block works — the first eval repetition made 27
+successful fetches, 19 of them of curated sources, with 0 rejections — and nearly doubled
+the cost per run ($1.35 vs. $0.71 Platform list cost), because a large RSS feed
+(`blogs.nvidia.com/feed`, the arXiv `cs.LG`/`cs.AI` feeds, the OpenAI/DeepMind/Microsoft
+Research feeds) arrives in context **in full**: ~100K characters, ~25K tokens, per fetch.
+This arm applies D8's named mitigation, the `web_fetch` toolset setting
+`max_content_tokens`, and measures whether capping fetched page content recovers the cost
+without losing the restored source coverage.
+
+Everything else — `model.txt`, `parameters.json`, `system-prompt.md`, `skills.json` and
+**`task-prompt.md` (the same block, byte for byte)** — is identical to
+`haiku-5-5-source-urls`, which stays untouched as this arm's control.
+`tests/test_source_urls_capped_candidate.py` enforces that, structurally: strip the new
+`configs` entry back to `[]` and the two `tools` fields must be equal.
+
+**Applying the cap to production is a separate, owner-gated decision** — it is not a
+prompt-layer change, so it would cost a new agent version (v4), which is exactly why D8
+left it out of the ADR-0018 cut-over.
+
+This is also the first declaration in this repo to set a per-tool toolset config, which
+needed one comparison fix in `sync.py` — see "Toolset `configs`," below.
+
 ## Directory schema
 
 A single-agent candidate:

@@ -1,0 +1,22 @@
+{
+  "name": "daily-ai-brief-cost-haiku-5-5-source-urls-capped-candidate",
+  "description": "2026-10-17 cost mitigation arm (ADR-0018 D8): identical to haiku-5-5-source-urls -- same model/effort/system prompt/skill pin, and the same task-prompt.md carrying the generated curated-source-URL block -- except that the agent toolset caps web_fetch page content at max_content_tokens 8000, so a large RSS feed can no longer land ~25K tokens of context in one fetch. Content generation only; holds no AWS/delivery role; never fans out, never synthesizes audio. SEPARATE agent resource.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": [
+        {
+          "name": "web_fetch",
+          "max_content_tokens": 8000
+        }
+      ]
+    }
+  ],
+  "mcp_servers": []
+}
