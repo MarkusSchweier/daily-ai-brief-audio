@@ -125,7 +125,13 @@ How to use this list:
 - If a fetch is rejected with url_not_in_prior_context, do NOT retry that URL. Fall back
   exactly as the skill's Gather step prescribes: that outlet's own site/index page (it is
   listed next to its feed below, and is fetchable for the same reason), and only then
-  web_search."""
+  web_search.
+- Fetch in small batches of at most about 8 URLs at a time. Read what came back before you
+  fetch the next batch.
+- Keep working without stopping. This run is unattended and ends the moment you reply
+  without calling a tool, so never pause to summarize progress or to announce what you
+  will do next: go straight on to your next tool call until the final step of this message
+  is done."""
 
 
 def _extract_source_url_groups(sources_md_text: str) -> list[tuple[str, list[str]]]:
