@@ -1,0 +1,161 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "The two lead stories (Claude Mythos 5 designing quantum circuits, and Reflection releasing Beam's weights) are good choices, and the policy items (the Super Intelligence Force charter, Taiwan's export controls, Meta's crawling terms) are well chosen. Leaving out stale items was also correct: the OpenAI revenue restatement dates to October 8 and the Character.AI Chapter 11 filing to October 12. But the brief includes October 14\u201315 items like Modal, Ramp, Perplexity SPACE and the Meta terms, while dropping two bigger stories from the same window: Meta's Muse Spark Open release and the FTC's subpoenas to OpenAI and Anthropic. Unless earlier briefs already covered those two, they are clear misses, and the Ramp headline-only item is a low-value fintech funding round that could have been cut.",
+    "evidence": "The Beam write-up pitches it as giving enterprises 'a US-developed option they can self-host and modify,' but never mentions Muse Spark Open, which Meta released on October 15 and called 'the most capable US open-weight model to date.' Meanwhile 'Ramp raises $1.85B at a $60B valuation' made the headlines.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "selection_disagreements": [
+      {
+        "story": "Meta Muse Spark Open (816B open-weight) release",
+        "judge_view": "should have been included",
+        "rationale": "I confirmed that Meta released the weights on October 15 and called it 'the most capable US open-weight model to date': 816B total and 42B active parameters, multimodal, 1M-token context, runs on two Mac Studios. It was covered by TechCrunch, PyTorch, MarkTechPost and Technology.org. It is bigger than Beam and was released the same week, so it should either have been its own item or at least the comparison point in the Beam story. The exception is if the 2026-10-16 brief already covered it."
+      },
+      {
+        "story": "FTC civil investigative demands to OpenAI and Anthropic",
+        "judge_view": "should have been included",
+        "rationale": "Axios, Reuters, CBS, TechRepublic and others reported that on October 14 the FTC served subpoenas of more than 50 pages each, covering safety incidents, safeguards, marketing and privacy, and that it plans to compel executive testimony. The FTC confirmed this to CBS on October 15. It is the first formal federal enforcement step against frontier labs. It also ties directly to the Super Intelligence Force item the brief did run, since FTC Chair Ferguson co-leads that force. It matters more than Ramp or Modal, unless an earlier brief already covered it."
+      },
+      {
+        "story": "Ramp raises $1.85B at $60B valuation (headline-only)",
+        "judge_view": "should have been excluded",
+        "rationale": "This is a fintech/spend-management funding round. Even the headline-only blurb only describes it loosely as 'enterprise AI,' and it rests on a single TechStartups source. It adds little to an AI brief and takes space that more important items like the FTC subpoenas or Muse Spark Open should have had."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 5,
+    "rationale": "I checked every major claim against primary sources (Anthropic's research post, Reflection's 'Beam is now available' post, Perplexity's 'Escaping SPACE' report) and independent coverage (Investing.com/Reuters, Axios, TechCrunch, Technology.org, Nieman Lab and outlets citing it, Taiwan News, Forkast via Yahoo, Startup Fortune). The specific numbers all match the sources: 53 hours, 12% more qubits with 17x fewer gates, 665 to 19 qubits, 403 million decodings, a 12x gate-count cut, 501B/23B parameters, Terminal-Bench scores of 80.1, 88.3 and 90.6, $16.8B revenue up 45%, $750M at $15.75B, 108 escape runs, 11 of 54 bypass runs, 8 of 10 and 7 of 9 platforms, and $1.85B at $60B. The brief's hedges also hold up: the 'seven of eight' versus 'all eight' gap really does exist between Unite.AI's reading of the arXiv abstract and Anthropic's post, and the brief correctly says the $1.5T figure comes from investor talks, not from Anthropic. The only nuances are small wording choices, such as 'revenue up more than 15x' where Modal itself says 'grown more than 15x'.",
+    "evidence": "\"one variant uses 12% more qubits but 17x fewer gates than the smallest prior design... the qubit reserve shrinks from a worst-case 665 to 19 after 403 million simulated decodings\". Anthropic's post says the same thing word for word in substance.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "claim": "Claude Mythos 5 got plain-language specs for eight quantum-circuit primitives plus an automated evaluator, and ran with no human input between rounds",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/designing-efficient-quantum-circuits",
+        "note": "Anthropic's post says this directly and lists the domains as chemistry, optimization, simulation, number theory and numerical computing."
+      },
+      {
+        "claim": "Divsteps result took 53 hours after a one-paragraph brief; one variant uses 12% more qubits but 17x fewer gates",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/designing-efficient-quantum-circuits",
+        "note": "Matches exactly, including 'first reversible implementation of divsteps with no stored branch history.'"
+      },
+      {
+        "claim": "DQI decoder rebuilt around Berlekamp\u2013Massey; ~12x fewer gates than Google's construction; qubit reserve cut from 665 to 19 after 403 million decodings",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/designing-efficient-quantum-circuits",
+        "note": "All the figures match the post."
+      },
+      {
+        "claim": "Unite.AI quotes the arXiv abstract as reporting gains in seven of eight tasks, while Anthropic describes improvements across all eight",
+        "verdict": "confirmed",
+        "source_checked": "https://www.unite.ai/anthropic-says-claude-beat-best-published-quantum-circuit-designs/",
+        "note": "Unite.AI says the abstract reports big Toffoli and qubit reductions in seven of eight tasks, with the eighth yielding a new architecture. The brief describes this discrepancy accurately."
+      },
+      {
+        "claim": "Claude was initially conservative and favored well-known methods",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/designing-efficient-quantum-circuits",
+        "note": "The post describes Claude as 'conservative by nature' with a 'tendency to prefer existing, well-known approaches.'"
+      },
+      {
+        "claim": "Reflection released Beam weights on Hugging Face on Oct 16 under Apache 2.0, in BF16/FP8/NVFP4 with a speculative-decoding drafter; 40+ partners; Dell and HPE for on-prem",
+        "verdict": "confirmed",
+        "source_checked": "https://reflection.ai/blog/beam-is-available",
+        "note": "Reflection's own post confirms all of this."
+      },
+      {
+        "claim": "Beam is a 501B total / 23B active MoE, text-only, 1M context, first introduced Oct 5",
+        "verdict": "confirmed",
+        "source_checked": "https://www.datacamp.com/blog/reflection-ai-beam",
+        "note": "DataCamp and Reflection's Oct 5 post both confirm these specs and the date."
+      },
+      {
+        "claim": "Terminal-Bench 2.1: Beam 80.1 vs Kimi K3 88.3 vs DeepSeek V4.1 Flash 90.6; GLM 5.2-level reasoning at 3-4x less compute",
+        "verdict": "confirmed",
+        "source_checked": "https://www.datacamp.com/blog/reflection-ai-beam",
+        "note": "The numbers match DataCamp's table, which is labelled vendor-reported. The brief hedges this correctly."
+      },
+      {
+        "claim": "Investors at Oct 14 investor day discussed ~$1.5T IPO valuation, down from ~$2T; Q3 revenue $16.8B up 45%, adjusted profit; some investors disappointed",
+        "verdict": "confirmed",
+        "source_checked": "https://ca.investing.com/news/stock-market-news/some-investors-push-anthropic-to-cut-ipo-valuation-to-15-trillion--report-4883896",
+        "note": "Investing.com, relaying Reuters, matches on every point, including 'the company and investors had previously floated' $2T and the November listing."
+      },
+      {
+        "claim": "Modal raised a $750M Series D led by Accel at $15.75B post-money; Kleiner joined; run rate passed $1B, up from ~$300M at Series C; sandboxes at ~$300M run rate; nearly 3B sandboxes",
+        "verdict": "confirmed",
+        "source_checked": "https://fourweekmba.com/ai-modal-tops-1b-run-rate-raises-750m-at-15-75b-valuation/ ; dealroom.co",
+        "note": "Confirmed. One small wording point: Modal says it has 'grown more than 15x' year over year, and the brief turns that into 'revenue up more than 15x.'"
+      },
+      {
+        "claim": "Ramp raised $1.85B at a $60B valuation (Oct 15) with Dragoneer, Thrive, Founders Fund",
+        "verdict": "confirmed",
+        "source_checked": "https://techcrunch.com/2026/10/15/ramp-reaches-60b-valuation-as-it-pushes-deeper-into-ai/",
+        "note": "TechCrunch and Axios confirm the amount, the valuation, the date and the investors."
+      },
+      {
+        "claim": "Perplexity open-sourced SPACE under Apache 2.0 on Oct 15; Firecracker microVM per task; millions of sandbox creations per day (company-reported)",
+        "verdict": "confirmed",
+        "source_checked": "https://runtimewire.com/article/perplexity-open-sources-space-agent-sandbox ; MarkTechPost",
+        "note": "Several outlets confirm the date, license and architecture, and attribute the 'millions per day' figure to Perplexity."
+      },
+      {
+        "claim": "Sept 23 red-team report: 9 models, 108 escape attempts with 0 successes; 4 models bypassed egress in 11 of 54 runs; no verified bypass after fixes; 8 of 10 third-party sandboxes vulnerable, 9 reported publicly, 7 with a bypass",
+        "verdict": "confirmed",
+        "source_checked": "https://www.perplexity.ai/hub/blog/escaping-space-part-i",
+        "note": "Every figure matches the primary report, including the warning that a clean escape test does not prove isolation."
+      },
+      {
+        "claim": "Super Intelligence Force adopted its charter at its first official meeting on Oct 15, starting a 120-day window; Clayton chairs; PCAST to assess risk; Emil Michael to draft breach-reporting protocols; implementing the White House Accord",
+        "verdict": "confirmed",
+        "source_checked": "https://www.technology.org/2026/10/16/white-house-super-intelligence-force-charter-120-days/",
+        "note": "Technology.org and aiweekly both confirm all of these details."
+      },
+      {
+        "claim": "Meta's revised Commercial Terms take effect Oct 30, allowing crawlers on business-linked domains and use of the content to 'train' Meta products; three legal experts; test credentials; no opt-out; Meta disputes the reading",
+        "verdict": "confirmed",
+        "source_checked": "https://www.niemanlab.org/2026/10/metas-new-commercial-terms-will-allow-the-scraping-of-news-sites-legal-experts-say/ ; tbreak.com ; PPC Land",
+        "note": "Confirmed. Other coverage reports that Meta calls the change a consolidation of existing terms that won't change how it crawls."
+      },
+      {
+        "claim": "Taiwan's Kung Ming-hsin told Bloomberg AI servers and advanced chips will be added to the controlled list, making unauthorized shipments a crime under the Foreign Trade Act; Forkast dates it Oct 12; Chung Chia-pin amendment; move from a Huawei/SMIC blacklist to all of China; no implementation date",
+        "verdict": "confirmed",
+        "source_checked": "https://www.yahoo.com/news/politics/articles/taiwan-moves-criminalize-ai-chip-083227760.html ; Taiwan News ; Startup Fortune",
+        "note": "Confirmed. Taiwan News says the interview was on a Monday, which is Oct 12, and Bloomberg published it on Oct 16, so the brief's handling of the date is consistent."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 4,
+    "rationale": "The brief has 9 Headlines bullets, within the 8-15 range, and 8 deep-dives (Research 2, Industry 2, Products 1, Policy 3), within the 5-10 range. The empty Benchmarks & Evals section is correctly omitted, and the tiered structure matches the target. Several deep-dives exceed the 3-6 sentence limit: Anthropic's quantum item runs about 8 sentences, Perplexity's SPACE item about 8, and Reflection's Beam item about 7. There is also an extra 'Headline-only items' section, outside the stated structure, that repeats the Ramp headline. These are modest deviations rather than padding or a structural failure.",
+    "evidence": "Claude Mythos 5 deep-dive: 'Anthropic gave Claude Mythos 5...' through 'The arXiv paper itself was not fetched...' plus 'Why it matters' (about 8 sentences); Perplexity SPACE item similarly runs about 8 sentences; a separate '\ud83d\udee0\ufe0f Headline-only items' section lists Ramp.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "Most of today's stories (Mythos 5 quantum circuits, Reflection Beam weights, Modal, Ramp, Perplexity SPACE, Meta commercial terms, Taiwan export controls) do not appear in the 2026-10-14, 10-15 or 10-16 editions. Two items overlap with prior coverage, and both are explicitly flagged as follow-ups with dated references. The Anthropic IPO item adds new reporting: a roughly $1.5T valuation discussed at the October 14 investor day, below the ~$2T previously floated, plus investor disappointment. It reuses the Q3 figures only as context. The Super Intelligence Force item adds the charter adoption, the 120-day window and named roles, building on an Accord that the prior brief mentioned only in passing.",
+    "evidence": "\"Investors discuss a roughly $1.5T Anthropic IPO valuation, below the ~$2T once floated \u2014 Follow-up: the Q3 revenue item in the 2026-10-15 brief\"",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "Anthropic IPO valuation discussed near $1.5T",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Builds on the Q3 $16.8B revenue item with new Reuters reporting on a lower valuation (~$1.5T versus the >$2T target cited on 10-15) and investor reaction."
+      },
+      {
+        "story": "White House Super Intelligence Force adopts charter",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The prior brief only mentioned the White House Accord in its METR item; today adds the charter, the 120-day risk-report window, chair and breach-reporting roles."
+      }
+    ]
+  }
+}

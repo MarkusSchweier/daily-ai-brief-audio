@@ -1,0 +1,28 @@
+{
+  "name": "matched-source-urls-2026-10-17",
+  "slug": "haiku-5-5-source-urls",
+  "agent_id": "agent_01QLQstpyqhT7gUdR5SHh9r2",
+  "git_ref": "12621aa0b8b90f62b727d255d8ebe3a102d63593",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "parameters": {
+    "agent": {
+      "effort": "high"
+    },
+    "sub_agents": []
+  },
+  "repetitions": 3,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "completed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1792240492,
+  "declaration_dirty": false
+}

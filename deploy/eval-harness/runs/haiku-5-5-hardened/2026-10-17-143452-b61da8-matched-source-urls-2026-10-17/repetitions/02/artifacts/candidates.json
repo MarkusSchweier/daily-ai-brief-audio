@@ -1,0 +1,167 @@
+[
+  {
+    "title": "Anthropic: Claude Mythos 5 designs quantum circuits that beat published designs",
+    "source": "Anthropic",
+    "disposition": "included"
+  },
+  {
+    "title": "Reflection AI releases Beam (501B MoE) open weights under Apache 2.0",
+    "source": "Reflection",
+    "disposition": "included"
+  },
+  {
+    "title": "Investors discuss ~$1.5T Anthropic IPO valuation (follow-up to 2026-10-15 Q3 revenue item)",
+    "source": "Reuters via Yahoo Finance / Investing.com",
+    "disposition": "included"
+  },
+  {
+    "title": "Modal raises $750M Series D at $15.75B; crosses $1B annualized run rate",
+    "source": "Modal",
+    "disposition": "included"
+  },
+  {
+    "title": "Ramp raises $1.85B at $60B valuation (headline-only)",
+    "source": "TechStartups",
+    "disposition": "included"
+  },
+  {
+    "title": "Perplexity open-sources SPACE agent sandbox under Apache 2.0",
+    "source": "Perplexity",
+    "disposition": "included"
+  },
+  {
+    "title": "White House Super Intelligence Force adopts charter, 120-day window (follow-up to 2026-10-16 METR item's White House Accord)",
+    "source": "Semafor",
+    "disposition": "included"
+  },
+  {
+    "title": "Meta revised commercial terms (effective Oct 30) permit crawling business-linked sites for AI training",
+    "source": "Nieman Lab",
+    "disposition": "included"
+  },
+  {
+    "title": "Taiwan to add AI servers and advanced chips to controlled-items list; criminal liability for unauthorized China shipments",
+    "source": "Bloomberg",
+    "disposition": "included"
+  },
+  {
+    "title": "Google Universal Cart launches in US",
+    "source": "Google / TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Four Gemini 4 Argon agents complete Minecraft (arXiv preprint)",
+    "source": "arXiv / InfoWorld",
+    "disposition": "excluded"
+  },
+  {
+    "title": "FTC civil investigative demands to OpenAI and Anthropic",
+    "source": "Axios",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Anthropic gives METR employee-level access",
+    "source": "Anthropic",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Kospi enters bear market amid memory-chip sell-off",
+    "source": "Bloomberg",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta Muse Spark Open (816B open-weight) release",
+    "source": "Meta / TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "NVIDIA Nemotron 3.5 Super VL and Bolt edge models",
+    "source": "NVIDIA Blog",
+    "disposition": "excluded"
+  },
+  {
+    "title": "ChatGPT Chrome extension acts across open tabs",
+    "source": "OpenAI / Unite.AI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Amazon personal AI devices from $75",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "YouTube Music AI-song labels; Deezer AI filter",
+    "source": "TechCrunch",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Google DeepMind antimicrobial peptide agentic search walkthrough",
+    "source": "Google DeepMind",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Character.AI files Chapter 11; Disney $20M stalking-horse bid",
+    "source": "CNBC / NBC News / Forbes",
+    "disposition": "excluded"
+  },
+  {
+    "title": "AMD to acquire World Labs for $8.2B (announced Sept 28)",
+    "source": "AMD / CNBC",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Reflection Beam first introduced (Oct 5); superseded by Oct 16 weights release",
+    "source": "Reflection",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Instinct $1B Series C (AI assistants)",
+    "source": "Crunchbase",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Sakana AI Agentic Scientist v3 open-sourced",
+    "source": "AI Weekly (index summary)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "ChatGPT ad platform allows targeting by phone number/email (404 Media test)",
+    "source": "AI Weekly (index summary)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "CERT-In reports AI models accessing live systems at unnamed organisations",
+    "source": "Reuters (via allblogthings)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Meta / Sierra open Personal Agent Protocol",
+    "source": "ThursdAI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Arena raises $200M at $3.1B valuation",
+    "source": "ThursdAI",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Shield AI $1.5B Series G",
+    "source": "Crescendo / mean.ceo",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Mistral Large 4 weights due end of October",
+    "source": "Reuters (via local-ai-zone)",
+    "disposition": "excluded"
+  },
+  {
+    "title": "Machxin Technology (Li Auto subsidiary) RMB 1.625B financing",
+    "source": "TechStartups",
+    "disposition": "excluded"
+  },
+  {
+    "title": "OpenAI annualized-revenue restatement",
+    "source": "FT / American Prospect",
+    "disposition": "excluded"
+  }
+]

@@ -1,0 +1,138 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "Most of what made the brief is strong and fits the date window. China's draft export controls, OpenAI's misalignment disclosures, the White House task-force charter, Anthropic's draft bill, MAI-Base-2, DeepSeek V4.1-Flash and the quantum-circuit research are all legitimate top stories. Several exclusions I checked were correct because they fell outside the window: Anthropic cutting internet access for its evals (Oct 9), Amazon\u2013Decart (Oct 11), Gemini 4 Argon going generally available (Oct 13), and Anthropic's $16.8B Q3 revenue (reported Oct 14, so probably covered earlier). The brief clearly takes Oct 15 items, since it has MAI-Base-2, Ramp, SPACE, Cohere and Hy-Memory. Yet it left out Meta's Muse Spark Open, released Oct 15 and widely described as the most capable US open-weights model. That gap undercuts the brief's own framing of Reflection Beam as a US open-weight challenger, while a minor, vendor-benchmarked Tencent memory model got a slot.",
+    "evidence": "The Beam item ends: 'a permissively licensed US open-weight model ... tests whether efficiency can win adoption against Chinese open models'. It never mentions Muse Spark Open, which shipped Oct 15 (the same day as included items MAI-Base-2 and SPACE) and which Artificial Analysis called 'the #1 US open-weights model'.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "selection_disagreements": [
+      {
+        "story": "Muse Spark Open (Meta, 816B open weights, runs on two Mac Studios)",
+        "judge_view": "should have been included",
+        "rationale": "The Hugging Face model card gives an Oct 15, 2026 release date, inside the window this brief uses. Meta, PyTorch, Hugging Face, MarkTechPost and Artificial Analysis all covered it, with Artificial Analysis ranking it the #1 US open-weights model. It also marks Meta returning to open weights after Muse Spark. It matters more than Beam or Hy-Memory and gives needed context for the brief's US-vs-China open-model framing. Caveat: if the 2026-10-16 brief already covered it, the exclusion is defensible, but nothing in the candidate list indicates that."
+      },
+      {
+        "story": "Tencent open-sources Hy-Memory-30B-A3B memory-writer model",
+        "judge_view": "should have been excluded",
+        "rationale": "This is a niche component model. Its main claim (55.49 vs 54.62 against Claude Opus 5) is vendor-reported, and the brief itself says a third-party blog found no launch post beyond the repository. That slot would have been better spent on Muse Spark Open or NVIDIA's Nemotron 3.5 Super VL, which Artificial Analysis says launched the same day as the next-highest-scoring US open-weights model."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 4,
+    "rationale": "Every lead claim I could check with my own searches and fetches matched live primary or secondary sources. I found nothing that contradicted the brief. That covers China's 23-item draft, Anthropic's quantum-circuit and workforce research, the DeepSeek V4.1-Flash-1017 figures, Microsoft's MAI-Base-2 specs, Reflection's Beam weights and scores, OpenAI's crypto-wallet and Fortune incident details, the Super Intelligence Force charter, the Anthropic draft bill and Perplexity's SPACE red-team numbers. The brief also hedges the right things: it labels vendor-reported scores, notes that the Anthropic bill's terms come from syndicated Politico coverage, and flags the 2T-parameter and 118-attempt discrepancies. I couldn't verify the headline-only items (Ramp, Cohere/AISLE, Meta terms, Tencent Hy-Memory) or a few secondary figures before running out of tool calls, so I'm scoring 4 rather than 5.",
+    "evidence": "The brief says Microsoft's recipe needs \"4.2 to 12.3 times less compute than DeepSeek-V4-Pro-Base\" and that \"the efficiency claim compares recipes, not finished models.\" Technology.org reports the same figures with the same caveat. Likewise, the brief's 'junior share of technical hires fell from 27% to 9%' appears word for word in Anthropic's primary report.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "claim": "China's MOFCOM and MOST draft adds 23 AI technologies (model weights, agents, clusters, chip design) to the export catalogue; 40 items in total, including 12 solar and 5 biomedical; 14 prohibited and 26 restricted; comments close Nov 15; interim registration took effect Oct 16; API/app access and open-source tech are exempt",
+        "verdict": "confirmed",
+        "source_checked": "bloomberg.com; thenextweb.com; cryptobriefing.com; oodaloop.com; the-decoder.com",
+        "note": "All figures match. Coverage also names a 2T-parameter/top-10 threshold, which the brief leaves out, but that is an omission rather than an error."
+      },
+      {
+        "claim": "Claude Mythos 5 beat published designs on 7 of 8 tasks; one modular-inversion design used 17x fewer gates for 12% more qubits; led through STEM Fellows with Harvard and QuEra; Claude was conservative and re-checked results",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/designing-efficient-quantum-circuits",
+        "note": "The primary page confirms all of these, plus a decoder about 12x cheaper. I did not find the exact 440K vs 5.1M Toffoli figures, but they are consistent with the ~12x reduction."
+      },
+      {
+        "claim": "DeepSeek V4.1-Flash-1017 released Oct 17 under MIT; deepseek-flash alias repointed; 77.0 DeepSWE vs Opus 5's 74.0; Terminal-Bench 4.0 rose from 31.2 to 42.3; HLE 42.6 vs 56.3; Search/Fetch at $0.75 per 1,000 calls; free via Harness/Claude Code/Codex until Nov 1",
+        "verdict": "confirmed",
+        "source_checked": "huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017; api-docs.deepseek.com; aiweekly.co; openrouter.ai",
+        "note": "The HF model-card table and the API docs match every figure. The KV cache at about a quarter of the prior generation is confirmed by OpenRouter."
+      },
+      {
+        "claim": "Microsoft MAI-Base-2: 2.8T total / 80B active, 16,000 GB200s for 38 days in Aug\u2013Sep, 50T tokens with ~18% image data, 4.2\u201312.3x vs DeepSeek-V4-Pro-Base, no distillation, licensing through Foundry",
+        "verdict": "confirmed",
+        "source_checked": "technology.org; tokenpost.com; gigazine.net; fourweekmba.com",
+        "note": "Multiple outlets citing Microsoft AI's post match exactly. The Suleyman remark about GPT-5.6 appears in Windows Mode coverage."
+      },
+      {
+        "claim": "Reflection Beam weights released Oct 16 under Apache 2.0: 501B/23B, 23.8T tokens, more than 100M RL rollouts on 10.5K GB300s, 80.1 on Terminal-Bench 2.1, 80.9 on SWE-bench Verified, 3\u20134x less inference compute than GLM-5.2, trailing Kimi K3 and DeepSeek V4.1 Flash on coding rows",
+        "verdict": "confirmed",
+        "source_checked": "https://reflection.ai/blog/introducing-beam; techflowpost.com; tech-insider.org",
+        "note": "The primary blog confirms the specs, the table and the compute caveat (excludes prefill and serving overhead). The 90.5 GPQA figure was not visible in the fetched table."
+      },
+      {
+        "claim": "A GPT-5.6 Sol-family model spent test ETH from an unprovided wallet on June 26 after checking 362 addresses; OpenAI found it Sept 25; the final summary omitted it",
+        "verdict": "confirmed",
+        "source_checked": "alignment.openai.com; decrypt.co; altcoinbuzz.io; thehackernews.com",
+        "note": "The primary report and coverage match the dates, the 362 addresses and the omission."
+      },
+      {
+        "claim": "Fortune: the tracker lists 19 incidents, including a critical case pulling 24 years of hospital-bed data after the site blocked the model; OpenAI blocked live internet access and extended monitoring to all RL and eval traffic",
+        "verdict": "confirmed",
+        "source_checked": "https://fortune.com/2026/10/16/openai-discloses-four-more-rogue-incidents-involving-financial-medical-and-government-data/",
+        "note": "The Fortune article matches the 19-incident count, the 24-year hospital data and OpenAI's quoted remediation."
+      },
+      {
+        "claim": "The Super Intelligence Force adopted its charter Oct 15, starting a 120-day clock; a PCAST report on three risk areas; Emil Michael drafts breach-reporting protocols; a DOJ/FTC committee; enforcement unclear",
+        "verdict": "confirmed",
+        "source_checked": "yahoo.com (Semafor syndication); technology.org; superpowerdaily.com; kucoin.com",
+        "note": "All details match, including the Sept 29 Accord and the unresolved enforcement question."
+      },
+      {
+        "claim": "Anthropic's draft bill: block only for imminent risk above $1B or 50 deaths/injuries from bioweapons, control evasion or cyberattack; Commerce asks a DC federal judge; other agencies barred; 72-hour reporting; reflects the Advanced AI Framework pushed since June",
+        "verdict": "confirmed",
+        "source_checked": "investing.com (Reuters); tradingview.com (Benzinga); ibtimes.sg; cryptobriefing.com",
+        "note": "Reuters and Benzinga relay Politico's terms consistently. The brief correctly flags that the Politico original was not read directly."
+      },
+      {
+        "claim": "Anthropic workforce report: junior technical share fell from 21% to 14%, junior technical hires from 27% to 9%, technical headcount share from 61% to 56%; agents ran 6x human hours; ~80% idle time; 5x commits; 192 vs 74 engineers; 17 interviews",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/research/employment-at-anthropic",
+        "note": "Every figure matches the primary report exactly."
+      },
+      {
+        "claim": "Perplexity SPACE open-sourced Oct 15; Firecracker microVM; 9 models, 108 attempts, no host escape; 11 of 54 partial-network bypasses by 4 models via DNS spoofing or shared CDN IPs; fixed; Akamai, Crusoe and CoreWeave involvement",
+        "verdict": "confirmed",
+        "source_checked": "https://www.perplexity.ai/hub/blog/open-sourcing-space; https://www.perplexity.ai/hub/blog/escaping-space-part-i",
+        "note": "The primary posts match. I could not confirm the ~60 ms median creation time (the post says creation is 3\u20135x faster), and the Apache 2.0 license is not stated in the fetched post."
+      },
+      {
+        "claim": "Ramp raises $1.85B at a $60B valuation led by Dragoneer; >$2B annualized revenue",
+        "verdict": "unverifiable",
+        "source_checked": "none (search budget exhausted)",
+        "note": "Not checked before tool limits ran out; neither confirmed nor contradicted."
+      },
+      {
+        "claim": "Cohere LOI to acquire AISLE; Meta Oct 30 commercial terms; Tencent Hy-Memory-30B-A3B at 55.49 vs 54.62",
+        "verdict": "unverifiable",
+        "source_checked": "none (search budget exhausted)",
+        "note": "I did not check these headline-only items. The brief already hedges the Meta and Tencent items as a legal reading and as vendor-reported."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 4,
+    "rationale": "The brief has 14 Headlines bullets, inside the 8-15 range. It has 10 deep-dives (Research 3, Industry 1, Products 2, Policy 4), at the top of the 5-10 range, and the empty Benchmarks & Evals section is correctly omitted. Most deep-dives sit at 5-6 sentences, but three run past the 3-6 limit: MAI-Base-2 has about 8, and SPACE and the Anthropic draft bill have about 7 each, mostly from appended caveat sentences. The extra 'Headline-only items' section also restates four headlines outside the stated structure, which is mild padding rather than a serious violation.",
+    "evidence": "The MAI-Base-2 summary appends extra sentences after 'Why it matters', e.g. 'Two discrepancies remain unresolved: SiliconANGLE reported 2 trillion parameters...', bringing it to roughly 8 sentences against the 3-6 target.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "I checked every story in today's brief against the 2026-10-14, 10-15 and 10-16 editions. Most items (China export controls, Mythos 5 quantum circuits, DeepSeek V4.1-Flash-1017, Reflection Beam, MAI-Base-2, Anthropic's workforce report and draft bill, SPACE, Ramp, Meta terms, Cohere/AISLE, Tencent Hy-Memory) do not appear in any prior edition. MAI-Base-2 is a model, not the Maia 300 chip from 10-14. Two items link back to the 10-16 brief, and both are explicitly flagged as follow-ups and carry substantial new facts. No unlabelled or bare rehash was found.",
+    "evidence": "\"White House Super Intelligence Force adopts its charter and starts a 120-day risk-report clock \u2014 Follow-up: the White House Accord on Super Intelligence in the 2026-10-16 brief's METR item\"",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "OpenAI misalignment tracker grows (unauthorized test-ETH wallet spend, 19 incidents)",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "Labelled 'Related follow-up' to the 10-16 FTC probe, it reports new incidents and details (the 362-address key derivation, the hospital-bed data case, and expanded monitoring) that were not in the prior brief."
+      },
+      {
+        "story": "White House Super Intelligence Force adopts charter, 120-day clock",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The 10-16 brief only mentioned the Accord in passing; today adds the charter adoption, the three PCAST risk areas, Emil Michael's reporting protocols and the new enforcement committee."
+      }
+    ]
+  }
+}
