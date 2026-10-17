@@ -1,0 +1,26 @@
+{
+  "name": "bio-guard-b-2026-10-17",
+  "slug": "haiku-5-5-source-urls-capped",
+  "agent_id": "agent_01MsdMGTNSYu3SsWYrhoqjkZ",
+  "git_ref": "9b26d0bd7849172e81783c8e181c86f12b3c8f3b",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "parameters": {
+    "agent": {
+      "effort": "high"
+    },
+    "sub_agents": []
+  },
+  "repetitions": 3,
+  "criteria": [
+    "length_format",
+    "dedup"
+  ],
+  "state": "running",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1792243574,
+  "declaration_dirty": false
+}

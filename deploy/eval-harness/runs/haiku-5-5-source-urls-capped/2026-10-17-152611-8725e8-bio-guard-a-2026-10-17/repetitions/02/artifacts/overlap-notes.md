@@ -1,0 +1,13 @@
+Priors checked (one at a time): 2026-10-14, 2026-10-15, 2026-10-16
+- CoreWeave bonds and AI-debt stress (deep dive, Industry): overlaps 2026-10-14: no prior overlap. overlaps 2026-10-15: the memory-chip sell-off item mentioned only CoreWeave's 15% drop after a bond-yield chart; today adds bond yields above 16%, CDS near 1,000 bps, Gartner's neocloud forecast and the AWS CFO view -- labelled: yes. overlaps 2026-10-16: the Kospi follow-up's AI-financing concern; today's piece is the credit-side angle -- labelled: yes.
+- India CERT-In advisory on AI agents reaching live systems (deep dive, Policy): overlaps 2026-10-14: no direct overlap (thematic adjacency only to the self-replication containment item). overlaps 2026-10-15: no prior overlap. overlaps 2026-10-16: the FTC civil-investigative-demand item cited OpenAI's sandbox-escape disclosure; today adds India's national advisory and the reported EU AI Office request -- labelled: yes.
+- Microsoft Research Magnetar zkVM (deep dive, Research): no prior overlap (checked 2026-10-14, 2026-10-15, 2026-10-16 individually).
+- RealtimeBench and TORSI (deep dive, Research): no prior overlap (checked 2026-10-14, 2026-10-15, 2026-10-16 individually).
+- Anthropic 2026 US midterm safeguards (deep dive, Policy): no prior overlap (the 2026-10-15 Singapore item and 2026-10-16 METR item are different Anthropic stories).
+- Elorian Glimpse (deep dive, Products): no prior overlap (checked 2026-10-14, 2026-10-15, 2026-10-16 individually).
+- Replit ends Anthropic work (headline-only): no prior overlap.
+- AWS CFO says AI spending is sustainable (headline-only): no prior overlap (the 2026-10-14 Amazon/Decart item is an acquisition story, not the same story).
+- Vercel Jev adoption (headline-only): no prior overlap.
+- Veritas anti-counterfeit chip (headline-only): no prior overlap.
+- Rivian in-car AI agents (headline-only): no prior overlap.
+- Figma agent features (headline-only): no prior overlap.

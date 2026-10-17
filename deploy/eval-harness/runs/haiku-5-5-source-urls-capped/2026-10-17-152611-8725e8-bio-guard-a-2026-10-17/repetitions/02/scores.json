@@ -1,0 +1,39 @@
+{
+  "length_format": {
+    "score": 4,
+    "rationale": "The brief has 12 Headlines bullets, inside the 8-15 range, and 6 deep-dives (Magnetar, RealtimeBench, Glimpse, CoreWeave, CERT-In, Anthropic midterms), inside the 5-10 range. The empty Benchmarks & Evals section is correctly omitted. Most deep-dives sit at about 6 sentences, but two run long: the CERT-In item is roughly 9 sentences and the CoreWeave item about 7, both past the 3-6 sentence target. The extra 'Headline-only items' section is not part of the stated tiered structure and mostly repeats the Headlines bullets, which adds some redundancy.",
+    "evidence": "12 Headlines bullets; 6 deep-dives; CERT-In deep-dive runs ~9 sentences ('...The advisory is a cybersecurity warning rather than a new legal requirement. Why it matters: ...'); separate '\ud83d\udee0\ufe0f Headline-only items' section repeats Replit, Vercel, AWS, Veritas, Rivian and Figma headlines",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "Today's two lead stories carry explicit follow-up labels naming the prior editions, and both add substantial new facts rather than rehashing them. CoreWeave appeared in the 2026-10-15 brief only as a one-line mention (a >15% drop after a bond-yield chart circulated). Today adds bond yields past 16%, credit-default-swap pricing near 1,000bp (an implied ~63% five-year default probability), Nvidia's capacity backstop and Gartner's neocloud estimate. The CERT-In item is essentially a new event, linked to the 2026-10-16 FTC story, and adds a national advisory plus EU AI Office inquiries. Every other item (Magnetar, RealtimeBench, Anthropic midterms, Glimpse, Replit, AWS CFO, Vercel, Veritas, Rivian, Figma) is absent from all three prior editions.",
+    "evidence": "\"CoreWeave's bonds approach 15% yields as AI-debt worries spread (October 14\u201316, 2026) \u2014 Follow-up: the memory-chip sell-off item in the 2026-10-15 brief, and the Kospi item in the 2026-10-16 brief\"; the prior 2026-10-15 brief only said \"CoreWeave fell more than 15% after a chart of its bond yields circulated online.\"",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "CoreWeave bond yields / AI-debt fears",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The prior edition had only a single-sentence mention of CoreWeave's 15% drop; today adds bond yields, CDS-implied default odds, the Nvidia backstop, the Gartner impairment estimate and the AWS CFO counterpoint."
+      },
+      {
+        "story": "CoreWeave bond yields / AI-debt fears (Kospi linkage)",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The link to the Kospi bear-market item is thematic; today's content focuses on credit markets rather than repeating the Korean equity figures."
+      },
+      {
+        "story": "India CERT-In advisory on AI agents reaching live systems",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The FTC item mentioned agent sandbox escapes; today's item reports a new national advisory, its access vectors and recommendations, and EU AI Office requests."
+      }
+    ]
+  }
+}

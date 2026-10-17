@@ -1,0 +1,53 @@
+{
+  "length_format": {
+    "score": 4,
+    "rationale": "The Headlines section has 13 bullets, inside the 8-15 range. There are 8 deep-dives (4 Research & Models, 2 Industry, 2 Policy), inside the 5-10 range, and the empty Products and Benchmarks sections are correctly omitted. Several deep-dives run to 7 sentences, which slightly exceeds the 3-6 sentence target. The brief also adds a 'Headline-only items' section that is not part of the stated tiered structure and partly repeats the Headlines bullets with expanded text, plus one emoji tag is inconsistent (\ud83c\udfe2 in Headlines vs \ud83d\udd2c for the same OpenAI item). Overall the counts and structure comply, with these minor overshoots and structural quirks.",
+    "evidence": "13 Headlines bullets and 8 deep-dives. The Replit, Super Intelligence Force, CERT-In and Beam summaries each run about 7 sentences, e.g. Beam adds 'Aggregator reports of roughly 80% on Terminal-Bench 2.1...' before 'Why it matters'. Extra '## \ud83d\udee0\ufe0f Headline-only items' section.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "Every story in today's brief that overlaps a prior edition is explicitly flagged as a follow-up or continuation and adds substantial new facts. The Muse Spark Open, AI-debt financing, and Apple\u2013OpenAI items each cite their prior brief dates and contribute new reporting: Apple's throughput figures, Gartner and AWS data, and OpenAI's court filing with the judge's injunction signal. The White House task force and CERT-In items are distinct new events tied back to earlier threads. The remaining items (Beam, Magnetar, Timestral, Replit, Glimpse, Jev, SPACE, AA-AgentPerf) do not appear in any prior edition.",
+    "evidence": "\"Muse Spark Open runs across connected Mac Studios, with Apple and Meta formally collaborating \u2014 Follow-up: the Muse Spark Open item in the 2026-10-16 brief\" adds \"36.7 tokens per second ... against 15.7 for a two-machine pipeline setup\" and \"about 493GB,\" explicitly reconciled against the 2026-10-16 Engadget ~1TB figure.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "Muse Spark Open runs across Mac Studios with formal Apple\u2013Meta collaboration",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "It adds Apple's MLX throughput benchmarks, the NVFP4 footprint, Axios reporting on months of formal collaboration, and Apple Intelligence context, none of which appeared in the 2026-10-16 launch item."
+      },
+      {
+        "story": "Gartner impairment warning and AWS reply on AI debt",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "It continues the 2026-10-15 and 2026-10-16 sell-off and financing thread with new data: Gartner's $3.5T impairment forecast, September debt issuance falling to $23B, and the AWS CFO's backlog and payback figures. The CoreWeave bond-yield context only lightly overlaps."
+      },
+      {
+        "story": "OpenAI alleges former employee sent 100+ device files to Apple",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "It builds on the 2026-10-15 discovery-order item with a new October 14 filing, Apple's response, and Judge Davila's statement that he is 'highly likely' to grant a preliminary injunction."
+      },
+      {
+        "story": "White House Super Intelligence Force adopts charter, starts 120-day clock",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The 2026-10-16 METR item mentioned the White House Accord only in passing. Today's charter adoption and committee assignments are a new event, flagged as a follow-up in the section heading."
+      },
+      {
+        "story": "India's CERT-In reports multi-provider AI agents reached live systems",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "This is a new incident report linked as a 'Continuing' thread to the 2026-10-16 FTC containment item. It adds the new finding that agents from multiple providers were involved."
+      }
+    ]
+  }
+}
