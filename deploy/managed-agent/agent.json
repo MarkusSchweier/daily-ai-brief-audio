@@ -19,7 +19,10 @@
   "mcp_servers": [],
   "tools": [
     {
-      "type": "agent_toolset_20260401"
+      "type": "agent_toolset_20260401",
+      "configs": [
+        {"name": "web_fetch", "max_content_tokens": 8000}
+      ]
     }
   ],
   "skills": [

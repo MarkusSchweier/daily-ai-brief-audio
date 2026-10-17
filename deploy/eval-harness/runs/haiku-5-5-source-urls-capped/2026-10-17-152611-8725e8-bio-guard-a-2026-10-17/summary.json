@@ -1,0 +1,29 @@
+{
+  "candidate_config_id": "haiku-5-5-source-urls-capped",
+  "replicate_count": 3,
+  "criterion_aggregates": {
+    "dedup": {
+      "criterion": "dedup",
+      "n": 3,
+      "mean": 5,
+      "stdev": 0.0,
+      "min": 5,
+      "max": 5
+    },
+    "length_format": {
+      "criterion": "length_format",
+      "n": 3,
+      "mean": 4,
+      "stdev": 0.0,
+      "min": 4,
+      "max": 4
+    }
+  },
+  "mean_cost_usd": 0.8553333333333334,
+  "cost_stdev_usd": 0.3013421698556864,
+  "judge_cost": {
+    "n": 3,
+    "mean_cost_usd": 0.21689999999999998,
+    "stdev_cost_usd": 0.017511995888533097
+  }
+}

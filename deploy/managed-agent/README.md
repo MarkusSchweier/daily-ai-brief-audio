@@ -257,6 +257,58 @@ one combined, required step for this deployment, not two independent options.
 No API key is ever committed — `$ANTHROPIC_API_KEY` is read from the environment
 (`~/.anthropic-managed-agents/ant-api-key.txt` in this repo's convention) at run time only.
 
+### 3b. Regenerate the source-URL block (required after ANY `sources.md` edit)
+
+Per **ADR-0018** (`docs/adr/0018-source-urls-in-initial-prompt.md`). Since 2026-10-08 the
+platform's `web_fetch` only retrieves a URL that **already appeared in the conversation** — in a
+user message, in a client-side tool result, or in an earlier `web_search`/`web_fetch` result. The
+agent reading `sources.md` with its built-in file/shell tools does **not** satisfy that rule
+(measured: 4 of the 5 rejected URLs in the 2026-10-16 run had appeared verbatim in an earlier
+bash/read result and were still rejected with `url_not_in_prior_context`). So the curated URLs are
+generated into the run's **first user message**: `deployment.json`'s `agent.initial_prompt` carries
+a generated **source-URL block**, appended at the end between fixed marker lines.
+
+`sources.md` remains the single source of truth. The block is derived from it, never hand-edited,
+and `tests/test_source_url_block_drift.py` fails if the two diverge — **a stale block is worse than
+no block**, because it hands the agent dead URLs with an instruction to fetch them.
+
+**So a `sources.md` edit now costs four steps, not two.** On top of step 3a's skill-version push
+*and* step 5's image rebuild:
+
+1. **Regenerate and paste the block into both carriers** — the production prompt and the eval arm:
+   ```bash
+   # from the repo root; prints the block for the skill's current sources.md
+   python3 deploy/managed-agent/tools/source_url_block.py
+
+   # ...as a JSON string literal, for deployment.json's agent.initial_prompt
+   # (drop the outer quotes and append to the existing prompt string)
+   python3 deploy/managed-agent/tools/source_url_block.py --json-string
+   ```
+   Carriers: `deploy/managed-agent/deployment.json`'s `agent.initial_prompt` and the task
+   prompts of every candidate that carries the block (today `haiku-5-5-source-urls` and
+   `haiku-5-5-source-urls-capped`). Replace everything from the
+   `=== BEGIN GENERATED SOURCE URL LIST …` marker through the `=== END GENERATED SOURCE URL LIST ===`
+   marker, keeping exactly one blank line before the begin marker. In `deployment.json` the whole
+   prompt is a single JSON string with escaped newlines, so there are no lines to select there:
+   cut the string from `=== BEGIN` to the end and append the `--json-string` output without its
+   outer quotes, preceded by `\n\n`. Leave every other byte of the prompts alone (the block is **appended**, which is what
+   keeps the eval single-variable). The generator never writes a prompt file — enforcement is
+   check-only by design, so `deployment.json` stays the literal, reviewable payload that was POSTed
+   and a rollback stays a copy-paste out of git history.
+2. **Run the tests** (from `deploy/managed-agent/` and `deploy/candidates/` — see "Local validation"
+   below). `tests/test_source_url_block_drift.py` asserts both carriers are byte-current, that no
+   other prompt surface carries a stale block, and that the four `*-hardened` candidates carry none.
+3. **Push the skill version + rebuild the image** exactly as step 3a says (unchanged).
+4. **Create a NEW scheduled deployment** per step 6 and archive the old one. Deployments are
+   **immutable** — a changed `initial_prompt` cannot be patched in place, so a source-list edit that
+   stops at "pasted and committed" never reaches production. Record the archive note and rollback
+   recipe in `deployment.json`'s `_deployment_history`, as every prior cut-over did.
+
+The block itself is ~1K tokens, paid on every run (cached). It deliberately does **not** tell the
+agent to fetch everything — fetch budgeting stays with the skill — and its fallback sentence names
+the skill's own chain (that outlet's own site/index page, then `web_search`), so it cannot
+contradict the skill.
+
 ### 4. Populate the two Secrets Manager secrets
 
 Never put these values in code, CDK, or git — populate directly:
@@ -538,7 +590,10 @@ python3 -m json.tool deployment.json > /dev/null && echo "deployment.json OK"
 
 # Pipeline code (ADR-0007 port): S3 brief-history persistence + the microVM-adapted
 # audio_email.py fan-out logic, unit-tested against moto (no real AWS calls).
+# The same suite also covers tools/source_url_block.py (the ADR-0018 source-URL block
+# generator) and the drift test that holds deployment.json's initial_prompt and the
+# haiku-5-5-source-urls candidate byte-current with the skill's sources.md.
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python3 -m py_compile pipeline/*.py
+.venv/bin/python3 -m py_compile pipeline/*.py tools/*.py
 .venv/bin/python3 -m pytest tests/ -v
 ```

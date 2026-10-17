@@ -140,11 +140,13 @@ def list_candidate_options(*, candidates_dir: Path | None = None) -> list[dict[s
                 # `run.py` also reads (review-fix, reviewer M4 -- this used to
                 # hardcode "production-baseline" independently of run.py's own
                 # copy, and both went stale on the 2026-07-13 production move off
-                # Sonnet 5; production moved again on 2026-10-11, to
-                # `haiku-5-5-hardened`, and this label followed for free). Note
-                # this is a "right now" label for the Conduct dropdown; the Assess
-                # table instead renders each run's STORED flag, which is historical
-                # (see production_config.py).
+                # Sonnet 5; production has moved twice more since -- to
+                # `haiku-5-5-hardened` on 2026-10-11 and to
+                # `haiku-5-5-source-urls-capped` on 2026-10-17 -- and this label
+                # followed for free both times). Note this is a "right now" label
+                # for the Conduct dropdown; the Assess table instead renders each
+                # run's STORED flag, which is historical (see
+                # production_config.py).
                 "is_production_config": production_config.is_production_config(
                     candidate.slug, candidate.candidate_json
                 ),
@@ -259,9 +261,11 @@ def _load_run_row(run_dir: Path) -> dict[str, Any]:
         # The STORED flag, never recomputed: it means "was the production
         # configuration at the time of THIS run" (review-fix, reviewer M4 -- see
         # harness/production_config.py). That is why `production-baseline`'s July
-        # records, and the `haiku-swap-hardened` run taken hours before the
-        # 2026-10-11 switch, still show "yes" even though production has run
-        # `haiku-5-5-hardened` (Haiku 5.5, effort high) since 2026-10-11.
+        # records, the `haiku-swap-hardened` run taken hours before the 2026-10-11
+        # switch, and the `haiku-5-5-hardened` run taken before the 2026-10-17 one
+        # still show "yes" even though production has run
+        # `haiku-5-5-source-urls-capped` (Haiku 5.5 at effort high + the source-URL
+        # block + web_fetch capped at 8000 content tokens) since 2026-10-17.
         "is_production_config": meta.is_production_config,
         "criteria": meta.criteria,
         "criterion_scores": criterion_scores,

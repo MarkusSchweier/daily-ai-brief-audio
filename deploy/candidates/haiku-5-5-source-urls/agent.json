@@ -1,0 +1,17 @@
+{
+  "name": "daily-ai-brief-cost-haiku-5-5-source-urls-candidate",
+  "description": "2026-10-17 web_fetch restoration (ADR-0018 D6): identical to haiku-5-5-hardened (= the production configuration) except that task-prompt.md carries the generated curated-source-URL block appended at its end, so web_fetch can retrieve the sources.md URLs again. Model/effort/system prompt/skill pin/tools unchanged. Content generation only; holds no AWS/delivery role; never fans out, never synthesizes audio. SEPARATE agent resource.",
+  "tools": [
+    {
+      "type": "agent_toolset_20260401",
+      "default_config": {
+        "enabled": true,
+        "permission_policy": {
+          "type": "always_allow"
+        }
+      },
+      "configs": []
+    }
+  ],
+  "mcp_servers": []
+}

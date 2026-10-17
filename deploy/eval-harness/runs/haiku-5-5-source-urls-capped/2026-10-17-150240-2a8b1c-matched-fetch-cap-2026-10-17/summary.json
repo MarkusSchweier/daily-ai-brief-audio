@@ -1,0 +1,45 @@
+{
+  "candidate_config_id": "haiku-5-5-source-urls-capped",
+  "replicate_count": 2,
+  "criterion_aggregates": {
+    "content_selection": {
+      "criterion": "content_selection",
+      "n": 2,
+      "mean": 3,
+      "stdev": 0.0,
+      "min": 3,
+      "max": 3
+    },
+    "dedup": {
+      "criterion": "dedup",
+      "n": 2,
+      "mean": 4.5,
+      "stdev": 0.7071067811865476,
+      "min": 4,
+      "max": 5
+    },
+    "factual_accuracy": {
+      "criterion": "factual_accuracy",
+      "n": 2,
+      "mean": 5,
+      "stdev": 0.0,
+      "min": 5,
+      "max": 5
+    },
+    "length_format": {
+      "criterion": "length_format",
+      "n": 2,
+      "mean": 4.5,
+      "stdev": 0.7071067811865476,
+      "min": 4,
+      "max": 5
+    }
+  },
+  "mean_cost_usd": 0.76795,
+  "cost_stdev_usd": 0.12833988078535838,
+  "judge_cost": {
+    "n": 2,
+    "mean_cost_usd": 1.4285,
+    "stdev_cost_usd": 0.1093187083714403
+  }
+}

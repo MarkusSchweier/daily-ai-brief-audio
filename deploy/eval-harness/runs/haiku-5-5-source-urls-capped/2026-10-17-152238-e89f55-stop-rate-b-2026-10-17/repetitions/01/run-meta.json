@@ -1,0 +1,4 @@
+{
+  "final_status": "judging_failed",
+  "error": "CandidateBriefNotCapturedError(\"repetition 1: the brief selected for judging is IDENTICAL to the delivery feed's brief dated '2026-10-16' -- i.e. a PRIOR brief the candidate merely read, not output it wrote. Captured artifacts: AI Brief - 2026-10-14.md, AI Brief - 2026-10-15.md, AI Brief - 2026-10-16.md. Refusing to judge a prior brief as this candidate's work (check the task prompt's final `cat` step).\")"
+}

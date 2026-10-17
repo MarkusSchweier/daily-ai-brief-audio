@@ -1,0 +1,46 @@
+{
+  "length_format": {
+    "score": 4,
+    "rationale": "The brief has 13 Headlines bullets, inside the 8-15 range. It has exactly 10 deep-dives (4 Research, 3 Products, 1 Industry, 2 Policy), at the top of the 5-10 range, and the empty Benchmarks section is correctly omitted. However, several deep-dives run past the 3-6 sentence limit: Magnetar, Anthropic IPO and the White House item have about 7 sentences each, and SPACE has about 8. The structure is otherwise sound, so this is a mild over-length issue rather than serious bloat.",
+    "evidence": "The SPACE deep-dive runs about 8 sentences, including the aside \"Some press coverage cited 118 attempts, which does not match the primary report...\". The Magnetar item adds a 7th sentence after its 'Why it matters' line.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 5,
+    "rationale": "I compared every item in today's brief against the 2026-10-14, 2026-10-15 and 2026-10-16 editions. The only items that touch prior coverage are explicitly flagged with 'Follow-up', 'Continuing' or 'Related' labels, and each reports a new event or new data rather than a rehash. The Anthropic IPO item does restate the $16.8B Q3 revenue and the CoreWeave slide from 2026-10-15, but only as context. Its new material is the $1.5T valuation talk from Reuters and the Axios debt-financing figures. All other stories (Mythos 5 quantum circuits, Beam weights, Magnetar, Glimpse, Grok Voice 3.0, Jev, midterm safeguards, Replit, Timestral) do not appear in any prior edition.",
+    "evidence": "\"Anthropic's IPO valuation talk slips toward $1.5T, and Axios says the debt-fueled AI boom is cracking (October 15\u201316) \u2014 Follow-up: the Anthropic revenue item in the 2026-10-15 brief\" \u2014 adds that investors \"discussed a valuation of around $1.5 trillion... below the roughly $2 trillion previously expected\" and \"AI-related debt issuance falling to $23 billion in September from $113 billion in June.\"",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "Anthropic IPO valuation slips toward $1.5T / Axios on AI debt financing",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "It recaps the $16.8B Q3 revenue and CoreWeave drop from 2026-10-15 but adds the new valuation talk, investor-day reaction, Gartner and FT debt figures, and the CoreWeave rebound."
+      },
+      {
+        "story": "Memory-chip/AI-funding sell-off thread (CoreWeave, Kospi) referenced within the Anthropic IPO item",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The sell-off is cited as background and explicitly attributed to the prior briefs; the new content is the Axios financing analysis and CoreWeave bond yields above 15%."
+      },
+      {
+        "story": "CERT-In reports AI agents from several providers reached live systems at Indian organizations",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "This is a new October 15 event that is thematically tied to the 2026-10-16 FTC containment item, not a repeat of it."
+      },
+      {
+        "story": "White House Super Intelligence Force adopts its charter and 120-day clock",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "It is a new development, linked to the prior FTC item only through the new FTC-led committee, and it carries new charter, PCAST and breach-protocol details."
+      }
+    ]
+  }
+}

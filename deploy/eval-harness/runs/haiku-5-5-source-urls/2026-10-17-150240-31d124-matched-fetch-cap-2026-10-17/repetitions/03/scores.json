@@ -1,0 +1,180 @@
+{
+  "content_selection": {
+    "score": 3,
+    "rationale": "Most of the major stories made it in: the AI-debt and CoreWeave credit stress, CERT-In's report on AI agents, the Beam open weights, and China's AI export controls. Repeats from earlier briefs and marketing posts were also cut sensibly. But the brief missed at least one widely covered story because the article was never opened: Meta's new commercial terms, which let it crawl business customers' websites and train AI on the content. It also cut Anthropic's METR evaluator-access announcement, which Reuters, CNBC and TechCrunch covered, while running an older Anthropic post (the midterms safeguards) and a low-value AWS vendor blog about agent evaluation. China's export-control proposal was underplayed: it ran only as a headline item, but it is a major policy story with a 2-trillion-parameter threshold and an export registration rule already in effect.",
+    "evidence": "Candidate list: \"[excluded] Meta grants itself right to scrape business customer content for training (headline only; article not opened)\" and \"[excluded] Anthropic: an update on independent evaluators (METR employee-level access, 2026-10-15)\", while \"[included] AWS SMGS nine-stage agent evaluation framework on Amazon Bedrock AgentCore (MTTD under four hours, company-reported)\".",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "selection_disagreements": [
+      {
+        "story": "Meta grants itself right to scrape/crawl business customers' websites for AI training (new Commercial Terms effective Oct 30)",
+        "judge_view": "should have been included",
+        "rationale": "Several outlets covered this widely: The Register, Nieman Lab, Ars Technica and trade press. Cornell's James Grimmelmann said the terms clearly permit training on publisher sites, and the News/Media Alliance CEO called the policy \"outrageous and probably illegal.\" There is no opt-out for business customers, and The Register notes at least a million businesses use Meta's AI agents in WhatsApp and Messenger alone. It is a significant data-rights story, and it was dropped only because the article wasn't opened."
+      },
+      {
+        "story": "Anthropic gives METR employee-like access as an independent evaluator (Oct 15)",
+        "judge_view": "should have been included",
+        "rationale": "Reuters, CNBC, TechCrunch and others covered it. Six METR staff are embedded with access roughly on par with Anthropic's internal risk teams, METR can publish without an Anthropic veto, and the move ties to the White House accord on independent evaluators. It is unclear from the candidate list whether it ran in the Oct 16 brief; it isn't marked as covered. Either way, it is a more substantive safety-governance story than the Oct 14 midterms post that was included."
+      },
+      {
+        "story": "AWS SMGS nine-stage agent evaluation framework on Bedrock AgentCore",
+        "judge_view": "should have been excluded",
+        "rationale": "This is an internal vendor how-to blog post with company-reported metrics and illustrative dashboard numbers. The brief itself flags those caveats. It has little news value compared with the excluded Meta terms and METR stories."
+      }
+    ]
+  },
+  "factual_accuracy": {
+    "score": 5,
+    "rationale": "I checked most of the brief's specific claims against primary sources: Axios (both articles), TechCrunch, Reflection AI, Microsoft Research, arXiv, Anthropic, Google Research, the NVIDIA newsroom, Vercel's index, AP coverage of China's export controls, and the coverage of PostgreSQL, Replit, Elorian and Muse Spark. Nearly every number, quote and attribution matched the sources, including the 1,100bp CDS figure, the $7T vs $3.6T Gartner comparison, the Athanor scores, the Magnetar speedups, Anthropic's usage percentages, the aptamer specificity figures, Beam's benchmarks and the 23-of-40 export-control items. The brief also labeled vendor-reported and single-preprint results as such. The only problems were small: the arXiv paper was submitted October 15, not 16; the brief gives Jev's spend share as 0.15% (The Register's number) while Vercel itself says 0.27% over Jev's first two weeks; secondary sources disagree on Elorian's valuation; and I could not check the AWS AgentCore post.",
+    "evidence": "The brief says CoreWeave's \"five-year credit default swaps near 1,100 basis points on Thursday, roughly $1.1 million a year to insure $10 million of its debt.\" Axios gives the same figures: \"nearly 1,100 basis points\" and \"about $1.1 million a year to insure $10 million of CoreWeave bonds.\"",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "claim": "CoreWeave bond yields above 15%, CDS near 1,100bp, stock fell 15.5% before rebounding after Jensen Huang spoke up",
+        "verdict": "confirmed",
+        "source_checked": "https://www.axios.com/2026/10/16/ai-coreweave-bonds-debt ; https://www.axios.com/2026/10/16/wall-street-limit-ai-spending-debt",
+        "note": "All figures match the two Axios articles."
+      },
+      {
+        "claim": "$7T infrastructure spend through 2030 vs. no more than $3.6T revenue per Gartner; more than $4T at risk of write-downs by 2032; AI debt issuance fell from $113B (June) to $23B (Sept) per FT; $18B Oracle loans stressed; Firmus shelved IPO above $30B; Dimon tightening credit; Anthropic FCF positive in Q3",
+        "verdict": "confirmed",
+        "source_checked": "https://www.axios.com/2026/10/16/wall-street-limit-ai-spending-debt",
+        "note": "Matches Axios. The Gartner release Axios links is titled around $3.5T of spend exposed by 2030, but the brief accurately reports what Axios wrote."
+      },
+      {
+        "claim": "Gil Luria called neoclouds the 'subprime tranche of the AI trade'",
+        "verdict": "confirmed",
+        "source_checked": "https://www.axios.com/2026/10/16/ai-coreweave-bonds-debt",
+        "note": "Quote matches exactly."
+      },
+      {
+        "claim": "CERT-In received 'multiple voluntary disclosures from AI model providers'; agents used exposed credentials; read personal data; providers/orgs unnamed; orgs didn't detect intrusions",
+        "verdict": "confirmed",
+        "source_checked": "https://techcrunch.com/2026/10/16/india-becomes-the-latest-country-to-report-rogue-ai-agent-activity/",
+        "note": "Matches TechCrunch in every detail, including the quotes and the contrast with the Hugging Face and Australia incidents."
+      },
+      {
+        "claim": "Reflection Beam: 501B total/23B active, Apache 2.0, BF16/FP8/NVFP4 plus drafter, partners incl. AWS, Google Cloud, Microsoft Foundry, Oracle, OpenRouter, Ollama, Vercel, Dell/HPE",
+        "verdict": "confirmed",
+        "source_checked": "https://reflection.ai/blog/beam-is-available",
+        "note": "Matches Reflection's October 16 post."
+      },
+      {
+        "claim": "Beam scores 80.9 SWE-bench Verified, 80.1 Terminal-Bench v2.1, 44.4 DeepSWE v1.1 vs 74.2 DeepSeek V4.1 Flash and 68.0 Kimi K3; Kimi K3 ahead on raw capability; 3\u20134x less compute vs GLM-5.2",
+        "verdict": "confirmed",
+        "source_checked": "https://www.datacamp.com/blog/reflection-ai-beam ; https://www.eesel.ai/blog/reflection-ai-beam",
+        "note": "All benchmark figures and Reflection's own framing are consistent across secondary sources. The training-scale figures (23.8T tokens, 10,500 GB300s) were not independently checked."
+      },
+      {
+        "claim": "Magnetar proves 7.2\u20138.7M instructions/sec on a laptop, 10\u201339x faster across 15 benchmarks, ~12ms verification, security only on standard hashes",
+        "verdict": "confirmed",
+        "source_checked": "https://www.microsoft.com/en-us/research/blog/proof-based-general-purpose-computing-with-magnetar/",
+        "note": "Matches the October 15 Microsoft Research blog post."
+      },
+      {
+        "claim": "Four Claude Opus 5.5 agents, 104-hour campaign, Qwen3-4B-Base 15.9\u219267.3 dev and 9.2\u219248.2 held-out vs 66.5/47.9 for Instruct-2507 (October 16)",
+        "verdict": "confirmed",
+        "source_checked": "https://arxiv.org/abs/2610.21055",
+        "note": "All numbers match the abstract. The only discrepancy is the date: arXiv shows submission on October 15, one day earlier than the brief says."
+      },
+      {
+        "claim": "Google Research wet-lab agents: hit rates 33.5% and 42.1%; myoglobin specificity 75.0%\u219219.1%\u219272.4%; 8.6-fold structure prediction speedup; single-digit nM FAP binders",
+        "verdict": "confirmed",
+        "source_checked": "https://research.google/blog/grounding-ai-agents-in-biological-reality-building-blocks-for-autonomous-wet-labs/",
+        "note": "All figures and the safety description match the October 16 post."
+      },
+      {
+        "claim": "Anthropic midterm post: ~250,000 conversations Sept 21\u201327; 5.75% politics, 0.51% elections, 0.01% vote recommendations, 0.002% violations; 99% evenhandedness; FAI found Sonnet 4.5 hedged unevenly; ISD/McCain red-teaming; Democracy Works integration",
+        "verdict": "confirmed",
+        "source_checked": "https://www.anthropic.com/news/2026-us-midterms",
+        "note": "Matches the October 14 Anthropic post."
+      },
+      {
+        "claim": "China proposed 40 technology items for export control, 23 AI-related; Kimi K3 and Qwen 3.8-Max meet parameter threshold though notice names no models",
+        "verdict": "confirmed",
+        "source_checked": "https://www.usnews.com/news/business/articles/2026-10-16/china-moves-to-curb-tech-exports-including-ai-citing-national-security-risks (AP)",
+        "note": "AP and other outlets confirm the 40/23 split and the caveat that no models were named."
+      },
+      {
+        "claim": "Vercel: open-weight >7 in 10 tokens, spend share ~1 in 20 (June) to nearly 1 in 4 (Sept), price/token down ~47%, spend ~13x Dec 2025; Jev reached 35% of paid teams in 14 days, 1% tokens, 0.15% spend",
+        "verdict": "confirmed",
+        "source_checked": "https://www.theregister.com/ai-and-ml/2026/10/17/open-weight-models-win-hearts-minds-and-wallets/5303704 ; https://vercel.com/blog/ai-gateway-production-index-october-2026",
+        "note": "The figures match The Register, but Vercel's own index puts Jev at 0.27% of spend over its first two weeks, not The Register's 0.15%."
+      },
+      {
+        "claim": "PostgreSQL 19 pushed to ~November 19; 8\u201310 features moved to PG 20; Eisentraut ties delay partly to LLM review; not caused by vibe coding",
+        "verdict": "confirmed",
+        "source_checked": "https://daily.dev/posts/postgres-19-delayed-after-ai-reviewers-find-more-bugs-than-humans-can-fix-tzu3o3qdp ; fourweekmba.com",
+        "note": "Consistent with The Register coverage and the RC1 announcement."
+      },
+      {
+        "claim": "Replit CEO says no longer working with Anthropic; person familiar disputes; Sol/Astra better; enterprise ~15% of revenue, up from 2%",
+        "verdict": "confirmed",
+        "source_checked": "https://digg.com/tech/inxv2s8p ; https://daily.dev/posts/replit-is-no-longer-working-with-anthropic-ceo-says-fi1dx4hf6",
+        "note": "Matches TechCrunch-derived coverage, including the dispute and the Fable 5/5.1 references."
+      },
+      {
+        "claim": "Apple and Meta ran Muse Spark Open across two or four M5 Ultra Mac Studios via MLX; license allows commercial use",
+        "verdict": "confirmed",
+        "source_checked": "https://www.axios.com/2026/10/15/apple-and-meta-bury-the-hatchet-for-ai",
+        "note": "Axios says 'two or four connected Mac Studios' and a license allowing commercial use."
+      },
+      {
+        "claim": "NVIDIA $250M over five years for UK agentic safety; investments in Boltz, Foresight, Hiverge, Prima Mente, Riverlane; Earthshot founding partner",
+        "verdict": "confirmed",
+        "source_checked": "https://blogs.nvidia.com/blog/uk-ecosystem-deployment/ ; https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Commits-250-Million-to-Advance-UK-Agentic-Safety-and-Security-Research-Over-the-Next-Five-Years/default.aspx",
+        "note": "Confirmed. The press release is dated October 14 in London; the NVIDIA newsroom lists it on October 13."
+      },
+      {
+        "claim": "Elorian Glimpse: $55M seed at $300M valuation, $0.60/$3 per million tokens, beats GPT-6 Astra on chart reasoning and short-form video captioning per own evals",
+        "verdict": "confirmed",
+        "source_checked": "https://techcrunch.com/2026/10/16/elorians-first-ai-model-wants-to-reason-with-images-not-just-about-them/ ; startupfortune.com",
+        "note": "Pricing and the benchmark claims are confirmed. Startup Fortune supports the $300M valuation, but a KuCoin summary says $3B, so the valuation is only partly corroborated."
+      },
+      {
+        "claim": "AWS nine-stage evaluation framework on Bedrock AgentCore; MTTD fell to under four hours",
+        "verdict": "unverifiable",
+        "source_checked": "Not checked (tool budget exhausted)",
+        "note": "I ran out of tool calls before I could check this; the brief itself labels the figures as company-reported."
+      }
+    ]
+  },
+  "length_format": {
+    "score": 3,
+    "rationale": "The counts are within the stated ranges: there are 15 Headlines bullets (the top of the 8-15 range) and 7 deep-dives (Research 3, Products 1, Industry 1, Policy 2), and the empty Benchmarks section is correctly omitted. However, every deep-dive overshoots the 3-6 sentence target, typically running 8-11 sentences, and the CoreWeave item is especially long. The brief also adds an unstated 'Headline-only items' section with multi-sentence summaries, which adds bulk beyond the specified structure. Count and structure compliance is good, but per-item length is systematically out of spec.",
+    "evidence": "The CoreWeave deep-dive runs about 11 sentences, from 'The 2026-10-15 brief noted that the chip sell-off...' through the Gil Luria 'subprime tranche' quote. The Google wet-lab item is about 9-10 sentences, against a 3-6 sentence target.",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5"
+  },
+  "dedup": {
+    "score": 4,
+    "rationale": "Most of today's stories are new and absent from the 10-14, 10-15 and 10-16 editions, including Beam, Magnetar, Athanor, the Google wet lab, Anthropic's midterm safeguards, Glimpse, PostgreSQL 19, Replit, NVIDIA UK, Vercel, AWS evaluation and China's export controls. The CoreWeave credit item is clearly labelled as a follow-up to the 10-15 sell-off and adds substantial new data, so it is justified. India's CERT-In report is a distinct new event, flagged only as 'Related.' The Apple\u2013Meta Muse Spark Open item is labelled as a follow-up, but its core fact (Muse Spark Open runs on linked M5 Ultra Mac Studios via MLX, under a commercial-use license) was already the 10-16 lead, and it adds only thin new detail, so it is a minor, headline-only dedup weakness.",
+    "evidence": "Today: 'Apple and Meta worked for several months to run Muse Spark Open locally across two or four connected M5 Ultra Mac Studios using Apple's MLX framework.' 10-16: 'The showcase setup is two M5 Ultra Mac Studios ... linked to run the model through Apple's MLX framework.'",
+    "insufficient_data": false,
+    "model": "claude-opus-5-5",
+    "findings": [
+      {
+        "story": "Credit markets turn on AI debt as CoreWeave's bonds reach distress levels",
+        "duplicate_of_date": "2026-10-15",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "The 10-15 brief mentioned AI-financing worries and CoreWeave's 15% drop; today adds CDS near 1,100bp, yields above 15%, the Gartner revenue forecast, the issuance collapse, the Oracle loan stress and the Firmus IPO, though the 'positive free cash flow' counterpoint largely restates the 10-15 Anthropic item."
+      },
+      {
+        "story": "India's CERT-In reports AI agents from several providers reached live systems",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": true,
+        "note": "This is a new event, only thematically 'Related' to the 10-16 FTC containment item, and it adds a distinct multi-provider disclosure."
+      },
+      {
+        "story": "Apple and Meta team up to run Muse Spark Open on Macs",
+        "duplicate_of_date": "2026-10-16",
+        "labelled_as_followup": true,
+        "justified": false,
+        "note": "It is labelled, but it largely restates the 10-16 lead (two Mac Studios, MLX, commercial license); the only new details are a months-long collaboration, a four-Mac option and Meta's lack of usage visibility."
+      }
+    ]
+  }
+}

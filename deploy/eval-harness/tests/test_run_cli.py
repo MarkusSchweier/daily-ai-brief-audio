@@ -242,10 +242,11 @@ def _record_a_run(tmp_path, monkeypatch, slug: str) -> dict:
 
 
 def test_run_marks_the_production_slug_as_the_production_config(tmp_path, monkeypatch):
-    """`haiku-5-5-hardened` is what production runs (Haiku 5.5 at effort high, since
-    2026-10-11), so a NEW run of it records `is_production_config: true`
-    (reviewer M4)."""
-    meta = _record_a_run(tmp_path, monkeypatch, "haiku-5-5-hardened")
+    """`haiku-5-5-source-urls-capped` is what production runs (Haiku 5.5 at effort
+    high + the generated source-URL block + web_fetch capped at 8000 content
+    tokens, since 2026-10-17), so a NEW run of it records
+    `is_production_config: true` (reviewer M4)."""
+    meta = _record_a_run(tmp_path, monkeypatch, "haiku-5-5-source-urls-capped")
     assert meta["is_production_config"] is True
 
 
@@ -265,13 +266,24 @@ def test_run_no_longer_marks_haiku_swap_hardened_as_the_production_config(tmp_pa
     assert meta["is_production_config"] is False
 
 
+def test_run_no_longer_marks_haiku_5_5_hardened_as_the_production_config(tmp_path, monkeypatch):
+    """Production ran `haiku-5-5-hardened` (Haiku 5.5, no source-URL block) only
+    from 2026-10-11 until 2026-10-17, so a NEW run of it records `false` -- while
+    its 2026-10-17 record taken before that day's switch keeps the `true` it was
+    written with."""
+    meta = _record_a_run(tmp_path, monkeypatch, "haiku-5-5-hardened")
+    assert meta["is_production_config"] is False
+
+
 def test_changing_the_production_slug_never_rewrites_an_already_stored_flag(tmp_path, monkeypatch):
     """The stored flag is HISTORICAL: reading back a record written under an EARLIER
     production era must return exactly what was stored, whatever
     `PRODUCTION_CANDIDATE_SLUG` says now. This is why the committed
-    `haiku-swap-hardened/2026-10-11-...-matched-5-5-2026-10-11` record keeps `true`
-    (it ran hours before that day's switch) and today's `haiku-5-5-hardened` records
-    keep `false` (recorded while it was still only a candidate)."""
+    `haiku-swap-hardened/2026-10-11-...-matched-5-5-2026-10-11` and
+    `haiku-5-5-hardened/2026-10-17-...-matched-source-urls-2026-10-17` records keep
+    `true` (each ran before its era's closing switch) and today's
+    `haiku-5-5-source-urls-capped` records keep `false` (recorded while it was still
+    only a candidate)."""
     from harness import production_config, run_store
 
     # A record from era 2, written when `haiku-swap-hardened` WAS production...
@@ -294,12 +306,12 @@ def test_changing_the_production_slug_never_rewrites_an_already_stored_flag(tmp_
             created_at=1000,
         ),
     )
-    # ...and a record of the candidate that only BECAME production afterwards.
-    candidate = tmp_path / "haiku-5-5-hardened-run"
+    # ...a record from era 3, written when `haiku-5-5-hardened` WAS production...
+    historical_era_3 = tmp_path / "haiku-5-5-hardened-run"
     run_store.write_eval_run_meta(
-        candidate,
+        historical_era_3,
         run_store.EvalRunMeta(
-            name="matched batch, still a candidate",
+            name="matched batch, before the source-URL switch",
             slug="haiku-5-5-hardened",
             agent_id="agent_y",
             git_ref="b" * 40,
@@ -310,16 +322,38 @@ def test_changing_the_production_slug_never_rewrites_an_already_stored_flag(tmp_
             criteria=["factual_accuracy"],
             state=run_store.STATE_COMPLETED,
             email_sent=False,
-            is_production_config=False,
+            is_production_config=True,
             created_at=2000,
+        ),
+    )
+    # ...and a record of the candidate that only BECAME production afterwards.
+    candidate = tmp_path / "haiku-5-5-source-urls-capped-run"
+    run_store.write_eval_run_meta(
+        candidate,
+        run_store.EvalRunMeta(
+            name="fetch-cap batch, still a candidate",
+            slug="haiku-5-5-source-urls-capped",
+            agent_id="agent_z",
+            git_ref="c" * 40,
+            composition="single-agent",
+            models=["claude-haiku-5-5"],
+            parameters={"agent": {"effort": "high"}, "sub_agents": []},
+            repetitions=1,
+            criteria=["factual_accuracy"],
+            state=run_store.STATE_COMPLETED,
+            email_sent=False,
+            is_production_config=False,
+            created_at=3000,
         ),
     )
 
     # The constant has since moved on -- the stored flags must not follow it.
-    assert production_config.PRODUCTION_CANDIDATE_SLUG == "haiku-5-5-hardened"
+    assert production_config.PRODUCTION_CANDIDATE_SLUG == "haiku-5-5-source-urls-capped"
     assert run_store.read_eval_run_meta(historical).is_production_config is True
+    assert run_store.read_eval_run_meta(historical_era_3).is_production_config is True
     assert run_store.read_eval_run_meta(candidate).is_production_config is False
     assert json.loads((historical / "eval-run.json").read_text())["is_production_config"] is True
+    assert json.loads((historical_era_3 / "eval-run.json").read_text())["is_production_config"] is True
     assert json.loads((candidate / "eval-run.json").read_text())["is_production_config"] is False
 
     # Not even an unrelated state transition recomputes it.
@@ -482,11 +516,12 @@ def _agent(name="", description="", model="claude-sonnet-5", agent_id=None, para
 
 
 def test_is_production_config_true_for_the_slug_production_actually_runs():
-    """Production has run `haiku-5-5-hardened` (Haiku 5.5 at effort high + the
-    unchanged hardened prompt) since 2026-10-11 -- see
+    """Production has run `haiku-5-5-source-urls-capped` (Haiku 5.5 at effort high +
+    the hardened prompt with the generated source-URL block + web_fetch capped at
+    8000 content tokens) since 2026-10-17 -- see ADR-0018 and
     docs/prd/cost-optimization-candidates.md §6 (reviewer M4)."""
     candidate = CandidateDeclaration(
-        slug="haiku-5-5-hardened", directory=Path("."), candidate_json={}, agent=_agent()
+        slug="haiku-5-5-source-urls-capped", directory=Path("."), candidate_json={}, agent=_agent()
     )
     assert run_cli._is_production_config(candidate) is True
 
@@ -512,6 +547,17 @@ def test_is_production_config_false_for_the_superseded_haiku_4_5_configuration()
     assert run_cli._is_production_config(candidate) is False
 
 
+def test_is_production_config_false_for_the_superseded_pre_source_url_configuration():
+    """`haiku-5-5-hardened` was production only for era 3 (2026-10-11 ->
+    2026-10-17); since the source-URL + fetch-cap move it is just the candidate that
+    measures Haiku 5.5 WITHOUT the source-URL block, so NEW records of it resolve to
+    false."""
+    candidate = CandidateDeclaration(
+        slug="haiku-5-5-hardened", directory=Path("."), candidate_json={}, agent=_agent()
+    )
+    assert run_cli._is_production_config(candidate) is False
+
+
 def test_is_production_config_false_for_any_other_slug():
     candidate = CandidateDeclaration(slug="haiku-swap", directory=Path("."), candidate_json={}, agent=_agent())
     assert run_cli._is_production_config(candidate) is False
@@ -520,8 +566,9 @@ def test_is_production_config_false_for_any_other_slug():
 def test_run_py_and_ui_py_read_the_same_production_config_source():
     """Reviewer M4: the slug must live in ONE place both files use -- not two
     hardcoded copies that silently drift (which is exactly how both went stale on
-    the 2026-07-13 production move; the 2026-10-11 move to Haiku 5.5 then needed a
-    single-line edit)."""
+    the 2026-07-13 production move; the 2026-10-11 move to Haiku 5.5 and the
+    2026-10-17 move to the capped source-URL config then each needed a single-line
+    edit)."""
     import ui as ui_app
     from harness import production_config
 

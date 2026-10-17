@@ -1,0 +1,31 @@
+{
+  "session_id": "sesn_013Jyyhc8xDwFdiNAW6x4oPr",
+  "total_cost_usd": 0.5356,
+  "total_usage": {
+    "input_tokens": 44,
+    "output_tokens": 65888,
+    "cache_read_input_tokens": 3553296,
+    "cache_creation_5m_input_tokens": 396874,
+    "cache_creation_1h_input_tokens": 0
+  },
+  "threads": [
+    {
+      "thread_id": "sthr_01Lg8DoGUnXdNnXmp3ftRxt3",
+      "role": "primary",
+      "agent_id": "agent_011NVS18rxsu6WHUfYPVt11N",
+      "model": "claude-haiku-5-5",
+      "usage": {
+        "input_tokens": 44,
+        "output_tokens": 65888,
+        "cache_read_input_tokens": 3553296,
+        "cache_creation_5m_input_tokens": 396874,
+        "cache_creation_1h_input_tokens": 0
+      },
+      "cost_usd": 0.5356,
+      "request_card_counts": {
+        "standard": 8,
+        "long_prompt": 13
+      }
+    }
+  ]
+}

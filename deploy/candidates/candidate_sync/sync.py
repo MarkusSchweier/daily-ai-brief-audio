@@ -386,10 +386,117 @@ def _normalize_live_effort_level(live_effort: Any) -> str | None:
     return None
 
 
-def _normalize_live_field_for_comparison(field_name: str, live_value: Any, *, declared_effort: str | None = None) -> Any:
+def _align_live_toolset_configs(
+    local_configs: list[dict[str, Any]], live_configs: list[Any]
+) -> list[dict[str, Any]] | None:
+    """Pair each DECLARED toolset config entry with the live entry it describes, or
+    return None when the two lists cannot be aligned at all (which the caller then
+    treats as a genuine difference rather than papering over it).
+
+    Alignment is by the entry's `name` (`"web_fetch"`, ...) -- the key the declaration
+    itself uses and the one the server infers `type` from -- so a reordered echo still
+    matches. There is deliberately NO positional fallback for an echo that carries no
+    `name`: since the declaration always names its entries (the caller enforces that),
+    pairing such an echo positionally could only ever produce a projection missing the
+    declared `name`, i.e. a difference anyway -- so returning None here reaches the same
+    answer without inventing a pairing from nothing."""
+    if len(local_configs) != len(live_configs):
+        # An extra (or missing) live config entry is a REAL difference: the live agent
+        # carries per-tool configuration the declaration does not, or vice versa.
+        return None
+    if not all(isinstance(entry, dict) and isinstance(entry.get("name"), str) for entry in live_configs):
+        return None
+    live_by_name = {entry["name"]: entry for entry in live_configs}
+    aligned = [live_by_name.get(local_entry["name"]) for local_entry in local_configs]
+    if any(entry is None for entry in aligned):
+        return None
+    return aligned  # type: ignore[return-value]
+
+
+def _normalize_live_toolset_entry(live_entry: Any, local_entry: Any) -> Any:
+    """Project ONE live `tools[]` entry's `configs` list onto exactly the keys the
+    declaration sets for each config, leaving everything else about the entry untouched.
+
+    This is the whole scope of the `tools` normalization -- see
+    `_normalize_live_field_for_comparison()` for why it exists and why it is this
+    narrow."""
+    if not isinstance(live_entry, dict) or not isinstance(local_entry, dict):
+        return live_entry
+
+    local_configs = local_entry.get("configs")
+    live_configs = live_entry.get("configs")
+    if not isinstance(local_configs, list) or not local_configs:
+        # The declaration sets NO per-tool config (every candidate in this repo before
+        # 2026-10-17: `"configs": []`) -> compare `tools` verbatim, exactly as before.
+        return live_entry
+    if not isinstance(live_configs, list):
+        return live_entry
+    if not all(isinstance(entry, dict) and isinstance(entry.get("name"), str) for entry in local_configs):
+        # A declaration shape this function does not understand: do not touch it.
+        return live_entry
+
+    aligned = _align_live_toolset_configs(local_configs, live_configs)
+    if aligned is None:
+        return live_entry
+
+    projected = [
+        {key: live_config[key] for key in local_config if key in live_config}
+        for local_config, live_config in zip(local_configs, aligned)
+    ]
+    return {**live_entry, "configs": projected}
+
+
+def _normalize_live_toolset_configs(live_value: Any, local_value: Any) -> Any:
+    """Apply `_normalize_live_toolset_entry()` across a live `tools` list, pairing it
+    positionally with the declared one (a `tools` list of a different length, or either
+    side not being a list, is left alone so the comparison registers the difference)."""
+    if not isinstance(live_value, list) or not isinstance(local_value, list):
+        return live_value
+    if len(live_value) != len(local_value):
+        return live_value
+    return [
+        _normalize_live_toolset_entry(live_entry, local_entry)
+        for live_entry, local_entry in zip(live_value, local_value)
+    ]
+
+
+def _normalize_live_field_for_comparison(
+    field_name: str, live_value: Any, *, local_value: Any = None, declared_effort: str | None = None
+) -> Any:
     """Normalize ONE field of a live `GET /v1/agents/{id}` response into the same
     shape `AgentDeclaration.to_agent_body()` sends on write, so `_live_declaration_
     differs()` compares like with like.
+
+    TOOLSET SETTINGS (2026-10-17, ADR-0018 D8's `max_content_tokens` mitigation): a
+    declaration may now set per-tool settings on a toolset entry's `configs` array --
+    today exactly one candidate does, `haiku-5-5-source-urls-capped`, with
+    `{"name": "web_fetch", "max_content_tokens": 8000}`. The API infers each entry's
+    `type` from its `name` and documents that it fills in omitted fields with defaults,
+    so the live echo of such an entry is expected to carry MORE keys than the
+    declaration sent (`type`, `enabled`, `permission_policy`, ...). Compared raw, that
+    is the `model`-shape bug all over again: every re-sync of that candidate would see a
+    diff, issue a pointless update and bump its live Platform version forever. So each
+    live config entry is projected onto exactly the keys the DECLARATION sets for it
+    (paired by `name`; see `_align_live_toolset_configs()`), and nothing else about
+    `tools` is touched. An echo that cannot be aligned at all -- a different number of
+    config entries, or entries carrying no `name` -- is compared verbatim, so it
+    registers as a difference rather than being guessed at.
+
+    Deliberately narrow, in three ways:
+
+      - A declaration whose `configs` is `[]` -- every other candidate in this repo --
+        is compared **verbatim**, byte for byte as before. The Phase 5 finding below
+        (that `tools` needs no normalization) was established against exactly those
+        declarations and still holds for them; it simply never covered a declaration
+        that SETS a config, because none existed until 2026-10-17.
+      - A declared key the live echo does NOT carry stays absent from the projection, so
+        it compares unequal and registers a REAL difference. That is the honest reading
+        and the one that matters here: a silently-dropped `max_content_tokens` means the
+        cost cap is not actually in force, and the operator should see `updated` on
+        every sync rather than a comfortable `no-op` (contrast the `effort` case below,
+        where convergence is impossible and the no-op is paired with a loud WARNING).
+      - An extra or missing live config ENTRY (not field) is likewise a real difference:
+        per-tool configuration the declaration does not describe must not be ignored.
 
     EFFORT (2026-10-11, the model-generation comparison epic): `model` is now sent as
     EITHER a bare id string (no effort declared) or `{"id": ..., "effort": <level>}`
@@ -472,7 +579,12 @@ def _normalize_live_field_for_comparison(field_name: str, live_value: Any, *, de
     `test_update_is_a_full_no_op_using_the_real_confirmed_live_tools_and_mcp_servers_shapes`
     for the regression test pinning this confirmed-identical shape, using the
     REAL live-observed `tools`/`mcp_servers` values captured during this
-    check (not synthetic placeholders)."""
+    check (not synthetic placeholders). AMENDED 2026-10-17: that finding was made
+    against declarations whose toolset `configs` is `[]`, which is still all it is
+    claimed for -- a declaration that SETS a per-tool config is normalized as described
+    at the top of this docstring, and `configs: []` keeps comparing verbatim."""
+    if field_name == "tools":
+        return _normalize_live_toolset_configs(live_value, local_value)
     if field_name != "model" or not isinstance(live_value, dict):
         return live_value
     live_model_id = live_value.get("id", live_value)
@@ -561,7 +673,10 @@ def _live_declaration_differs(live_agent: dict[str, Any], declaration: AgentDecl
     local_body = declaration.to_agent_body()
     for field_name, local_value in local_body.items():
         live_value = _normalize_live_field_for_comparison(
-            field_name, live_agent.get(field_name), declared_effort=declaration.effort
+            field_name,
+            live_agent.get(field_name),
+            local_value=local_value,
+            declared_effort=declaration.effort,
         )
         if live_value != local_value:
             return True

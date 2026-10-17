@@ -2,11 +2,43 @@
 
 The current active PRD for this project:
 
-@cost-optimization-candidates.md
+@web-fetch-source-urls.md
 
 ---
 
-Status: **ACTIVE — agent cost-optimization epic (2026-07-07).** A **combined A/B/C epic** (owner
+Status: **DEPLOYED 2026-10-17; AC-10 pending.** The source-URL block and a `web_fetch` content cap went live as production agent v4 (scheduled deployment `depl_01WXFPPJfy5JaQju9LUtXrcH`), and AC-10 is judged over the first three production runs, starting Mon 2026-10-19 06:07 Europe/Berlin. A bounded production fix, not an epic.
+Anthropic's 2026-10-16 change means `web_fetch` can only retrieve a URL that already appeared in the
+conversation (user message, client-side tool result, or an earlier `web_search`/`web_fetch` result) —
+and the agent reading `sources.md` with its built-in file/shell tools does **not** count. Production
+research has been degraded since **2026-10-08** and since the 2026-10-12 Haiku 5.5 runs it fetches
+**zero** curated sources (3–6 `url_not_in_prior_context` rejections every run), running on
+`web_search` alone. Sends are unaffected. The second announced change (a cloud environment's
+`limited` `allowed_hosts` now also limiting the web tools) is a **no-op here**: production is
+`self_hosted`, the eval `cloud` environment is `unrestricted`, and no per-tool domain lists are set.
+**Owner-approved solution + full build→test→evaluate→deploy cycle authorized:** append a
+`sources.md`-generated **source-URL block to the initial user message** — the scheduled deployment's
+`initial_prompt` and the matching eval candidate's task prompt — keeping `sources.md` the single
+source of truth (a drift test fails if they diverge), with the block also teaching fetch-the-feed-
+then-follow-its-links, never retry a rejection, and fall back to search. **No** skill change, **no**
+model change (Haiku 5.5 at effort high stays), **no** bash/curl fetching, **no** delivery
+change, **no** environment-config change. It was gated by a matched cloud eval (3 reps, all four judges), a
+no-delivery run on production self-hosted, and a new deployment with the old one archived. The
+deployment pins agent v4 rather than the approved v3, because of the content cap. Requirements, ACs,
+risks and rollout are in `web-fetch-source-urls.md`, imported above, and its §9 has the outcome,
+deviations and follow-ups.
+
+---
+
+### Previous epic — agent cost optimization (DECIDED 2026-10-11 — production on Haiku 5.5)
+
+Status: **DECIDED.** Step C's first matched, replicated comparison ran 2026-10-11 and the owner took
+the decision the same day: **production moved to Claude Haiku 5.5 at effort high** (agent v3,
+scheduled deployment `depl_01YRoLodhcr3HuhVS3zxVuLx`, first send Mon 2026-10-12 06:07 Europe/Berlin;
+rollback = a deployment pinned to agent v2 / Haiku 4.5). The eval harness built in step A remains the
+standing measurement tool — it is what gates the active fix above. Build history below.
+
+Build history (as written while it was active): **ACTIVE — agent cost-optimization epic
+(2026-07-07).** A **combined A/B/C epic** (owner
 decision): **A** re-integrate the eval harness with the new candidate mechanism, **B** configure &
 deploy the candidate set, **C** run the comparison & decide the future production set-up. Sequenced
 **B → A → C**. **B is DONE** (all four candidates declared AND synced to real Platform `agent_id`s —
@@ -25,7 +57,7 @@ production configuration against three current-generation models, judges on Opus
 effort high** — agent v3, scheduled deployment `depl_01YRoLodhcr3HuhVS3zxVuLx`, first send Mon 2026-10-12 06:07
 Europe/Berlin; rollback = a deployment pinned to agent v2 (Haiku 4.5). Full plan, final candidate set (incl. the
 aggressive-#3 split and the #5/#6 backburner), A UI requirements, and the decisions/flags log live
-in `cost-optimization-candidates.md`, imported above.
+in `cost-optimization-candidates.md` (no longer imported here — read it directly).
 **This branch was reconciled with `main` on 2026-07-07 (merge): it now carries the shipped
 agent-system-redesign + the live ADR-0015 delivery cut-over described below.**
 

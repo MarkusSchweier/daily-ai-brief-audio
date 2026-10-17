@@ -1,0 +1,28 @@
+{
+  "name": "stop-rate-b-2026-10-17",
+  "slug": "haiku-5-5-source-urls-capped",
+  "agent_id": "agent_01MsdMGTNSYu3SsWYrhoqjkZ",
+  "git_ref": "61279f1d7e3969c2e5672a0ca9c3d3c295ad68a8",
+  "composition": "single-agent",
+  "models": [
+    "claude-haiku-5-5"
+  ],
+  "parameters": {
+    "agent": {
+      "effort": "high"
+    },
+    "sub_agents": []
+  },
+  "repetitions": 3,
+  "criteria": [
+    "content_selection",
+    "factual_accuracy",
+    "length_format",
+    "dedup"
+  ],
+  "state": "failed",
+  "email_sent": false,
+  "is_production_config": false,
+  "created_at": 1792243358,
+  "declaration_dirty": false
+}
