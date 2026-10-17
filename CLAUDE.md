@@ -144,6 +144,9 @@ need to sanity-check them: `python3 -m py_compile deploy/audio_email.py` /
 - **Async Polly only**; **use `OutputUri`, never build the S3 key**; **SES From must be exactly
   `aibriefing@mschweier.com`**. Fail-safe: never lose the brief over an audio/email glitch.
 - Confirm the active AWS account before any deploy/mutation (`/aws-account`, `aws-account-safety`).
+- **Any `sources.md` edit is a production deployment change:** regenerate the source-URL block into
+  the production `initial_prompt` and the carrier candidates' task prompts, then create a new
+  scheduled deployment (ADR-0018; `deploy/managed-agent/README.md` step 3b).
 
 ## Active planning docs (auto-imported)
 

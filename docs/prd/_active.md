@@ -6,7 +6,7 @@ The current active PRD for this project:
 
 ---
 
-Status: **ACTIVE — `web-fetch-source-urls` (2026-10-17).** A bounded production fix, not an epic.
+Status: **DEPLOYED 2026-10-17; AC-10 pending.** The source-URL block and a `web_fetch` content cap went live as production agent v4 (scheduled deployment `depl_01WXFPPJfy5JaQju9LUtXrcH`), and AC-10 is judged over the first three production runs, starting Mon 2026-10-19 06:07 Europe/Berlin. A bounded production fix, not an epic.
 Anthropic's 2026-10-16 change means `web_fetch` can only retrieve a URL that already appeared in the
 conversation (user message, client-side tool result, or an earlier `web_search`/`web_fetch` result) —
 and the agent reading `sources.md` with its built-in file/shell tools does **not** count. Production
@@ -20,12 +20,12 @@ research has been degraded since **2026-10-08** and since the 2026-10-12 Haiku 5
 `initial_prompt` and the matching eval candidate's task prompt — keeping `sources.md` the single
 source of truth (a drift test fails if they diverge), with the block also teaching fetch-the-feed-
 then-follow-its-links, never retry a rejection, and fall back to search. **No** skill change, **no**
-model change (agent v3 / Haiku 5.5 at effort high stays), **no** bash/curl fetching, **no** delivery
-change, **no** environment-config change. Gated by a matched cloud eval vs. today's production
-config (3 reps, all four judges, cost reported with the Platform's own `list_cost`), then a
-no-delivery run on production self-hosted, then a new deployment pinned to the unchanged agent v3
-with the old one archived. Full requirements, ACs, risks and rollout in `web-fetch-source-urls.md`,
-imported above.
+model change (Haiku 5.5 at effort high stays), **no** bash/curl fetching, **no** delivery
+change, **no** environment-config change. It was gated by a matched cloud eval (3 reps, all four judges), a
+no-delivery run on production self-hosted, and a new deployment with the old one archived. The
+deployment pins agent v4 rather than the approved v3, because of the content cap. Requirements, ACs,
+risks and rollout are in `web-fetch-source-urls.md`, imported above, and its §9 has the outcome,
+deviations and follow-ups.
 
 ---
 

@@ -1,14 +1,18 @@
 # PRD: Put the curated source URLs in the user message (restore `web_fetch`)
 
-- Status: **Approved — build authorized 2026-10-17.** The owner has approved the solution and
-  authorized the full build → test → evaluate → deploy cycle (including the production cut-over).
-  This PRD records that decision; it does not re-open it.
+- Status: **Deployed 2026-10-17 — AC-10 pending.** The owner approved the solution and authorized
+  the full build → test → evaluate → deploy cycle (including the production cut-over) on
+  2026-10-17. The cycle is complete except AC-10, which is judged on the first three production runs
+  (2026-10-19 to 10-21). The outcome is in §9; two deviations from the approved plan are recorded
+  there (the production agent is v4, and the block carries two rules beyond FR-4).
 - Author: product-manager (Claude) · Date: 2026-10-17
-- Linked ADRs: none — no new architecture. (Touches the prompt layer of ADR-0006's scheduled
-  deployment and the candidate/eval mechanism of ADR-0014/0016; neither decision changes.)
-- Scope boundary: **prompt layer only.** The `daily-ai-brief` skill, the production agent
-  definition (v3), the delivery boundary (`deploy/delivery/`), and the environment configurations
-  are all **untouched**.
+- Linked ADRs: ADR-0018 (accepted 2026-10-17, amended post-evaluation). It touches the prompt layer
+  of ADR-0006's scheduled deployment and the candidate/eval mechanism of ADR-0014/0016; none of
+  those decisions changes.
+- Scope boundary: **prompt layer only.** The `daily-ai-brief` skill, the delivery boundary
+  (`deploy/delivery/`), and the environment configurations are **untouched**. The production agent
+  definition was approved as unchanged (v3); at cut-over it moved to **v4** (v3 plus the
+  `web_fetch` content cap). That is the one exception, recorded in §9.3.
 
 ## 1. Problem
 
@@ -73,7 +77,8 @@ pipeline cannot be left to self-heal: the fix has to be in the prompt.
 - **No change to the `daily-ai-brief` skill** — not `sources.md`, not the workflow, not the output
   contract. `sources.md` is read, never edited, by this change.
 - **No model change.** Production stays on the agent v3 definition (Claude Haiku 5.5, effort high)
-  decided 2026-10-11. Agent versions are immutable; none is created here.
+  decided 2026-10-11. Agent versions are immutable; none is created here. *(One was, at cut-over:
+  v4 = v3 plus the `web_fetch` content cap, same model and effort. See §9.3.)*
 - **No fetching via bash/curl.** The fix makes the *platform* `web_fetch` tool work again; it does
   not route around it with shell HTTP calls (which would lose the tool's content handling and
   bypass the sandbox's intended network surface).
@@ -231,11 +236,17 @@ pipeline cannot be left to self-heal: the fix has to be in the prompt.
 - **R6 — Silent drift on a source-list edit.** A future `sources.md` change that skips
   regeneration would leave the prompts stale. Mitigated by FR-5/AC-1 (a failing test), which is the
   only reason `sources.md` can remain the single source of truth.
-- **[Open — for the architect] Where the generator lives and when it runs.** Options: a check-only
+- **R7 — A safety-classifier refusal ends an unattended run (added 2026-10-17).** Restoring
+  full-text fetching exposed a Haiku 5.5 failure mode: the classifier can decline a request after a
+  fetched page is in context, the turn ends with no output, and nothing is sent. Measured: 3 of 3
+  runs that fetched one particular page were declined, and 0 of 10 that did not fetch it were. A
+  prompt rule reduces the exposure (§9.3 #3); it does not remove it, and no automatic alert or re-run
+  exists yet (§9.5).
+- **[Resolved — ADR-0018 D2, PM recommendation adopted] Where the generator lives and when it runs.** Options: a check-only
   test plus a manual regenerate step, or generation wired into the deployment-publish path. PM
   recommendation: **check-only test + explicit regenerate command** — it keeps `deployment.json`
   reviewable as the literal payload that was POSTed, which every prior cut-over relied on.
-- **[Open — for the architect] Block shape.** Flat URL list vs. preserving `sources.md`'s tier
+- **[Resolved — ADR-0018 D4, PM recommendation adopted] Block shape.** Flat URL list vs. preserving `sources.md`'s tier
   structure and feed-vs-page distinction. PM recommendation: **preserve enough structure to express
   "fetch the feed/index first"**, since that is what unlocks article links (FR-4).
 
@@ -273,3 +284,113 @@ unchanged by this PRD.
 - **Cost:** per-run cost (Platform `list_cost`) stays within the increase the owner accepted at the
   step-3 gate.
 - **Delivery:** unchanged — every weekday run still delivers with 0 send failures.
+
+## 9. Outcome (2026-10-17)
+
+Built, evaluated, and deployed the same day under the owner's full authorization. Figures come from
+the eval run records under `deploy/eval-harness/runs/` and from the Platform session logs. The
+decisions behind the deviations are recorded in ADR-0018's amendment.
+
+### 9.1 Matched evaluation on `cloud`
+
+**Batch 1: control vs. source-URL block.** `haiku-5-5-hardened` (no block) vs.
+`haiku-5-5-source-urls` (block). Same news snapshot, 3 repetitions each, all four judges. The
+harness token cost excludes web search, which bills separately at $0.01 per search.
+
+| Arm | Platform cost / run | Harness token cost / run | Web searches / run | Successful `web_fetch` / run | of which curated | `url_not_in_prior_context` / run |
+|---|---|---|---|---|---|---|
+| `haiku-5-5-hardened` (control) | $0.79 | $0.57 | 16 | 3.3 | 0 | 4.7 |
+| `haiku-5-5-source-urls` | $1.24 | $1.18 | 3 | 30.7 | 20.3 | 0 |
+
+Scores are out of 5, mean ± sample stdev over n = 3.
+
+| Arm | Content | Factual | Format | Dedup | Mean of four |
+|---|---|---|---|---|---|
+| `haiku-5-5-hardened` (control) | 3.3 ±0.6 | 4.3 ±0.6 | 3.7 ±0.6 | 5.0 ±0.0 | 4.08 |
+| `haiku-5-5-source-urls` | 3.3 ±0.6 | 4.0 ±0.0 | 4.0 ±0.0 | 4.7 ±0.6 | 4.00 |
+
+Fetching is restored: every repetition of the block arm had 18–24 successful fetches of listed
+curated sources and no rejections. Each criterion moved by at most 0.33 points, inside the batch's
+noise floor. The Platform cost rose $0.45 per run, which is the fetched content the PRD predicted
+(R1, R2).
+
+**Batch 2: cost mitigation.** `haiku-5-5-source-urls` vs. `haiku-5-5-source-urls-capped`, which adds
+the agent toolset setting `web_fetch` `max_content_tokens: 8000`. Both carry the block. 3 runs each.
+
+| Arm | Platform cost / completed run | Mean score (n = 2 completed) | Runs without a brief |
+|---|---|---|---|
+| `haiku-5-5-source-urls` | $1.02 | 4.00 | 1 of 3 |
+| `haiku-5-5-source-urls-capped` | $0.81 | 4.25 | 1 of 3 |
+
+The cap cut the cost per completed run by about $0.21. The score difference is within noise. The
+runs without a brief are explained by R7 (§7) and the ADR-0018 amendment.
+
+**Stress test of the final configuration.** The capped arm with both rules from §9.3 #3, six runs on
+the same news day, judged on length/format and dedup only. All six completed with a brief, with zero
+declined requests and zero rejected URLs. Each run made 14–36 successful fetches (13–25 curated). The
+Platform cost was $0.63–1.28 per run, mean about $0.92. The page that had triggered the refusals was
+seen in a feed and not fetched in any run.
+
+### 9.2 Production validation and cut-over
+
+- **No-delivery run** on the production `self_hosted` environment, with agent v4 and the new prompt,
+  delivery step removed. Session `sesn_01TGgfwmMEG752TjtUumxkFf` finished normally, wrote all five
+  outputs, made 23 successful fetches, had 0 rejected and 0 declined, and cost $0.53. The delivery
+  side logged only the read-only recent-briefs call.
+- **Cut-over.** Scheduled deployment `depl_01WXFPPJfy5JaQju9LUtXrcH` pins agent v4 and carries the
+  prompt from `deploy/managed-agent/deployment.json`. The v3 deployment `depl_01YRoLodhcr3HuhVS3zxVuLx`
+  (no block) is archived. Exactly one scheduled deployment is active. The first run with the change
+  is Mon 2026-10-19 06:07 Europe/Berlin.
+- **Eval marker.** The production-config marker in the eval harness now points at
+  `haiku-5-5-source-urls-capped`.
+- **Rollback.** Recreate the previous deployment (agent v3, prompt without the block, both in
+  `deployment.json`'s git history) and archive `depl_01WXFPPJfy5JaQju9LUtXrcH`. Agent v3 still exists,
+  so no agent, skill, image or delivery change is needed.
+
+### 9.3 Deviations from the approved plan
+
+1. **Production runs agent v4, not the unchanged v3.** The content cap is a toolset setting, so it
+   needs a new agent version. ADR-0018 D8 anticipated this and named it as an owner-gated cost. FR-6,
+   AC-7 and AC-9 as written assumed v3. v4 is v3 plus the cap; model and effort are unchanged.
+2. **The cap was adopted without a separate owner sign-off.** Batch 1 moved the cost materially,
+   which fired the D8 gate. The orchestrator exercised the cap decision under the owner's explicit
+   full authorization of 2026-10-17. This PRD (AC-5) had marked it owner-visible.
+3. **The block carries two rules beyond FR-4.** Both were added after batch 2 and tested in the
+   follow-on runs. (a) Fetch in batches of about 8 URLs and never end a turn with a progress message
+   before the final step. (b) Do not fetch the full text of pages whose main subject is biology, the
+   life sciences, medicine, pathogens or biosecurity; cover those from the feed or search snippet.
+   Rule (b) is the response to the refusal risk (R7).
+4. **The production marker is `haiku-5-5-source-urls-capped`,** the capped arm, not the
+   `haiku-5-5-source-urls` slug that ADR-0018 D6 suggested.
+
+### 9.4 Acceptance criteria: outcome
+
+| AC | Outcome |
+|---|---|
+| AC-1 generator parity and drift | **Met.** Both carriers are byte-current, and the drift suite is green after the rule additions. |
+| AC-2 block content | **Met.** The block lists the `sources.md` URLs and states the four FR-4 rules, plus the two rules in §9.3 #3. |
+| AC-3 fetch restored | **Met.** Each block-arm repetition had 19, 18 and 24 curated successful fetches and 0 rejections. The control had 0 curated fetches and 0, 8 and 6 rejections. |
+| AC-4 quality not worse | **Met.** Deltas: content 0, factual −0.33, format +0.33, dedup −0.33. Mean 4.08 → 4.00. |
+| AC-5 cost explained | **Met, with an open reconciliation.** Both figures are stated per arm (§9.1). The increase is fetched content, and the cap cut the cost in batch 2. The harness and Platform figures differ, and reconciling them is the open harness follow-up from 2026-10-11. |
+| AC-6 no-delivery validation | **Met.** See §9.2. |
+| AC-7 cut-over | **Met, with a deviation.** One active scheduled deployment, schedule and environment unchanged, predecessor archived, first run Mon 2026-10-19 06:07 Europe/Berlin. It pins agent v4, not v3 (§9.3 #1). |
+| AC-8 rollback | **Met.** Agent v3 remains available, so rollback is a deployment recreate plus an archive. |
+| AC-9 scope containment | **Met, with one exception.** The skill, `deploy/delivery/` and the environments are unchanged. The production agent gained v4 (§9.3 #1). |
+| AC-10 first three production runs | **Pending**, for 2026-10-19 to 10-21. |
+
+### 9.5 Residual risk and follow-ups
+
+**Residual risk (R7).** A declined request still ends a run with no send, on any day the agent
+fetches a page that triggers the classifier despite the rule. The rule covers only the subject areas
+it names. Today the only detection is the owner noticing a missing confirmation email.
+
+**Follow-ups**
+
+1. **AC-10.** For each of the first three production runs, check the session log for non-zero
+   curated successful fetches, no rejections of block URLs, and a normal delivery. Then spot-check
+   the fetch counts weekly for two weeks (§8 metrics).
+2. **Refusal alert.** Add a "no send by 06:45" alert or an automatic re-run. Not built.
+3. **Harness retry.** The eval harness's session polling has no retry for transient network errors.
+   Two local connection resets aborted runs on 2026-10-17.
+4. **Platform cost in run records.** Store the Platform `list_cost` in the run records and reconcile
+   it with the harness figure (carried from 2026-10-11).

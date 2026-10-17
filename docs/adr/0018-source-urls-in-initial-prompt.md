@@ -1,7 +1,9 @@
 # 0018. Restore `web_fetch` by generating the curated source URLs into the first user message
 
 - Status: **Accepted** — the owner approved this solution and authorized implementation and
-  deployment on 2026-10-17. Not re-opened here.
+  deployment on 2026-10-17, and it was deployed the same day. **Amended 2026-10-17** after the
+  evaluation (see the Amendment at the end): production runs agent v4 with a `web_fetch` content
+  cap, the block carries two rules beyond D5, and the refusal risk is recorded. Not re-opened here.
 - Date: 2026-10-17
 - Deciders: architect (Claude), owner (Markus)
 - PRD: [`docs/prd/web-fetch-source-urls.md`](../prd/web-fetch-source-urls.md)
@@ -408,3 +410,71 @@ one. No agent, skill, image, IAM or delivery change is involved, in either direc
   record by hand.
 - If D8's gate fires, a separate owner-gated decision on `max_content_tokens` (agent v4 + the
   candidate `tools` byte-identity question).
+
+## Amendment 2026-10-17 — post-evaluation: content cap, two block rules, refusal risk
+
+The decision above was implemented, evaluated on `cloud`, and deployed the same day. The deployed
+configuration differs from D1–D9 in three ways. The body above stays as the approved record. Where
+this amendment conflicts with it, this amendment governs. Evidence is in PRD §9.
+
+### A1 — The `web_fetch` content cap is adopted (the D8 gate fired)
+
+The matched batch moved the Platform cost from $0.79 to $1.24 per run, which fired D8's gate. The
+cap (`max_content_tokens: 8000` on the `web_fetch` toolset) was adopted under the owner's explicit
+full authorization of 2026-10-17. The orchestrator exercised the decision on the owner's behalf. It
+was not put to the owner as a separate sign-off, although D8 and PRD AC-5 marked it owner-visible.
+
+The capped arm measured $0.81 per completed run against $1.02 uncapped, both with the block. The
+mean score was 4.25 against 4.00, within noise (n = 2 completed runs per arm).
+
+The consequence D8 predicted is now in effect. Production is agent **v4**, which is v3 plus the cap,
+with the model and effort unchanged. That spends FR-6's "no new agent version" property. The cap was
+measured in a separate candidate arm, `haiku-5-5-source-urls-capped`, which is now the production
+config marker.
+
+### A2 — Two rules added to the block (D5 says exactly four things)
+
+The block now also states:
+
+- fetch in batches of about 8 URLs, and never end a turn with a progress message before the final
+  step;
+- do not fetch the full text of pages whose main subject is biology, the life sciences, medicine,
+  pathogens or biosecurity. Cover those stories from the feed or search snippet.
+
+Both were added after batch 2. The second answers A3. The first targets the same unattended-run
+failure: a turn that ends early produces no brief. Its effect was not measured on its own.
+
+The final configuration was stress-tested on one news day: six runs of the capped arm, judged on
+length/format and dedup only. All six completed with a brief. There were zero declined requests and
+zero rejected URLs. Each run made 14–36 successful fetches, 13–25 of them curated. The page that had
+triggered the refusals was seen in a feed and not fetched in any run.
+
+### A3 — Restoring full-text fetching exposes unattended runs to the safety classifier
+
+In one batch-2 run per arm, the model's safety classifier declined a request (Platform
+`stop_details` type `refusal`, zero output tokens) after the full text of one particular fetched
+page had entered the context. The session then ended its turn, and the unattended run produced no
+brief and no send. Haiku 5.5 has no server-side refusal fallback, and the Agents API offers none, so
+the platform does not recover the run.
+
+The exposure existed before this change whenever the agent fetched such a page from a search result.
+The block raised it because it restores full-text fetching of the curated sources. In the runs
+examined for this finding: 3 of 3 that fetched the page were declined, and 0 of 10 that did
+not fetch it were.
+
+The rule in A2 reduces the exposure and does not remove it. A declined request still ends a run with
+no send on any day the agent fetches a page that triggers the classifier despite the rule. Today the
+only detection is the owner noticing a missing confirmation email.
+
+### A4 — Follow-up status
+
+- **Done:** the production-config marker has moved (to `haiku-5-5-source-urls-capped`, per A1). The
+  `deploy/managed-agent/README.md` note is in place as step 3b. The CLAUDE.md convention line points
+  to it.
+- **Done:** the cut-over is recorded in `deployment.json`'s `_deployment_history` with its rollback
+  recipe.
+- **Open:** a "no send by 06:45" alert or an automatic re-run for the refusal failure (A3).
+- **Open:** storing the Platform `list_cost` in run records, and reconciling it with the harness
+  figure (carried from 2026-10-11).
+- **Open:** AC-10, the first three production runs (2026-10-19 to 10-21). The PRD's §9.5 has the
+  full follow-up list, including the harness retry for transient network errors.
