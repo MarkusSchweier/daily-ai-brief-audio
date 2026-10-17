@@ -128,6 +128,12 @@ How to use this list:
   web_search.
 - Fetch in small batches of at most about 8 URLs at a time. Read what came back before you
   fetch the next batch.
+- Do not web_fetch a page whose main subject is biology, the life sciences, medicine, drug
+  discovery, pathogens or biosecurity -- including AI announcements in those areas, such as
+  an AI-for-science or life-sciences programme. The model's safety filter declines any
+  request whose context holds the full text of such a page, and a declined request ends
+  this unattended run with no brief. Cover those stories from the feed item or the search
+  result snippet instead.
 - Keep working without stopping. This run is unattended and ends the moment you reply
   without calling a tool, so never pause to summarize progress or to announce what you
   will do next: go straight on to your next tool call until the final step of this message
